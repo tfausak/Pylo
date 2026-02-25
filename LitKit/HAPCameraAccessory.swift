@@ -858,9 +858,6 @@ final class CameraStreamSession {
         guard let cs = compressionSession else { return }
 
         frameCount += 1
-        if frameCount <= 3 || frameCount % 100 == 0 {
-            logger.info("Encoding frame \(self.frameCount) (\(CVPixelBufferGetWidth(pixelBuffer))x\(CVPixelBufferGetHeight(pixelBuffer)))")
-        }
 
         // Force keyframe on first frame
         let props: CFDictionary? = frameCount == 1
@@ -909,9 +906,7 @@ final class CameraStreamSession {
         let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false) as? [[CFString: Any]]
         let isKeyframe = !(attachments?.first?[kCMSampleAttachmentKey_NotSync] as? Bool ?? false)
 
-        if isKeyframe || frameCount <= 3 || frameCount % 100 == 0 {
-            logger.info("Frame \(self.frameCount) encoded: \(totalLength) bytes, keyframe=\(isKeyframe)")
-        }
+        logger.debug("Frame \(self.frameCount) encoded: \(totalLength) bytes, keyframe=\(isKeyframe)")
 
         if isKeyframe, let formatDesc = CMSampleBufferGetFormatDescription(sampleBuffer) {
             sendParameterSets(formatDesc)
@@ -930,10 +925,6 @@ final class CameraStreamSession {
 
             let nalUnit = data[offset..<offset + nalLength]
             let nalType = nalUnit[nalUnit.startIndex] & 0x1F
-
-            if frameCount <= 3 || isKeyframe {
-                logger.info("  NAL[\(nalIndex)]: type=\(nalType) size=\(nalLength)")
-            }
 
             nalUnits.append(Data(nalUnit))
             offset += nalLength
@@ -1043,14 +1034,9 @@ final class CameraStreamSession {
         // Send via UDP
         packetsSent += 1
         octetsSent += payload.count
-        if packetsSent <= 5 || packetsSent % 500 == 0 {
-            logger.info("Sending SRTP packet #\(self.packetsSent) (\(rtpPacket.count) bytes)")
-        }
         udpConnection?.send(content: rtpPacket, completion: .contentProcessed { [weak self] error in
             if let error {
                 self?.logger.error("UDP send error: \(error)")
-            } else if self?.packetsSent == 1 {
-                self?.logger.info("First UDP packet sent successfully")
             }
         })
     }
@@ -1121,7 +1107,7 @@ final class CameraStreamSession {
                 self?.logger.error("RTCP send error: \(error)")
             }
         })
-        logger.info("Sent RTCP-SR: packets=\(self.packetsSent) octets=\(self.octetsSent)")
+        logger.debug("Sent RTCP-SR: packets=\(self.packetsSent) octets=\(self.octetsSent)")
     }
 }
 
@@ -1180,8 +1166,7 @@ final class SRTPContext {
         self.srtcpSalt = Self.deriveKey(masterKey: masterKey, masterSalt: masterSalt, label: 0x05, length: 14)
         self.srtcpAuthKey = Self.deriveKey(masterKey: masterKey, masterSalt: masterSalt, label: 0x04, length: 20)
 
-        logger.info("Master key=\(masterKey.map { String(format: "%02x", $0) }.joined()) salt=\(masterSalt.map { String(format: "%02x", $0) }.joined())")
-        logger.info("Session key=\(self.sessionKey.map { String(format: "%02x", $0) }.joined()) salt=\(self.sessionSalt.map { String(format: "%02x", $0) }.joined()) authKey=\(self.sessionAuthKey.map { String(format: "%02x", $0) }.joined())")
+        logger.debug("SRTP keys derived (master=\(masterKey.count)B, session=\(self.sessionKey.count)B)")
 
         // Self-test key derivation against RFC 3711 Appendix B.3
         Self.runSelfTest()
@@ -1264,12 +1249,6 @@ final class SRTPContext {
         let encryptedPayload = aesCTREncrypt(key: sessionKey, iv: iv, data: Data(payload))
 
         packetCount += 1
-        if packetCount == 1 {
-            logger.info("SRTP #1: seq=\(seq) SSRC=\(ssrc) idx=\(packetIndex)")
-            logger.info("SRTP #1 IV: \(iv.map { String(format: "%02x", $0) }.joined())")
-            logger.info("SRTP #1 payload(\(payload.count)B): \(payload.prefix(16).map { String(format: "%02x", $0) }.joined())")
-            logger.info("SRTP #1 encrypted(\(encryptedPayload.count)B): \(encryptedPayload.prefix(16).map { String(format: "%02x", $0) }.joined())")
-        }
 
         // Assemble: original header + encrypted payload
         var srtpPacket = Data(header)
@@ -1282,12 +1261,6 @@ final class SRTPContext {
 
         let tag = hmacSHA1(key: sessionAuthKey, data: authInput)
         srtpPacket.append(tag.prefix(10))  // Truncate to 80 bits
-
-        if packetCount == 1 {
-            logger.info("SRTP #1 tag: \(tag.prefix(10).map { String(format: "%02x", $0) }.joined())")
-            let sameAsPlaintext = (payload == encryptedPayload)
-            logger.info("SRTP #1 encryption changed data: \(!sameAsPlaintext)")
-        }
 
         return srtpPacket
     }

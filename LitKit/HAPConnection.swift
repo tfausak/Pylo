@@ -266,9 +266,7 @@ final class HAPConnection {
         guard let data = try? JSONSerialization.data(withJSONObject: responseObj) else {
             return HTTPResponse(status: 500, body: nil, contentType: "application/hap+json")
         }
-        if let jsonStr = String(data: data, encoding: .utf8) {
-            logger.info("GET /accessories response (\(data.count) bytes):\n\(jsonStr)")
-        }
+        logger.debug("GET /accessories response (\(data.count) bytes)")
         return HTTPResponse(status: 200, body: data, contentType: "application/hap+json")
     }
 
