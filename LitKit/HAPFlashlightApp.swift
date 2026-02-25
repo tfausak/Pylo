@@ -346,24 +346,35 @@ struct ContentView: View {
 
                         GroupBox("Ambient Light") {
                             VStack(spacing: 8) {
-                                Image(systemName: "sun.max")
-                                    .font(.system(size: 32))
-                                    .foregroundColor(.orange)
-                                Text(String(format: "%.1f lux", viewModel.ambientLux))
-                                    .font(.system(.title2, design: .monospaced))
+                                if viewModel.availableCameras.isEmpty {
+                                    Image(systemName: "camera.metering.unknown")
+                                        .font(.system(size: 32))
+                                        .foregroundColor(.secondary)
+                                    Text("No cameras found")
+                                        .font(.headline)
+                                    Text("A camera is required for light sensing")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                } else {
+                                    Image(systemName: "sun.max")
+                                        .font(.system(size: 32))
+                                        .foregroundColor(.orange)
+                                    Text(String(format: "%.1f lux", viewModel.ambientLux))
+                                        .font(.system(.title2, design: .monospaced))
 
-                                if viewModel.availableCameras.count > 1 {
-                                    Picker("Camera", selection: $viewModel.selectedCamera) {
-                                        ForEach(viewModel.availableCameras) { camera in
-                                            Text(camera.name).tag(Optional(camera))
+                                    if viewModel.availableCameras.count > 1 {
+                                        Picker("Camera", selection: $viewModel.selectedCamera) {
+                                            ForEach(viewModel.availableCameras) { camera in
+                                                Text(camera.name).tag(Optional(camera))
+                                            }
                                         }
+                                        .pickerStyle(.menu)
                                     }
-                                    .pickerStyle(.menu)
-                                }
 
-                                Text(viewModel.selectedCamera?.name ?? "Camera light estimate")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
+                                    Text(viewModel.selectedCamera?.name ?? "Camera light estimate")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
                             }
                             .frame(maxWidth: .infinity)
                         }
