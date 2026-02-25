@@ -703,8 +703,10 @@ final class CameraStreamSession {
             guard let self else { return }
             self.logger.info("UDP state: \(String(describing: state))")
             if case .ready = state {
-                // Only start capture pipeline once UDP is ready
-                self.setupCompression(width: width, height: height, fps: fps, bitrate: bitrate)
+                // Only start capture pipeline once UDP is ready.
+                // setupCapture rotates frames to portrait, so swap dimensions
+                // for the encoder to match the actual frame size.
+                self.setupCompression(width: height, height: width, fps: fps, bitrate: bitrate)
                 self.setupCapture(width: width, height: height, fps: fps, camera: camera)
                 self.startRTCPTimer()
             }
