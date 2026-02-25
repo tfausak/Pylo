@@ -1,13 +1,13 @@
 //
-//  LitKitUITestsLaunchTests.swift
-//  LitKitUITests
+//  BridgeKitUITestsLaunchTests.swift
+//  BridgeKitUITests
 //
 //  Created by Taylor Fausak on 2/24/26.
 //
 
 import XCTest
 
-final class LitKitUITestsLaunchTests: XCTestCase {
+final class BridgeKitUITestsLaunchTests: XCTestCase {
 
     override class var runsForEachTargetApplicationUIConfiguration: Bool {
         true

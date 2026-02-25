@@ -16,40 +16,40 @@
 			containerPortal = 34EA21DA2F4EA5FF00113A11 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = 34EA21E12F4EA5FF00113A11;
-			remoteInfo = LitKit;
+			remoteInfo = BridgeKit;
 		};
 		34EA21FA2F4EA60100113A11 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 34EA21DA2F4EA5FF00113A11 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = 34EA21E12F4EA5FF00113A11;
-			remoteInfo = LitKit;
+			remoteInfo = BridgeKit;
 		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		34EA21E22F4EA5FF00113A11 /* LitKit.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LitKit.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		34EA21EF2F4EA60100113A11 /* LitKitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LitKitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		34EA21F92F4EA60100113A11 /* LitKitUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LitKitUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		34EA21E22F4EA5FF00113A11 /* BridgeKit.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BridgeKit.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		34EA21EF2F4EA60100113A11 /* BridgeKitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BridgeKitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		34EA21F92F4EA60100113A11 /* BridgeKitUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BridgeKitUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		34EA22282F4EAE8600113A11 /* Exceptions for "LitKit" folder in "LitKit" target */ = {
+		34EA22282F4EAE8600113A11 /* Exceptions for "BridgeKit" folder in "BridgeKit" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
 			);
-			target = 34EA21E12F4EA5FF00113A11 /* LitKit */;
+			target = 34EA21E12F4EA5FF00113A11 /* BridgeKit */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		34EA21E42F4EA5FF00113A11 /* LitKit */ = {
+		34EA21E42F4EA5FF00113A11 /* BridgeKit */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				34EA22282F4EAE8600113A11 /* Exceptions for "LitKit" folder in "LitKit" target */,
+				34EA22282F4EAE8600113A11 /* Exceptions for "BridgeKit" folder in "BridgeKit" target */,
 			);
-			path = LitKit;
+			path = BridgeKit;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -83,7 +83,7 @@
 		34EA21D92F4EA5FF00113A11 = {
 			isa = PBXGroup;
 			children = (
-				34EA21E42F4EA5FF00113A11 /* LitKit */,
+				34EA21E42F4EA5FF00113A11 /* BridgeKit */,
 				34EA21E32F4EA5FF00113A11 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -91,9 +91,9 @@
 		34EA21E32F4EA5FF00113A11 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				34EA21E22F4EA5FF00113A11 /* LitKit.app */,
-				34EA21EF2F4EA60100113A11 /* LitKitTests.xctest */,
-				34EA21F92F4EA60100113A11 /* LitKitUITests.xctest */,
+				34EA21E22F4EA5FF00113A11 /* BridgeKit.app */,
+				34EA21EF2F4EA60100113A11 /* BridgeKitTests.xctest */,
+				34EA21F92F4EA60100113A11 /* BridgeKitUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -101,9 +101,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		34EA21E12F4EA5FF00113A11 /* LitKit */ = {
+		34EA21E12F4EA5FF00113A11 /* BridgeKit */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 34EA22032F4EA60100113A11 /* Build configuration list for PBXNativeTarget "LitKit" */;
+			buildConfigurationList = 34EA22032F4EA60100113A11 /* Build configuration list for PBXNativeTarget "BridgeKit" */;
 			buildPhases = (
 				34EA21DE2F4EA5FF00113A11 /* Sources */,
 				34EA21DF2F4EA5FF00113A11 /* Frameworks */,
@@ -114,19 +114,19 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				34EA21E42F4EA5FF00113A11 /* LitKit */,
+				34EA21E42F4EA5FF00113A11 /* BridgeKit */,
 			);
-			name = LitKit;
+			name = BridgeKit;
 			packageProductDependencies = (
 				34EA22232F4EA91700113A11 /* BigInt */,
 			);
-			productName = LitKit;
-			productReference = 34EA21E22F4EA5FF00113A11 /* LitKit.app */;
+			productName = BridgeKit;
+			productReference = 34EA21E22F4EA5FF00113A11 /* BridgeKit.app */;
 			productType = "com.apple.product-type.application";
 		};
-		34EA21EE2F4EA60100113A11 /* LitKitTests */ = {
+		34EA21EE2F4EA60100113A11 /* BridgeKitTests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 34EA22062F4EA60100113A11 /* Build configuration list for PBXNativeTarget "LitKitTests" */;
+			buildConfigurationList = 34EA22062F4EA60100113A11 /* Build configuration list for PBXNativeTarget "BridgeKitTests" */;
 			buildPhases = (
 				34EA21EB2F4EA60100113A11 /* Sources */,
 				34EA21EC2F4EA60100113A11 /* Frameworks */,
@@ -137,16 +137,16 @@
 			dependencies = (
 				34EA21F12F4EA60100113A11 /* PBXTargetDependency */,
 			);
-			name = LitKitTests;
+			name = BridgeKitTests;
 			packageProductDependencies = (
 			);
-			productName = LitKitTests;
-			productReference = 34EA21EF2F4EA60100113A11 /* LitKitTests.xctest */;
+			productName = BridgeKitTests;
+			productReference = 34EA21EF2F4EA60100113A11 /* BridgeKitTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		34EA21F82F4EA60100113A11 /* LitKitUITests */ = {
+		34EA21F82F4EA60100113A11 /* BridgeKitUITests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 34EA22092F4EA60100113A11 /* Build configuration list for PBXNativeTarget "LitKitUITests" */;
+			buildConfigurationList = 34EA22092F4EA60100113A11 /* Build configuration list for PBXNativeTarget "BridgeKitUITests" */;
 			buildPhases = (
 				34EA21F52F4EA60100113A11 /* Sources */,
 				34EA21F62F4EA60100113A11 /* Frameworks */,
@@ -157,11 +157,11 @@
 			dependencies = (
 				34EA21FB2F4EA60100113A11 /* PBXTargetDependency */,
 			);
-			name = LitKitUITests;
+			name = BridgeKitUITests;
 			packageProductDependencies = (
 			);
-			productName = LitKitUITests;
-			productReference = 34EA21F92F4EA60100113A11 /* LitKitUITests.xctest */;
+			productName = BridgeKitUITests;
+			productReference = 34EA21F92F4EA60100113A11 /* BridgeKitUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 /* End PBXNativeTarget section */
@@ -188,7 +188,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 34EA21DD2F4EA5FF00113A11 /* Build configuration list for PBXProject "LitKit" */;
+			buildConfigurationList = 34EA21DD2F4EA5FF00113A11 /* Build configuration list for PBXProject "BridgeKit" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -205,9 +205,9 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				34EA21E12F4EA5FF00113A11 /* LitKit */,
-				34EA21EE2F4EA60100113A11 /* LitKitTests */,
-				34EA21F82F4EA60100113A11 /* LitKitUITests */,
+				34EA21E12F4EA5FF00113A11 /* BridgeKit */,
+				34EA21EE2F4EA60100113A11 /* BridgeKitTests */,
+				34EA21F82F4EA60100113A11 /* BridgeKitUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -263,12 +263,12 @@
 /* Begin PBXTargetDependency section */
 		34EA21F12F4EA60100113A11 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 34EA21E12F4EA5FF00113A11 /* LitKit */;
+			target = 34EA21E12F4EA5FF00113A11 /* BridgeKit */;
 			targetProxy = 34EA21F02F4EA60100113A11 /* PBXContainerItemProxy */;
 		};
 		34EA21FB2F4EA60100113A11 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 34EA21E12F4EA5FF00113A11 /* LitKit */;
+			target = 34EA21E12F4EA5FF00113A11 /* BridgeKit */;
 			targetProxy = 34EA21FA2F4EA60100113A11 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
@@ -406,7 +406,7 @@
 				DEVELOPMENT_TEAM = 6BNF6ECP6F;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = LitKit/Info.plist;
+				INFOPLIST_FILE = BridgeKit/Info.plist;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Used to control the flashlight.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Used to advertise as a HomeKit accessory.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -419,7 +419,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = me.fausak.taylor.LitKit;
+				PRODUCT_BUNDLE_IDENTIFIER = me.fausak.taylor.BridgeKit;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -443,7 +443,7 @@
 				DEVELOPMENT_TEAM = 6BNF6ECP6F;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = LitKit/Info.plist;
+				INFOPLIST_FILE = BridgeKit/Info.plist;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Used to control the flashlight.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Used to advertise as a HomeKit accessory.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -456,7 +456,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = me.fausak.taylor.LitKit;
+				PRODUCT_BUNDLE_IDENTIFIER = me.fausak.taylor.BridgeKit;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -478,7 +478,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = me.fausak.taylor.LitKitTests;
+				PRODUCT_BUNDLE_IDENTIFIER = me.fausak.taylor.BridgeKitTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -486,7 +486,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/LitKit.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/LitKit";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BridgeKit.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/BridgeKit";
 			};
 			name = Debug;
 		};
@@ -500,7 +500,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = me.fausak.taylor.LitKitTests;
+				PRODUCT_BUNDLE_IDENTIFIER = me.fausak.taylor.BridgeKitTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -508,7 +508,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/LitKit.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/LitKit";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BridgeKit.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/BridgeKit";
 			};
 			name = Release;
 		};
@@ -520,7 +520,7 @@
 				DEVELOPMENT_TEAM = 6BNF6ECP6F;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = me.fausak.taylor.LitKitUITests;
+				PRODUCT_BUNDLE_IDENTIFIER = me.fausak.taylor.BridgeKitUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -528,7 +528,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = LitKit;
+				TEST_TARGET_NAME = BridgeKit;
 			};
 			name = Debug;
 		};
@@ -540,7 +540,7 @@
 				DEVELOPMENT_TEAM = 6BNF6ECP6F;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = me.fausak.taylor.LitKitUITests;
+				PRODUCT_BUNDLE_IDENTIFIER = me.fausak.taylor.BridgeKitUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -548,14 +548,14 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = LitKit;
+				TEST_TARGET_NAME = BridgeKit;
 			};
 			name = Release;
 		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		34EA21DD2F4EA5FF00113A11 /* Build configuration list for PBXProject "LitKit" */ = {
+		34EA21DD2F4EA5FF00113A11 /* Build configuration list for PBXProject "BridgeKit" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				34EA22012F4EA60100113A11 /* Debug */,
@@ -564,7 +564,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		34EA22032F4EA60100113A11 /* Build configuration list for PBXNativeTarget "LitKit" */ = {
+		34EA22032F4EA60100113A11 /* Build configuration list for PBXNativeTarget "BridgeKit" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				34EA22042F4EA60100113A11 /* Debug */,
@@ -573,7 +573,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		34EA22062F4EA60100113A11 /* Build configuration list for PBXNativeTarget "LitKitTests" */ = {
+		34EA22062F4EA60100113A11 /* Build configuration list for PBXNativeTarget "BridgeKitTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				34EA22072F4EA60100113A11 /* Debug */,
@@ -582,7 +582,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		34EA22092F4EA60100113A11 /* Build configuration list for PBXNativeTarget "LitKitUITests" */ = {
+		34EA22092F4EA60100113A11 /* Build configuration list for PBXNativeTarget "BridgeKitUITests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				34EA220A2F4EA60100113A11 /* Debug */,
