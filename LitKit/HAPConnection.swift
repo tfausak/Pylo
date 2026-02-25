@@ -1,0 +1,426 @@
+import Foundation
+import Network
+import os
+
+// MARK: - HAP Connection
+// Manages a single TCP connection from a HomeKit controller (e.g., Home.app).
+// Before pairing is verified, HTTP is plaintext. After pair-verify completes,
+// all HTTP traffic is encrypted with ChaCha20-Poly1305.
+
+final class HAPConnection {
+
+    let id: String
+    private let connection: NWConnection
+    private weak var server: HAPServer?
+    private let queue: DispatchQueue
+    private let logger = Logger(subsystem: "com.example.hap", category: "Connection")
+
+    /// After pair-verify, this holds the session encryption context.
+    var encryptionContext: EncryptionContext?
+
+    /// Set by pair-verify M3 handler; applied after the plaintext M4 response is sent.
+    var pendingEncryptionContext: EncryptionContext?
+
+    /// Characteristics this connection is subscribed to (for EVENT notifications).
+    var eventSubscriptions: Set<CharacteristicID> = []
+
+    /// The pairing session state (tracks in-progress pair-setup/verify).
+    var pairSetupState: PairSetupSession?
+    var pairVerifyState: PairVerifySession?
+
+    init(id: String, connection: NWConnection, server: HAPServer, queue: DispatchQueue) {
+        self.id = id
+        self.connection = connection
+        self.server = server
+        self.queue = queue
+    }
+
+    func start() {
+        connection.stateUpdateHandler = { [weak self] state in
+            guard let self else { return }
+            switch state {
+            case .ready:
+                self.logger.debug("Connection \(self.id) ready")
+                self.receiveNextRequest()
+            case .failed(let error):
+                self.logger.error("Connection \(self.id) failed: \(error)")
+                self.cancel()
+            case .cancelled:
+                self.server?.removeConnection(self.id)
+            default:
+                break
+            }
+        }
+        connection.start(queue: queue)
+    }
+
+    func cancel() {
+        connection.cancel()
+    }
+
+    // MARK: - Receive Loop
+    
+    /// Buffer for accumulating incoming data
+    private var receiveBuffer = Data()
+
+    /// Buffer for accumulating decrypted frame data into complete HTTP requests
+    private var decryptedBuffer = Data()
+
+    private func receiveNextRequest() {
+        // Apply deferred encryption context from pair-verify (M4 was sent plaintext)
+        if let pending = pendingEncryptionContext {
+            encryptionContext = pending
+            pendingEncryptionContext = nil
+        }
+
+        if encryptionContext != nil {
+            receiveEncryptedFrame()
+        } else {
+            receivePlaintextHTTP()
+        }
+    }
+
+    /// Read plaintext HTTP (before pair-verify is complete).
+    private func receivePlaintextHTTP() {
+        // Read up to 64KB — HAP messages are small.
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
+            guard let self else { return }
+
+            if let error {
+                self.logger.error("Receive error: \(error)")
+                self.cancel()
+                return
+            }
+
+            if let data, !data.isEmpty {
+                // Append to buffer and try to parse complete requests
+                self.receiveBuffer.append(data)
+                self.processHTTPBuffer()
+            }
+
+            if isComplete {
+                self.cancel()
+            } else {
+                self.receiveNextRequest()
+            }
+        }
+    }
+    
+    /// Process accumulated HTTP data, handling multiple requests if needed
+    private func processHTTPBuffer() {
+        // Keep processing as long as we can extract complete requests
+        while let request = HTTPRequest.parseAndConsume(&receiveBuffer) {
+            logger.info("\(request.method) \(request.path)")
+            let response = routeRequest(request)
+            sendResponse(response)
+        }
+    }
+
+    /// Read an encrypted HAP frame: [2-byte little-endian length][encrypted data][16-byte auth tag]
+    /// Accumulates decrypted frames until a complete HTTP request is available.
+    private func receiveEncryptedFrame() {
+        // First read the 2-byte length prefix
+        connection.receive(minimumIncompleteLength: 2, maximumLength: 2) { [weak self] data, _, isComplete, error in
+            guard let self, let data, data.count == 2 else {
+                self?.cancel()
+                return
+            }
+
+            let frameLength = Int(data[0]) | (Int(data[1]) << 8)
+            let totalLength = frameLength + 16 // + Poly1305 auth tag
+
+            // Now read the encrypted payload + tag
+            self.connection.receive(minimumIncompleteLength: totalLength, maximumLength: totalLength) { [weak self] payload, _, isComplete, error in
+                guard let self, let payload, payload.count == totalLength else {
+                    self?.cancel()
+                    return
+                }
+
+                guard let decrypted = self.encryptionContext?.decrypt(
+                    lengthBytes: data,
+                    ciphertext: payload
+                ) else {
+                    self.logger.error("Decryption failed")
+                    self.cancel()
+                    return
+                }
+
+                // Accumulate decrypted data and try to parse a complete HTTP request
+                self.decryptedBuffer.append(decrypted)
+
+                if let request = HTTPRequest.parse(self.decryptedBuffer) {
+                    self.decryptedBuffer.removeAll()
+                    self.logger.info("\(request.method) \(request.path)")
+                    let response = self.routeRequest(request)
+                    self.sendResponse(response)
+                }
+
+                if !isComplete {
+                    self.receiveNextRequest()
+                }
+            }
+        }
+    }
+
+    // MARK: - Routing
+
+    private func routeRequest(_ request: HTTPRequest) -> HTTPResponse {
+        guard let server else {
+            return HTTPResponse(status: 500, body: nil, contentType: "application/hap+json")
+        }
+
+        switch (request.method, request.path) {
+        case ("POST", "/pair-setup"):
+            return handlePairSetup(request, server: server)
+
+        case ("POST", "/pair-verify"):
+            return handlePairVerify(request, server: server)
+
+        case ("GET", "/accessories"):
+            return handleGetAccessories(server: server)
+
+        case ("GET", let path) where path.starts(with: "/characteristics"):
+            return handleGetCharacteristics(request, server: server)
+
+        case ("PUT", "/characteristics"):
+            return handlePutCharacteristics(request, server: server)
+
+        case ("POST", "/identify"):
+            return handleIdentify(server: server)
+
+        case ("POST", "/pairings"):
+            return handlePairings(request, server: server)
+
+        default:
+            logger.warning("Unknown route: \(request.method) \(request.path)")
+            return HTTPResponse(status: 404, body: nil, contentType: "application/hap+json")
+        }
+    }
+
+    // MARK: - Send Response
+
+    private func sendResponse(_ response: HTTPResponse) {
+        let httpData = response.serialize()
+
+        if let ctx = encryptionContext {
+            // Encrypt the response
+            let encrypted = ctx.encrypt(plaintext: httpData)
+            connection.send(content: encrypted, completion: .contentProcessed { [weak self] error in
+                if let error {
+                    self?.logger.error("Send error: \(error)")
+                }
+            })
+        } else {
+            connection.send(content: httpData, completion: .contentProcessed { [weak self] error in
+                if let error {
+                    self?.logger.error("Send error: \(error)")
+                }
+            })
+        }
+    }
+
+    // MARK: - Endpoint Handlers (stubs — implemented in separate files)
+
+    private func handlePairSetup(_ request: HTTPRequest, server: HAPServer) -> HTTPResponse {
+        // Implemented in PairSetup.swift
+        PairSetupHandler.handle(request: request, connection: self, server: server)
+    }
+
+    private func handlePairVerify(_ request: HTTPRequest, server: HAPServer) -> HTTPResponse {
+        // Implemented in PairVerify.swift
+        PairVerifyHandler.handle(request: request, connection: self, server: server)
+    }
+
+    private func handleGetAccessories(server: HAPServer) -> HTTPResponse {
+        let json = server.accessory.toJSON()
+        guard let data = try? JSONSerialization.data(withJSONObject: ["accessories": [json]]) else {
+            return HTTPResponse(status: 500, body: nil, contentType: "application/hap+json")
+        }
+        return HTTPResponse(status: 200, body: data, contentType: "application/hap+json")
+    }
+
+    private func handleGetCharacteristics(_ request: HTTPRequest, server: HAPServer) -> HTTPResponse {
+        // Parse ?id=1.10,1.11 from query string
+        // For PoC, return current characteristic values
+        return CharacteristicsHandler.handleGet(request: request, server: server)
+    }
+
+    private func handlePutCharacteristics(_ request: HTTPRequest, server: HAPServer) -> HTTPResponse {
+        return CharacteristicsHandler.handlePut(request: request, connection: self, server: server)
+    }
+
+    private func handleIdentify(server: HAPServer) -> HTTPResponse {
+        // Identify is only valid when not paired. Flash the torch briefly.
+        if server.pairingStore.isPaired {
+            // Return -70401 (insufficient privileges) when paired
+            let body = try? JSONSerialization.data(withJSONObject: ["status": -70401])
+            return HTTPResponse(status: 400, body: body, contentType: "application/hap+json")
+        }
+        // Trigger identify action (e.g., blink torch)
+        server.accessory.identify()
+        return HTTPResponse(status: 204, body: nil, contentType: "application/hap+json")
+    }
+
+    private func handlePairings(_ request: HTTPRequest, server: HAPServer) -> HTTPResponse {
+        return PairingsHandler.handle(request: request, connection: self, server: server)
+    }
+}
+
+// MARK: - Characteristic ID (for event subscriptions)
+
+struct CharacteristicID: Hashable {
+    let aid: Int
+    let iid: Int
+}
+
+// MARK: - Minimal HTTP Request/Response
+
+struct HTTPRequest {
+    let method: String
+    let path: String
+    let headers: [String: String]
+    let body: Data?
+
+    /// Very basic HTTP/1.1 request parser — sufficient for HAP.
+    /// Only parses headers as UTF-8; the body is kept as raw Data
+    /// (TLV8 bodies may contain non-UTF-8 binary like Ed25519 keys).
+    static func parse(_ data: Data) -> HTTPRequest? {
+        // Find header/body separator — only convert headers to UTF-8
+        guard let separatorRange = data.range(of: Data("\r\n\r\n".utf8)) else {
+            return nil
+        }
+
+        let headerData = data[data.startIndex..<separatorRange.lowerBound]
+        guard let headerStr = String(data: headerData, encoding: .utf8) else { return nil }
+
+        let lines = headerStr.components(separatedBy: "\r\n")
+        guard let requestLine = lines.first else { return nil }
+
+        let requestParts = requestLine.split(separator: " ", maxSplits: 2)
+        guard requestParts.count >= 2 else { return nil }
+
+        let method = String(requestParts[0])
+        let path = String(requestParts[1])
+
+        var headers: [String: String] = [:]
+        for line in lines.dropFirst() {
+            if let colonIndex = line.firstIndex(of: ":") {
+                let key = line[line.startIndex..<colonIndex].trimmingCharacters(in: .whitespaces).lowercased()
+                let value = line[line.index(after: colonIndex)...].trimmingCharacters(in: .whitespaces)
+                headers[key] = value
+            }
+        }
+
+        // Extract body as raw Data based on Content-Length
+        var body: Data?
+        if let contentLengthStr = headers["content-length"],
+           let contentLength = Int(contentLengthStr),
+           contentLength > 0 {
+            let bodyStart = separatorRange.upperBound
+            let bodyEnd = min(bodyStart + contentLength, data.endIndex)
+            body = data[bodyStart..<bodyEnd]
+        }
+
+        return HTTPRequest(method: method, path: path, headers: headers, body: body)
+    }
+    
+    /// Parse a complete HTTP request from buffer and consume it.
+    /// Returns nil if there's not enough data for a complete request.
+    static func parseAndConsume(_ buffer: inout Data) -> HTTPRequest? {
+        // Look for \r\n\r\n to find end of headers
+        guard let headerEndRange = buffer.range(of: Data("\r\n\r\n".utf8)) else {
+            // No complete headers yet
+            return nil
+        }
+        
+        let headerEnd = headerEndRange.upperBound
+        let headerData = buffer[buffer.startIndex..<headerEndRange.lowerBound]
+        
+        guard let headerStr = String(data: headerData, encoding: .utf8) else {
+            // Invalid UTF-8, clear bad data
+            buffer.removeAll()
+            return nil
+        }
+        
+        let lines = headerStr.components(separatedBy: "\r\n")
+        guard let requestLine = lines.first else {
+            buffer.removeAll()
+            return nil
+        }
+        
+        let requestParts = requestLine.split(separator: " ", maxSplits: 2)
+        guard requestParts.count >= 2 else {
+            buffer.removeAll()
+            return nil
+        }
+        
+        let method = String(requestParts[0])
+        let path = String(requestParts[1])
+        
+        var headers: [String: String] = [:]
+        for line in lines.dropFirst() {
+            if let colonIndex = line.firstIndex(of: ":") {
+                let key = line[line.startIndex..<colonIndex].trimmingCharacters(in: .whitespaces).lowercased()
+                let value = line[line.index(after: colonIndex)...].trimmingCharacters(in: .whitespaces)
+                headers[key] = value
+            }
+        }
+        
+        // Check Content-Length
+        let contentLength = headers["content-length"].flatMap { Int($0) } ?? 0
+        
+        // Check if we have the complete body
+        let totalNeeded = headerEnd + contentLength
+        guard buffer.count >= totalNeeded else {
+            // Not enough data yet
+            return nil
+        }
+        
+        // Extract body
+        var body: Data?
+        if contentLength > 0 {
+            body = buffer[headerEnd..<(headerEnd + contentLength)]
+        }
+        
+        // Remove this request from the buffer
+        buffer.removeSubrange(buffer.startIndex..<totalNeeded)
+        
+        return HTTPRequest(method: method, path: path, headers: headers, body: body)
+    }
+}
+
+struct HTTPResponse {
+    let status: Int
+    let body: Data?
+    let contentType: String
+
+    var statusText: String {
+        switch status {
+        case 200: return "OK"
+        case 204: return "No Content"
+        case 207: return "Multi-Status"
+        case 400: return "Bad Request"
+        case 404: return "Not Found"
+        case 422: return "Unprocessable Entity"
+        case 500: return "Internal Server Error"
+        default: return "Unknown"
+        }
+    }
+
+    func serialize() -> Data {
+        var result = "HTTP/1.1 \(status) \(statusText)\r\n"
+        result += "Content-Type: \(contentType)\r\n"
+        if let body {
+            result += "Content-Length: \(body.count)\r\n"
+        } else {
+            result += "Content-Length: 0\r\n"
+        }
+        result += "\r\n"
+
+        var data = Data(result.utf8)
+        if let body {
+            data.append(body)
+        }
+        return data
+    }
+}

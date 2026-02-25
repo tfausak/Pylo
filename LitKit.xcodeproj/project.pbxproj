@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		34EA22242F4EA91700113A11 /* BigInt in Frameworks */ = {isa = PBXBuildFile; productRef = 34EA22232F4EA91700113A11 /* BigInt */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		34EA21F02F4EA60100113A11 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -29,20 +33,23 @@
 		34EA21F92F4EA60100113A11 /* LitKitUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LitKitUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		34EA22282F4EAE8600113A11 /* Exceptions for "LitKit" folder in "LitKit" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 34EA21E12F4EA5FF00113A11 /* LitKit */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		34EA21E42F4EA5FF00113A11 /* LitKit */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				34EA22282F4EAE8600113A11 /* Exceptions for "LitKit" folder in "LitKit" target */,
+			);
 			path = LitKit;
-			sourceTree = "<group>";
-		};
-		34EA21F22F4EA60100113A11 /* LitKitTests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = LitKitTests;
-			sourceTree = "<group>";
-		};
-		34EA21FC2F4EA60100113A11 /* LitKitUITests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = LitKitUITests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -52,6 +59,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				34EA22242F4EA91700113A11 /* BigInt in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -76,8 +84,6 @@
 			isa = PBXGroup;
 			children = (
 				34EA21E42F4EA5FF00113A11 /* LitKit */,
-				34EA21F22F4EA60100113A11 /* LitKitTests */,
-				34EA21FC2F4EA60100113A11 /* LitKitUITests */,
 				34EA21E32F4EA5FF00113A11 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -112,6 +118,7 @@
 			);
 			name = LitKit;
 			packageProductDependencies = (
+				34EA22232F4EA91700113A11 /* BigInt */,
 			);
 			productName = LitKit;
 			productReference = 34EA21E22F4EA5FF00113A11 /* LitKit.app */;
@@ -129,9 +136,6 @@
 			);
 			dependencies = (
 				34EA21F12F4EA60100113A11 /* PBXTargetDependency */,
-			);
-			fileSystemSynchronizedGroups = (
-				34EA21F22F4EA60100113A11 /* LitKitTests */,
 			);
 			name = LitKitTests;
 			packageProductDependencies = (
@@ -153,9 +157,6 @@
 			dependencies = (
 				34EA21FB2F4EA60100113A11 /* PBXTargetDependency */,
 			);
-			fileSystemSynchronizedGroups = (
-				34EA21FC2F4EA60100113A11 /* LitKitUITests */,
-			);
 			name = LitKitUITests;
 			packageProductDependencies = (
 			);
@@ -175,6 +176,7 @@
 				TargetAttributes = {
 					34EA21E12F4EA5FF00113A11 = {
 						CreatedOnToolsVersion = 26.2;
+						LastSwiftMigration = 2620;
 					};
 					34EA21EE2F4EA60100113A11 = {
 						CreatedOnToolsVersion = 26.2;
@@ -195,6 +197,9 @@
 			);
 			mainGroup = 34EA21D92F4EA5FF00113A11;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				34EA22222F4EA91700113A11 /* XCRemoteSwiftPackageReference "BigInt" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 34EA21E32F4EA5FF00113A11 /* Products */;
 			projectDirPath = "";
@@ -395,11 +400,15 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 6BNF6ECP6F;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = LitKit/Info.plist;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Used to control the flashlight.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Used to advertise as a HomeKit accessory.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -416,6 +425,7 @@
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -427,11 +437,15 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 6BNF6ECP6F;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = LitKit/Info.plist;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Used to control the flashlight.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Used to advertise as a HomeKit accessory.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -578,6 +592,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		34EA22222F4EA91700113A11 /* XCRemoteSwiftPackageReference "BigInt" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/attaswift/BigInt.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.1.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		34EA22232F4EA91700113A11 /* BigInt */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 34EA22222F4EA91700113A11 /* XCRemoteSwiftPackageReference "BigInt" */;
+			productName = BigInt;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 34EA21DA2F4EA5FF00113A11 /* Project object */;
 }
