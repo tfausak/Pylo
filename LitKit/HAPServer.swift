@@ -15,8 +15,11 @@ final class HAPServer {
     /// Active connections keyed by a unique ID.
     private var connections: [String: HAPConnection] = [:]
 
-    /// The accessory this server exposes.
-    let accessory: HAPAccessory
+    /// The bridge info accessory (aid=1).
+    let bridge: HAPBridgeInfo
+
+    /// All accessories served by this bridge, keyed by aid.
+    private(set) var accessories: [Int: HAPAccessoryProtocol] = [:]
 
     /// Pairing state (persisted across app launches in a real implementation).
     let pairingStore: PairingStore
@@ -25,12 +28,18 @@ final class HAPServer {
     let deviceIdentity: DeviceIdentity
 
     /// Current configuration number. Increment when accessory DB changes.
-    var configurationNumber: Int = 2
+    var configurationNumber: Int = 3
 
-    init(accessory: HAPAccessory, pairingStore: PairingStore, deviceIdentity: DeviceIdentity) throws {
-        self.accessory = accessory
+    init(bridge: HAPBridgeInfo, accessories: [HAPAccessoryProtocol], pairingStore: PairingStore, deviceIdentity: DeviceIdentity) throws {
+        self.bridge = bridge
         self.pairingStore = pairingStore
         self.deviceIdentity = deviceIdentity
+
+        // Register bridge and all sub-accessories
+        self.accessories[bridge.aid] = bridge
+        for accessory in accessories {
+            self.accessories[accessory.aid] = accessory
+        }
 
         // Create TCP listener on a random available port.
         let params = NWParameters.tcp
@@ -43,7 +52,7 @@ final class HAPServer {
         let txtItems = bonjourTXTRecord()
         let txtRecord = createTXTRecord(from: txtItems)
         listener.service = NWListener.Service(
-            name: accessory.name,
+            name: bridge.name,
             type: "_hap._tcp",
             txtRecord: txtRecord
         )
@@ -83,10 +92,15 @@ final class HAPServer {
         let txtItems = bonjourTXTRecord()
         let txtRecord = createTXTRecord(from: txtItems)
         listener.service = NWListener.Service(
-            name: accessory.name,
+            name: bridge.name,
             type: "_hap._tcp",
             txtRecord: txtRecord
         )
+    }
+
+    /// Look up an accessory by its aid.
+    func accessory(aid: Int) -> HAPAccessoryProtocol? {
+        accessories[aid]
     }
 
     // MARK: - Bonjour TXT Record
@@ -96,11 +110,11 @@ final class HAPServer {
             "c#": "\(configurationNumber)",  // Configuration number
             "ff": "0",                        // Feature flags (0 = supports HAP pairing)
             "id": deviceIdentity.deviceID,    // Device ID (AA:BB:CC:DD:EE:FF format)
-            "md": accessory.model,            // Model name
+            "md": bridge.model,               // Model name
             "pv": "1.1",                      // Protocol version
             "s#": "1",                        // State number
             "sf": pairingStore.isPaired ? "0" : "1",  // Status flags: 1=discoverable
-            "ci": "\(accessory.category.rawValue)",    // Accessory category
+            "ci": "\(HAPAccessoryCategory.bridge.rawValue)",  // Bridge category
         ]
     }
 

@@ -20,11 +20,24 @@ enum HAPAccessoryCategory: Int {
     case window         = 13
     case windowCovering = 14
     case programmableSwitch = 15
+    case ipCamera       = 17
+}
+
+// MARK: - HAP Accessory Protocol
+
+/// Common interface for all accessories served by the HAP server.
+protocol HAPAccessoryProtocol: AnyObject {
+    var aid: Int { get }
+    var onStateChange: ((_ aid: Int, _ iid: Int, _ value: Any) -> Void)? { get set }
+    func readCharacteristic(iid: Int) -> Any?
+    @discardableResult func writeCharacteristic(iid: Int, value: Any) -> Bool
+    func identify()
+    func toJSON() -> [String: Any]
 }
 
 // MARK: - HAP Accessory
 
-final class HAPAccessory {
+final class HAPAccessory: HAPAccessoryProtocol {
 
     let name: String
     let model: String
@@ -32,11 +45,9 @@ final class HAPAccessory {
     let serialNumber: String
     let firmwareRevision: String
     let category: HAPAccessoryCategory
+    let aid: Int
 
     private let logger = Logger(subsystem: "com.example.hap", category: "Accessory")
-
-    // Accessory ID (aid) — always 1 for a single-accessory server.
-    let aid: Int = 1
 
     // MARK: - Lightbulb State
 
@@ -70,18 +81,21 @@ final class HAPAccessory {
     var onStateChange: ((_ aid: Int, _ iid: Int, _ value: Any) -> Void)?
 
     init(
+        aid: Int,
         name: String = "HAP Flashlight",
         model: String = "iPhone Light",
         manufacturer: String = "HAP PoC",
         serialNumber: String = "000001",
-        firmwareRevision: String = "1.0.0"
+        firmwareRevision: String = "1.0.0",
+        category: HAPAccessoryCategory = .lightbulb
     ) {
+        self.aid = aid
         self.name = name
         self.model = model
         self.manufacturer = manufacturer
         self.serialNumber = serialNumber
         self.firmwareRevision = firmwareRevision
-        self.category = .lightbulb
+        self.category = category
     }
 
     // MARK: - Instance IDs (iid)
@@ -307,5 +321,81 @@ final class HAPAccessory {
         if let maxValue { json["maxValue"] = maxValue }
         if let unit { json["unit"] = unit }
         return json
+    }
+}
+
+// MARK: - Bridge Info Accessory
+
+/// Lightweight accessory representing the bridge itself (aid=1).
+/// Only exposes the Accessory Information service.
+final class HAPBridgeInfo: HAPAccessoryProtocol {
+
+    let aid: Int = 1
+    let name: String
+    let model: String
+    let manufacturer: String
+    let serialNumber: String
+    let firmwareRevision: String
+    var onStateChange: ((_ aid: Int, _ iid: Int, _ value: Any) -> Void)?
+
+    init(
+        name: String = "HAP Bridge",
+        model: String = "iPhone Bridge",
+        manufacturer: String = "DIY",
+        serialNumber: String = "000000",
+        firmwareRevision: String = "0.1.0"
+    ) {
+        self.name = name
+        self.model = model
+        self.manufacturer = manufacturer
+        self.serialNumber = serialNumber
+        self.firmwareRevision = firmwareRevision
+    }
+
+    func readCharacteristic(iid: Int) -> Any? {
+        switch iid {
+        case 3: return manufacturer
+        case 4: return model
+        case 5: return name
+        case 6: return serialNumber
+        case 7: return firmwareRevision
+        default: return nil
+        }
+    }
+
+    @discardableResult
+    func writeCharacteristic(iid: Int, value: Any) -> Bool {
+        if iid == 2 { identify(); return true }
+        return false
+    }
+
+    func identify() {
+        // Bridge identify — no-op (sub-accessories handle their own)
+    }
+
+    func toJSON() -> [String: Any] {
+        [
+            "aid": aid,
+            "services": [
+                [
+                    "iid": 1,
+                    "type": HAPAccessory.uuidAccessoryInformation,
+                    "characteristics": [
+                        ["iid": 2, "type": HAPAccessory.uuidIdentify, "format": "bool",
+                         "perms": ["pw"]],
+                        ["iid": 3, "type": HAPAccessory.uuidManufacturer, "format": "string",
+                         "perms": ["pr"], "value": manufacturer],
+                        ["iid": 4, "type": HAPAccessory.uuidModel, "format": "string",
+                         "perms": ["pr"], "value": model],
+                        ["iid": 5, "type": HAPAccessory.uuidName, "format": "string",
+                         "perms": ["pr"], "value": name],
+                        ["iid": 6, "type": HAPAccessory.uuidSerialNumber, "format": "string",
+                         "perms": ["pr"], "value": serialNumber],
+                        ["iid": 7, "type": HAPAccessory.uuidFirmwareRevision, "format": "string",
+                         "perms": ["pr"], "value": firmwareRevision],
+                    ]
+                ]
+            ]
+        ]
     }
 }

@@ -30,10 +30,9 @@ enum CharacteristicsHandler {
                   let aid = Int(parts[0]),
                   let iid = Int(parts[1]) else { continue }
 
-            guard aid == server.accessory.aid else { continue }
-
             var entry: [String: Any] = ["aid": aid, "iid": iid]
-            if let value = server.accessory.readCharacteristic(iid: iid) {
+            if let accessory = server.accessory(aid: aid),
+               let value = accessory.readCharacteristic(iid: iid) {
                 entry["value"] = value
                 entry["status"] = 0
             } else {
@@ -76,7 +75,7 @@ enum CharacteristicsHandler {
 
             // Handle value write
             if let value = char["value"] {
-                let success = server.accessory.writeCharacteristic(iid: iid, value: value)
+                let success = server.accessory(aid: aid)?.writeCharacteristic(iid: iid, value: value) ?? false
                 if !success {
                     allOK = false
                     results.append(["aid": aid, "iid": iid, "status": -70402])

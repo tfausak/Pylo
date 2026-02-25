@@ -42,11 +42,22 @@ final class HAPViewModel: ObservableObject {
 
         // Defer heavy work so the UI can render the starting state first.
         Task { @MainActor in
-            let accessory = HAPAccessory(
+            let serial = UIDevice.current.identifierForVendor?.uuidString ?? "000000"
+
+            let bridge = HAPBridgeInfo(
+                name: "iPhone Bridge",
+                model: "HAP-PoC",
+                manufacturer: "DIY",
+                serialNumber: serial,
+                firmwareRevision: "0.1.0"
+            )
+
+            let lightbulb = HAPAccessory(
+                aid: 2,
                 name: "iPhone Flashlight",
                 model: "HAP-PoC",
                 manufacturer: "DIY",
-                serialNumber: UIDevice.current.identifierForVendor?.uuidString ?? "000000",
+                serialNumber: serial + "-light",
                 firmwareRevision: "0.1.0"
             )
 
@@ -54,7 +65,7 @@ final class HAPViewModel: ObservableObject {
             let identity = DeviceIdentity()
 
             // Wire up state change callbacks
-            accessory.onStateChange = { [weak self] aid, iid, value in
+            lightbulb.onStateChange = { [weak self] aid, iid, value in
                 Task { @MainActor in
                     guard let self else { return }
                     if iid == 9, let on = value as? Bool {
@@ -72,21 +83,22 @@ final class HAPViewModel: ObservableObject {
 
             // Set up ambient light monitor (front camera)
             let monitor = AmbientLightMonitor()
-            monitor.onLuxUpdate = { [weak accessory] lux in
-                accessory?.updateAmbientLight(lux)
+            monitor.onLuxUpdate = { [weak lightbulb] lux in
+                lightbulb?.updateAmbientLight(lux)
             }
             self.lightMonitor = monitor
 
             // Set up motion monitor (accelerometer)
             let motion = MotionMonitor()
-            motion.onMotionChange = { [weak accessory] detected in
-                accessory?.updateMotionDetected(detected)
+            motion.onMotionChange = { [weak lightbulb] detected in
+                lightbulb?.updateMotionDetected(detected)
             }
             self.motionMonitor = motion
 
             do {
                 let hapServer = try HAPServer(
-                    accessory: accessory,
+                    bridge: bridge,
+                    accessories: [lightbulb],
                     pairingStore: pairingStore,
                     deviceIdentity: identity
                 )
@@ -94,7 +106,7 @@ final class HAPViewModel: ObservableObject {
                 self.server = hapServer
                 self.isRunning = true
                 self.isStarting = false
-                self.statusMessage = "Advertising as '\(accessory.name)'\nDevice ID: \(identity.deviceID)"
+                self.statusMessage = "Advertising as '\(bridge.name)'\nDevice ID: \(identity.deviceID)"
 
                 // Start ambient light monitoring
                 monitor.start()

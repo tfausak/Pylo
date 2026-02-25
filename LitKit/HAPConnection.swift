@@ -257,8 +257,9 @@ final class HAPConnection {
     }
 
     private func handleGetAccessories(server: HAPServer) -> HTTPResponse {
-        let json = server.accessory.toJSON()
-        guard let data = try? JSONSerialization.data(withJSONObject: ["accessories": [json]]) else {
+        // Return all accessories (bridge + sub-accessories), sorted by aid
+        let allJSON = server.accessories.keys.sorted().compactMap { server.accessories[$0]?.toJSON() }
+        guard let data = try? JSONSerialization.data(withJSONObject: ["accessories": allJSON]) else {
             return HTTPResponse(status: 500, body: nil, contentType: "application/hap+json")
         }
         return HTTPResponse(status: 200, body: data, contentType: "application/hap+json")
@@ -281,8 +282,10 @@ final class HAPConnection {
             let body = try? JSONSerialization.data(withJSONObject: ["status": -70401])
             return HTTPResponse(status: 400, body: body, contentType: "application/hap+json")
         }
-        // Trigger identify action (e.g., blink torch)
-        server.accessory.identify()
+        // Trigger identify on all accessories
+        for accessory in server.accessories.values {
+            accessory.identify()
+        }
         return HTTPResponse(status: 204, body: nil, contentType: "application/hap+json")
     }
 
