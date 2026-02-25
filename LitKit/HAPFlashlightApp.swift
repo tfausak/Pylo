@@ -22,6 +22,7 @@ struct HAPFlashlightApp: App {
 final class HAPViewModel: ObservableObject {
 
     @Published var isRunning = false
+    @Published var isStarting = false
     @Published var isLightOn = false
     @Published var brightness: Int = 100
     @Published var isPaired = false
@@ -36,69 +37,77 @@ final class HAPViewModel: ObservableObject {
 
     @MainActor
     func start() {
-        let accessory = HAPAccessory(
-            name: "iPhone Flashlight",
-            model: "HAP-PoC",
-            manufacturer: "DIY",
-            serialNumber: UIDevice.current.identifierForVendor?.uuidString ?? "000000",
-            firmwareRevision: "0.1.0"
-        )
+        isStarting = true
+        statusMessage = "Starting…"
 
-        let pairingStore = PairingStore()
-        let identity = DeviceIdentity()
-
-        // Wire up state change callbacks
-        accessory.onStateChange = { [weak self] aid, iid, value in
-            Task { @MainActor in
-                guard let self else { return }
-                if iid == 9, let on = value as? Bool {
-                    self.isLightOn = on
-                } else if iid == 10, let brightness = value as? Int {
-                    self.brightness = brightness
-                } else if iid == 12, let lux = value as? Float {
-                    self.ambientLux = lux
-                } else if iid == 14, let detected = value as? Bool {
-                    self.isMotionDetected = detected
-                }
-                self.server?.notifySubscribers(aid: aid, iid: iid, value: value)
-            }
-        }
-
-        // Set up ambient light monitor (front camera)
-        let monitor = AmbientLightMonitor()
-        monitor.onLuxUpdate = { [weak accessory] lux in
-            accessory?.updateAmbientLight(lux)
-        }
-        self.lightMonitor = monitor
-
-        // Set up motion monitor (accelerometer)
-        let motion = MotionMonitor()
-        motion.onMotionChange = { [weak accessory] detected in
-            accessory?.updateMotionDetected(detected)
-        }
-        self.motionMonitor = motion
-
-        do {
-            let hapServer = try HAPServer(
-                accessory: accessory,
-                pairingStore: pairingStore,
-                deviceIdentity: identity
+        // Defer heavy work so the UI can render the starting state first.
+        Task { @MainActor in
+            let accessory = HAPAccessory(
+                name: "iPhone Flashlight",
+                model: "HAP-PoC",
+                manufacturer: "DIY",
+                serialNumber: UIDevice.current.identifierForVendor?.uuidString ?? "000000",
+                firmwareRevision: "0.1.0"
             )
-            hapServer.start()
-            self.server = hapServer
-            self.isRunning = true
-            self.statusMessage = "Advertising as '\(accessory.name)'\nDevice ID: \(identity.deviceID)"
 
-            // Start ambient light monitoring
-            monitor.start()
+            let pairingStore = PairingStore()
+            let identity = DeviceIdentity()
 
-            // Start motion monitoring
-            motion.start()
+            // Wire up state change callbacks
+            accessory.onStateChange = { [weak self] aid, iid, value in
+                Task { @MainActor in
+                    guard let self else { return }
+                    if iid == 9, let on = value as? Bool {
+                        self.isLightOn = on
+                    } else if iid == 10, let brightness = value as? Int {
+                        self.brightness = brightness
+                    } else if iid == 12, let lux = value as? Float {
+                        self.ambientLux = lux
+                    } else if iid == 14, let detected = value as? Bool {
+                        self.isMotionDetected = detected
+                    }
+                    self.server?.notifySubscribers(aid: aid, iid: iid, value: value)
+                }
+            }
 
-            // Prevent screen from sleeping
-            UIApplication.shared.isIdleTimerDisabled = true
-        } catch {
-            statusMessage = "Failed to start: \(error.localizedDescription)"
+            // Set up ambient light monitor (front camera)
+            let monitor = AmbientLightMonitor()
+            monitor.onLuxUpdate = { [weak accessory] lux in
+                accessory?.updateAmbientLight(lux)
+            }
+            self.lightMonitor = monitor
+
+            // Set up motion monitor (accelerometer)
+            let motion = MotionMonitor()
+            motion.onMotionChange = { [weak accessory] detected in
+                accessory?.updateMotionDetected(detected)
+            }
+            self.motionMonitor = motion
+
+            do {
+                let hapServer = try HAPServer(
+                    accessory: accessory,
+                    pairingStore: pairingStore,
+                    deviceIdentity: identity
+                )
+                hapServer.start()
+                self.server = hapServer
+                self.isRunning = true
+                self.isStarting = false
+                self.statusMessage = "Advertising as '\(accessory.name)'\nDevice ID: \(identity.deviceID)"
+
+                // Start ambient light monitoring
+                monitor.start()
+
+                // Start motion monitoring
+                motion.start()
+
+                // Prevent screen from sleeping
+                UIApplication.shared.isIdleTimerDisabled = true
+            } catch {
+                self.isStarting = false
+                self.statusMessage = "Failed to start: \(error.localizedDescription)"
+            }
         }
     }
 
@@ -176,10 +185,15 @@ struct ContentView: View {
                     GroupBox("Status") {
                         VStack(alignment: .leading, spacing: 8) {
                             HStack {
-                                Circle()
-                                    .fill(viewModel.isRunning ? .green : .gray)
-                                    .frame(width: 12, height: 12)
-                                Text(viewModel.isRunning ? "Running" : "Stopped")
+                                if viewModel.isStarting {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                } else {
+                                    Circle()
+                                        .fill(viewModel.isRunning ? .green : .gray)
+                                        .frame(width: 12, height: 12)
+                                }
+                                Text(viewModel.isStarting ? "Starting…" : viewModel.isRunning ? "Running" : "Stopped")
                             }
                             Text(viewModel.statusMessage)
                                 .font(.caption)
@@ -283,14 +297,25 @@ struct ContentView: View {
                         viewModel.start()
                     }
                 }) {
-                    Text(viewModel.isRunning ? "Stop Server" : "Start Server")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(viewModel.isRunning ? Color.red : Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(12)
+                    Group {
+                        if viewModel.isStarting {
+                            HStack(spacing: 8) {
+                                ProgressView()
+                                    .tint(.white)
+                                Text("Starting…")
+                            }
+                        } else {
+                            Text(viewModel.isRunning ? "Stop Server" : "Start Server")
+                        }
+                    }
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(viewModel.isStarting ? Color.gray : viewModel.isRunning ? Color.red : Color.blue)
+                    .foregroundColor(.white)
+                    .cornerRadius(12)
                 }
+                .disabled(viewModel.isStarting)
             }
             .padding()
         }
