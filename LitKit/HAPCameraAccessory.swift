@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreImage
 import CommonCrypto
 import Foundation
 import Network
@@ -508,7 +509,7 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
         }
 
         let grabber = FrameGrabber()
-        let queue = DispatchQueue(label: "com.example.hap.snapshot")
+        let queue = DispatchQueue(label: "com.example.hap.snapshot", qos: .userInteractive)
         videoOutput.setSampleBufferDelegate(grabber, queue: queue)
 
         session.startRunning()
