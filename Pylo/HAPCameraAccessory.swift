@@ -46,7 +46,7 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
 
   init(
     aid: Int,
-    name: String = "iPhone Camera",
+    name: String = "Pylo Camera",
     model: String = "HAP-PoC",
     manufacturer: String = "DIY",
     serialNumber: String = "000000",
@@ -829,6 +829,7 @@ final class CameraStreamSession {
   private var audioDecoder: AudioConverterRef?
   private var audioEngine: AVAudioEngine?
   private var audioPlayerNode: AVAudioPlayerNode?
+  private var audioPlayerStarted: Bool = false
   private var incomingSRTPContext: SRTPContext?
   var speakerMuted: Bool = false
   var speakerVolume: Int = 100
@@ -889,6 +890,10 @@ final class CameraStreamSession {
     self.pcmAccumulator = Data()
 
     // Initialize SRTP with shared keys (both sides use the same key material)
+    logger.info("Audio SRTP key=\(self.audioSRTPKey.count)B salt=\(self.audioSRTPSalt.count)B (expected 16B key, 14B salt)")
+    if audioSRTPKey.isEmpty || audioSRTPSalt.isEmpty {
+      logger.warning("Audio SRTP keys are EMPTY — audio encryption will fail")
+    }
     srtpContext = SRTPContext(masterKey: videoSRTPKey, masterSalt: videoSRTPSalt)
     audioSRTPContext = SRTPContext(masterKey: audioSRTPKey, masterSalt: audioSRTPSalt)
     incomingSRTPContext = SRTPContext(masterKey: audioSRTPKey, masterSalt: audioSRTPSalt)
@@ -996,10 +1001,13 @@ final class CameraStreamSession {
     audioConnection?.cancel()
     audioConnection = nil
     audioSRTPContext = nil
+    audioSampleCount = 0
+    incomingAudioPacketCount = 0
 
     // Audio speaker cleanup
     audioPlayerNode?.stop()
     audioPlayerNode = nil
+    audioPlayerStarted = false
     audioEngine?.stop()
     audioEngine = nil
 
@@ -1098,6 +1106,12 @@ final class CameraStreamSession {
     self.videoOutput = output
     // Store delegate to prevent deallocation
     objc_setAssociatedObject(output, "delegate", delegate, .OBJC_ASSOCIATION_RETAIN)
+
+    // Pre-create the audio encoder so it's ready when mic samples arrive.
+    // Without this, audio samples arriving before the audio UDP is ready are silently dropped.
+    if self.audioConverter == nil {
+      self.setupAudioEncoder()
+    }
 
     DispatchQueue.global(qos: .userInitiated).async { [weak self] in
       session.startRunning()
@@ -1475,9 +1489,22 @@ final class CameraStreamSession {
 
   // MARK: - Audio Sample Buffer Processing
 
+  private var audioSampleCount: Int = 0
+
   private func handleAudioSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
-    guard audioConverter != nil, audioConnection != nil else { return }
+    guard audioConverter != nil else {
+      logger.info("Audio sample dropped: encoder not ready")
+      return
+    }
+    guard audioConnection != nil else {
+      logger.info("Audio sample dropped: audio UDP not connected")
+      return
+    }
     guard !isMuted else { return }
+    audioSampleCount += 1
+    if audioSampleCount % 100 == 1 {
+      logger.info("Audio mic sample #\(self.audioSampleCount) received")
+    }
 
     // Get PCM data from the sample buffer
     guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { return }
@@ -1497,9 +1524,13 @@ final class CameraStreamSession {
     // Convert to Float32 at 16kHz if needed (the mic may deliver Int16 at 44.1/48kHz)
     let pcmFloat32: Data
     if let asbd, asbd.mFormatID == kAudioFormatLinearPCM {
+      if audioSampleCount == 1 {
+        logger.info("Audio source: \(asbd.mSampleRate)Hz, \(asbd.mChannelsPerFrame)ch, \(asbd.mBitsPerChannel)bit → resampling to 16kHz mono Float32")
+      }
       pcmFloat32 = convertToFloat32At16kHz(rawData, sourceASBD: asbd)
     } else {
-      return  // Unexpected format
+      logger.warning("Audio: unexpected format ID \(asbd?.mFormatID ?? 0)")
+      return
     }
 
     // Accumulate PCM and encode when we have enough for an AAC-ELD frame
@@ -1630,7 +1661,7 @@ final class CameraStreamSession {
     }
 
     guard status == noErr else {
-      if status != 0 { logger.debug("AAC-ELD encode error: \(status)") }
+      logger.warning("AAC-ELD encode error: \(status)")
       return
     }
 
@@ -1638,6 +1669,9 @@ final class CameraStreamSession {
     guard encodedSize > 0 else { return }
     let aacData = Data(bytes: outputBuffer, count: encodedSize)
 
+    if audioPacketsSent % 100 == 0 {
+      logger.info("Audio encoded frame: \(encodedSize)B AAC-ELD, total packets sent: \(self.audioPacketsSent)")
+    }
     sendAudioRTPPacket(payload: aacData)
   }
 
@@ -1806,7 +1840,9 @@ final class CameraStreamSession {
 
     do {
       try engine.start()
-      playerNode.play()
+      // Don't call playerNode.play() here — defer it until the first buffer is
+      // scheduled. Playing before any audio is queued can cause the player to
+      // finish immediately, after which scheduleBuffer calls may not produce sound.
     } catch {
       logger.error("AVAudioEngine start error: \(error)")
       return
@@ -1814,7 +1850,8 @@ final class CameraStreamSession {
 
     self.audioEngine = engine
     self.audioPlayerNode = playerNode
-    logger.info("Audio playback engine started")
+    self.audioPlayerStarted = false
+    logger.info("Audio playback engine started (player deferred until first buffer)")
   }
 
   // MARK: - Receive Incoming Audio
@@ -1839,13 +1876,19 @@ final class CameraStreamSession {
     }
   }
 
+  private var incomingAudioPacketCount: Int = 0
+
   private func handleIncomingAudioPacket(_ srtpData: Data) {
     guard let ctx = incomingSRTPContext else { return }
     guard !speakerMuted else { return }
+    incomingAudioPacketCount += 1
+    if incomingAudioPacketCount % 100 == 1 {
+      logger.info("Incoming audio SRTP packet #\(self.incomingAudioPacketCount), size=\(srtpData.count)B")
+    }
 
     // SRTP unprotect
     guard let rtpPacket = ctx.unprotect(srtpData) else {
-      logger.debug("Failed to unprotect incoming audio SRTP packet")
+      logger.warning("Failed to unprotect incoming audio SRTP packet (#\(self.incomingAudioPacketCount))")
       return
     }
 
@@ -1922,12 +1965,15 @@ final class CameraStreamSession {
     }
 
     guard status == noErr else {
-      logger.debug("AAC-ELD decode error: \(status)")
+      logger.warning("AAC-ELD decode error: \(status)")
       return
     }
 
     let decodedSize = Int(outputBufferList.mBuffers.mDataByteSize)
     guard decodedSize > 0, let playerNode = audioPlayerNode else { return }
+    if incomingAudioPacketCount % 100 == 1 {
+      logger.info("Audio decoded: \(decodedSize)B PCM, scheduling for playback")
+    }
 
     // Apply volume gain
     let gain = Float(speakerVolume) / 100.0
@@ -1954,6 +2000,11 @@ final class CameraStreamSession {
     }
 
     playerNode.scheduleBuffer(pcmBuffer)
+    if !audioPlayerStarted {
+      playerNode.play()
+      audioPlayerStarted = true
+      logger.info("Audio player started after first buffer scheduled")
+    }
   }
 }
 

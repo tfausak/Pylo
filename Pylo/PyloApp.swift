@@ -102,7 +102,7 @@ final class HAPViewModel: ObservableObject {
       let serial = UIDevice.current.identifierForVendor?.uuidString ?? "000000"
 
       let bridge = HAPBridgeInfo(
-        name: "iPhone Bridge",
+        name: "Pylo Bridge",
         model: "HAP-PoC",
         manufacturer: "DIY",
         serialNumber: serial,
@@ -111,7 +111,7 @@ final class HAPViewModel: ObservableObject {
 
       let lightbulb = HAPAccessory(
         aid: 2,
-        name: "iPhone Flashlight",
+        name: "Pylo Flashlight",
         model: "HAP-PoC",
         manufacturer: "DIY",
         serialNumber: serial + "-light",
@@ -120,7 +120,7 @@ final class HAPViewModel: ObservableObject {
 
       let camera = HAPCameraAccessory(
         aid: 3,
-        name: "iPhone Camera",
+        name: "Pylo Camera",
         model: "HAP-PoC",
         manufacturer: "DIY",
         serialNumber: serial + "-cam",
@@ -129,7 +129,7 @@ final class HAPViewModel: ObservableObject {
 
       let lightSensor = HAPLightSensorAccessory(
         aid: 4,
-        name: "iPhone Light Sensor",
+        name: "Pylo Light Sensor",
         model: "HAP-PoC",
         manufacturer: "DIY",
         serialNumber: serial + "-lux",
@@ -138,7 +138,7 @@ final class HAPViewModel: ObservableObject {
 
       let motionSensor = HAPMotionSensorAccessory(
         aid: 5,
-        name: "iPhone Motion Sensor",
+        name: "Pylo Motion Sensor",
         model: "HAP-PoC",
         manufacturer: "DIY",
         serialNumber: serial + "-motion",
@@ -315,7 +315,7 @@ private func hapSetupURI(setupCode: String, category: Int = HAPAccessoryCategory
   // Base-36 encode, uppercase, zero-padded to 9 characters
   var encoded = String(payload, radix: 36, uppercase: true)
   while encoded.count < 9 { encoded = "0" + encoded }
-  return "X-HM://\(encoded)"
+  return "X-HM://\(encoded)\(PairSetupHandler.setupID)"
 }
 
 /// Generate a crisp QR code `UIImage` from a string using CoreImage.

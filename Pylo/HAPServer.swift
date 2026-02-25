@@ -130,6 +130,7 @@ final class HAPServer {
       "s#": "1",  // State number
       "sf": pairingStore.isPaired ? "0" : "1",  // Status flags: 1=discoverable
       "ci": "\(HAPAccessoryCategory.bridge.rawValue)",  // Bridge category
+      "sh": PairSetupHandler.setupHash(deviceID: deviceIdentity.deviceID),  // Setup hash for QR pairing
     ]
   }
 

@@ -64,7 +64,7 @@ final class HAPAccessory: HAPAccessoryProtocol {
 
   init(
     aid: Int,
-    name: String = "Flashlight",
+    name: String = "Pylo Flashlight",
     model: String = "iPhone Light",
     manufacturer: String = "HAP PoC",
     serialNumber: String = "000001",
@@ -297,7 +297,7 @@ final class HAPBridgeInfo: HAPAccessoryProtocol {
   var onStateChange: ((_ aid: Int, _ iid: Int, _ value: Any) -> Void)?
 
   init(
-    name: String = "HAP Bridge",
+    name: String = "Pylo Bridge",
     model: String = "iPhone Bridge",
     manufacturer: String = "DIY",
     serialNumber: String = "000000",
@@ -394,7 +394,7 @@ final class HAPLightSensorAccessory: HAPAccessoryProtocol {
 
   init(
     aid: Int,
-    name: String = "Light Sensor",
+    name: String = "Pylo Light Sensor",
     model: String = "HAP-PoC",
     manufacturer: String = "DIY",
     serialNumber: String = "000001",
@@ -507,7 +507,7 @@ final class HAPMotionSensorAccessory: HAPAccessoryProtocol {
 
   init(
     aid: Int,
-    name: String = "Motion Sensor",
+    name: String = "Pylo Motion Sensor",
     model: String = "HAP-PoC",
     manufacturer: String = "DIY",
     serialNumber: String = "000001",

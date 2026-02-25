@@ -1,3 +1,4 @@
+import CommonCrypto
 import CryptoKit
 import Foundation
 import os
@@ -26,6 +27,31 @@ enum PairSetupHandler {
     KeychainHelper.save(key: "setup-code", data: Data(code.utf8))
     return code
   }()
+
+  /// 4-character alphanumeric Setup ID required for QR code pairing.
+  /// Generated once and persisted to Keychain.
+  static let setupID: String = {
+    if let data = KeychainHelper.load(key: "setup-id"),
+      let id = String(data: data, encoding: .utf8)
+    {
+      return id
+    }
+    let chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    let id = String((0..<4).map { _ in chars.randomElement()! })
+    KeychainHelper.save(key: "setup-id", data: Data(id.utf8))
+    return id
+  }()
+
+  /// Compute the Setup Hash (sh) for the Bonjour TXT record.
+  /// sh = Base64(SHA512(setupID + deviceID)[0..<4])
+  static func setupHash(deviceID: String) -> String {
+    let input = Data((setupID + deviceID).utf8)
+    var digest = [UInt8](repeating: 0, count: Int(CC_SHA512_DIGEST_LENGTH))
+    input.withUnsafeBytes { ptr in
+      _ = CC_SHA512(ptr.baseAddress, CC_LONG(input.count), &digest)
+    }
+    return Data(digest[0..<4]).base64EncodedString()
+  }
 
   static func handle(request: HTTPRequest, connection: HAPConnection, server: HAPServer)
     -> HTTPResponse
