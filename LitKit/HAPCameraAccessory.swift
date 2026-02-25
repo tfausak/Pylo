@@ -1,4 +1,5 @@
 import AVFoundation
+import UIKit
 import CoreImage
 import CommonCrypto
 import Foundation
@@ -521,8 +522,8 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
         // Rotate to match current device orientation
         let rotation = currentRotation()
         if let connection = videoOutput.connection(with: .video),
-           connection.isVideoRotationAngleSupported(rotation.angle) {
-            connection.videoRotationAngle = rotation.angle
+           connection.isVideoRotationAngleSupported(CGFloat(rotation.angle)) {
+            connection.videoRotationAngle = CGFloat(rotation.angle)
         }
 
         let grabber = FrameGrabber()
@@ -810,8 +811,8 @@ final class CameraStreamSession {
 
         // Rotate output to match device orientation.
         if let connection = output.connection(with: .video),
-           connection.isVideoRotationAngleSupported(rotationAngle) {
-            connection.videoRotationAngle = rotationAngle
+           connection.isVideoRotationAngleSupported(CGFloat(rotationAngle)) {
+            connection.videoRotationAngle = CGFloat(rotationAngle)
         }
 
         self.captureSession = session
@@ -940,7 +941,7 @@ final class CameraStreamSession {
             guard nalLength > 0, offset + nalLength <= data.count else { break }
 
             let nalUnit = data[offset..<offset + nalLength]
-            let nalType = nalUnit[nalUnit.startIndex] & 0x1F
+            _ = nalUnit[nalUnit.startIndex] & 0x1F
 
             nalUnits.append(Data(nalUnit))
             offset += nalLength
