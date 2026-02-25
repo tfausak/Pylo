@@ -142,87 +142,90 @@ struct ContentView: View {
     @ObservedObject var viewModel: HAPViewModel
 
     var body: some View {
-        VStack(spacing: 24) {
-            Text("HAP Flashlight")
-                .font(.largeTitle)
-                .fontWeight(.bold)
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(spacing: 24) {
+                    Text("HAP Flashlight")
+                        .font(.largeTitle)
+                        .fontWeight(.bold)
 
-            // Status
-            GroupBox("Status") {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Circle()
-                            .fill(viewModel.isRunning ? .green : .gray)
-                            .frame(width: 12, height: 12)
-                        Text(viewModel.isRunning ? "Running" : "Stopped")
-                    }
-                    Text(viewModel.statusMessage)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            // Setup Code + QR
-            if viewModel.isRunning {
-                GroupBox("Setup Code") {
-                    VStack(spacing: 12) {
-                        if let qr = generateQRCode(from: hapSetupURI(setupCode: viewModel.setupCode)) {
-                            Image(uiImage: qr)
-                                .interpolation(.none)
-                                .resizable()
-                                .scaledToFit()
-                                .frame(width: 180, height: 180)
-                        }
-                        Text(viewModel.setupCode)
-                            .font(.system(.title, design: .monospaced))
-                            .fontWeight(.bold)
-                            .frame(maxWidth: .infinity)
-                        Text("Scan with Home.app or enter the code manually")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-            }
-
-            // Light State
-            if viewModel.isRunning {
-                GroupBox("Light State") {
-                    VStack(spacing: 12) {
-                        Image(systemName: viewModel.isLightOn ? "lightbulb.fill" : "lightbulb")
-                            .font(.system(size: 48))
-                            .foregroundColor(viewModel.isLightOn ? .yellow : .gray)
-
-                        Text(viewModel.isLightOn ? "ON" : "OFF")
-                            .font(.headline)
-
-                        if viewModel.isLightOn {
-                            Text("Brightness: \(viewModel.brightness)%")
-                                .font(.subheadline)
+                    // Status
+                    GroupBox("Status") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Circle()
+                                    .fill(viewModel.isRunning ? .green : .gray)
+                                    .frame(width: 12, height: 12)
+                                Text(viewModel.isRunning ? "Running" : "Stopped")
+                            }
+                            Text(viewModel.statusMessage)
+                                .font(.caption)
                                 .foregroundColor(.secondary)
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .frame(maxWidth: .infinity)
-                }
 
-                GroupBox("Ambient Light") {
-                    VStack(spacing: 8) {
-                        Image(systemName: "sun.max")
-                            .font(.system(size: 32))
-                            .foregroundColor(.orange)
-                        Text(String(format: "%.1f lux", viewModel.ambientLux))
-                            .font(.system(.title2, design: .monospaced))
-                        Text("Front camera light estimate")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                    // Setup Code + QR
+                    if viewModel.isRunning {
+                        GroupBox("Setup Code") {
+                            VStack(spacing: 12) {
+                                if let qr = generateQRCode(from: hapSetupURI(setupCode: viewModel.setupCode)) {
+                                    Image(uiImage: qr)
+                                        .interpolation(.none)
+                                        .resizable()
+                                        .scaledToFit()
+                                        .frame(width: 180, height: 180)
+                                }
+                                Text(viewModel.setupCode)
+                                    .font(.system(.title, design: .monospaced))
+                                    .fontWeight(.bold)
+                                    .frame(maxWidth: .infinity)
+                                Text("Scan with Home.app or enter the code manually")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
                     }
-                    .frame(maxWidth: .infinity)
+
+                    // Light State
+                    if viewModel.isRunning {
+                        GroupBox("Light State") {
+                            VStack(spacing: 12) {
+                                Image(systemName: viewModel.isLightOn ? "lightbulb.fill" : "lightbulb")
+                                    .font(.system(size: 48))
+                                    .foregroundColor(viewModel.isLightOn ? .yellow : .gray)
+
+                                Text(viewModel.isLightOn ? "ON" : "OFF")
+                                    .font(.headline)
+
+                                if viewModel.isLightOn {
+                                    Text("Brightness: \(viewModel.brightness)%")
+                                        .font(.subheadline)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            .frame(maxWidth: .infinity)
+                        }
+
+                        GroupBox("Ambient Light") {
+                            VStack(spacing: 8) {
+                                Image(systemName: "sun.max")
+                                    .font(.system(size: 32))
+                                    .foregroundColor(.orange)
+                                Text(String(format: "%.1f lux", viewModel.ambientLux))
+                                    .font(.system(.title2, design: .monospaced))
+                                Text("Front camera light estimate")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            .frame(maxWidth: .infinity)
+                        }
+                    }
                 }
+                .padding()
             }
 
-            Spacer()
-
-            // Start/Stop Button
+            // Start/Stop Button (pinned to bottom)
             Button(action: {
                 if viewModel.isRunning {
                     viewModel.stop()
@@ -238,7 +241,7 @@ struct ContentView: View {
                     .foregroundColor(.white)
                     .cornerRadius(12)
             }
+            .padding()
         }
-        .padding()
     }
 }
