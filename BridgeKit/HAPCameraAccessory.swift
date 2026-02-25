@@ -923,6 +923,18 @@ final class CameraStreamSession {
             logger.error("Camera config error: \(error)")
         }
 
+        // Configure audio session BEFORE creating capture session so the mic is available
+        #if os(iOS)
+        do {
+            let audioSession = AVAudioSession.sharedInstance()
+            try audioSession.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
+            try audioSession.setPreferredSampleRate(16000)
+            try audioSession.setActive(true)
+        } catch {
+            logger.error("AVAudioSession setup error: \(error)")
+        }
+        #endif
+
         let session = AVCaptureSession()
         session.sessionPreset = width > 1280 ? .hd1920x1080 : width > 640 ? .hd1280x720 : .medium
 
@@ -964,25 +976,16 @@ final class CameraStreamSession {
                 session.addOutput(audioOut)
                 self.audioOutput = audioOut
                 objc_setAssociatedObject(audioOut, "delegate", audioDelegate, .OBJC_ASSOCIATION_RETAIN)
+                logger.info("Microphone audio capture added to session")
             }
+        } else {
+            logger.error("Failed to add microphone input")
         }
 
         self.captureSession = session
         self.videoOutput = output
         // Store delegate to prevent deallocation
         objc_setAssociatedObject(output, "delegate", delegate, .OBJC_ASSOCIATION_RETAIN)
-
-        // Configure audio session for simultaneous capture and playback
-        #if os(iOS)
-        do {
-            let audioSession = AVAudioSession.sharedInstance()
-            try audioSession.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
-            try audioSession.setPreferredSampleRate(16000)
-            try audioSession.setActive(true)
-        } catch {
-            logger.error("AVAudioSession setup error: \(error)")
-        }
-        #endif
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             session.startRunning()
@@ -1436,10 +1439,8 @@ final class CameraStreamSession {
     private func encodeAndSendAudioFrame(_ pcmData: Data) {
         guard let converter = audioConverter else { return }
 
-        // Set up input data for the converter callback
-        var inputData = pcmData
         var packetSize: UInt32 = 1
-        let outputBufferSize: UInt32 = 1024  // Plenty for a single AAC-ELD frame
+        let outputBufferSize: UInt32 = 1024
         let outputBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: Int(outputBufferSize))
         defer { outputBuffer.deallocate() }
 
@@ -1454,25 +1455,41 @@ final class CameraStreamSession {
 
         var outputPacketDesc = AudioStreamPacketDescription()
 
-        let status = withUnsafeMutablePointer(to: &inputData) { inputDataPtr in
-            AudioConverterFillComplexBuffer(
-                converter,
-                { (_, ioNumberDataPackets, ioData, outDataPacketDescription, inUserData) -> OSStatus in
-                    guard let userData = inUserData else { return -1 }
-                    let pcm = userData.assumingMemoryBound(to: Data.self).pointee
-                    ioNumberDataPackets.pointee = UInt32(pcm.count / 4)  // Float32 samples
-                    pcm.withUnsafeBytes { ptr in
-                        ioData.pointee.mBuffers.mData = UnsafeMutableRawPointer(mutating: ptr.baseAddress)
-                        ioData.pointee.mBuffers.mDataByteSize = UInt32(pcm.count)
-                        ioData.pointee.mBuffers.mNumberChannels = 1
-                    }
-                    return noErr
-                },
-                inputDataPtr,
-                &packetSize,
-                &outputBufferList,
-                &outputPacketDesc
+        // Use withUnsafeBytes to keep the PCM pointer alive through the entire converter call
+        let status: OSStatus = pcmData.withUnsafeBytes { pcmBuf -> OSStatus in
+            guard let pcmBase = pcmBuf.baseAddress else { return -1 }
+
+            var cbData = AudioEncoderInput(
+                srcData: pcmBase,
+                srcSize: UInt32(pcmData.count),
+                consumed: false
             )
+
+            return withUnsafeMutablePointer(to: &cbData) { cbPtr in
+                AudioConverterFillComplexBuffer(
+                    converter,
+                    { (_, ioNumberDataPackets, ioData, outDataPacketDescription, inUserData) -> OSStatus in
+                        guard let userData = inUserData else { return -1 }
+                        let cb = userData.assumingMemoryBound(to: AudioEncoderInput.self)
+
+                        if cb.pointee.consumed {
+                            ioNumberDataPackets.pointee = 0
+                            return -1
+                        }
+                        cb.pointee.consumed = true
+
+                        ioNumberDataPackets.pointee = UInt32(cb.pointee.srcSize / 4)  // Float32 samples
+                        ioData.pointee.mBuffers.mData = UnsafeMutableRawPointer(mutating: cb.pointee.srcData)
+                        ioData.pointee.mBuffers.mDataByteSize = cb.pointee.srcSize
+                        ioData.pointee.mBuffers.mNumberChannels = 1
+                        return noErr
+                    },
+                    cbPtr,
+                    &packetSize,
+                    &outputBufferList,
+                    &outputPacketDesc
+                )
+            }
         }
 
         guard status == noErr else {
@@ -1807,9 +1824,16 @@ private final class VideoCaptureDelegate: NSObject, AVCaptureVideoDataOutputSamp
     }
 }
 
-// MARK: - Audio Decoder Callback Data
+// MARK: - Audio Converter Callback Data
 
-/// Helper for passing compressed audio data + packet description through the AudioConverter C callback.
+/// Helper for passing PCM data through the AudioConverter encoder C callback.
+private struct AudioEncoderInput {
+    var srcData: UnsafeRawPointer?
+    var srcSize: UInt32
+    var consumed: Bool
+}
+
+/// Helper for passing compressed audio data + packet description through the AudioConverter decoder C callback.
 private struct AudioDecoderInput {
     var srcData: UnsafeRawPointer?
     var srcSize: UInt32
