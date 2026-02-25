@@ -13,6 +13,9 @@ struct HAPFlashlightApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView(viewModel: viewModel)
+                .task {
+                    viewModel.start()
+                }
         }
     }
 }
@@ -39,6 +42,7 @@ final class HAPViewModel: ObservableObject {
 
     @MainActor
     func start() {
+        guard !isRunning && !isStarting else { return }
         isStarting = true
         statusMessage = "Starting…"
 
