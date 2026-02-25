@@ -389,6 +389,21 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
 
     // MARK: - Streaming Control
 
+    /// Returns (videoRotationAngle, shouldSwapDimensions) based on current device orientation.
+    /// The camera sensor's native orientation is landscape-left, so portrait requires a 90° rotation.
+    private func currentRotation() -> (angle: Int, swapDimensions: Bool) {
+        #if os(iOS)
+        switch UIDevice.current.orientation {
+        case .landscapeLeft:  return (0, false)
+        case .landscapeRight: return (180, false)
+        case .portraitUpsideDown: return (270, true)
+        default: return (90, true) // portrait / unknown / faceUp / faceDown
+        }
+        #else
+        return (0, false) // macOS — no rotation needed
+        #endif
+    }
+
     /// Resolve the selected camera device, falling back to the default back wide-angle.
     private func resolveCamera() -> AVCaptureDevice? {
         if let id = selectedCameraID, let device = AVCaptureDevice(uniqueID: id) {
@@ -409,8 +424,9 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
         }
 
         let effectiveBitrate = max(bitrate, minimumBitrate)
-        logger.info("Bitrate: negotiated=\(bitrate)kbps, minimum=\(self.minimumBitrate)kbps, effective=\(effectiveBitrate)kbps")
-        session.startStreaming(width: width, height: height, fps: fps, bitrate: effectiveBitrate, payloadType: payloadType, camera: camera)
+        let rotation = currentRotation()
+        logger.info("Bitrate: negotiated=\(bitrate)kbps, minimum=\(self.minimumBitrate)kbps, effective=\(effectiveBitrate)kbps, rotation=\(rotation.angle)°")
+        session.startStreaming(width: width, height: height, fps: fps, bitrate: effectiveBitrate, payloadType: payloadType, camera: camera, rotationAngle: rotation.angle, swapDimensions: rotation.swapDimensions)
         onStateChange?(aid, 14, streamingStatusTLV().base64EncodedString())
     }
 
@@ -502,10 +518,11 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
         guard session.canAddOutput(videoOutput) else { return nil }
         session.addOutput(videoOutput)
 
-        // Set orientation to portrait on the connection
+        // Rotate to match current device orientation
+        let rotation = currentRotation()
         if let connection = videoOutput.connection(with: .video),
-           connection.isVideoRotationAngleSupported(90) {
-            connection.videoRotationAngle = 90
+           connection.isVideoRotationAngleSupported(rotation.angle) {
+            connection.videoRotationAngle = rotation.angle
         }
 
         let grabber = FrameGrabber()
@@ -673,7 +690,7 @@ final class CameraStreamSession {
         self.audioSSRC = audioSSRC
     }
 
-    func startStreaming(width: Int, height: Int, fps: Int, bitrate: Int, payloadType: UInt8, camera: AVCaptureDevice) {
+    func startStreaming(width: Int, height: Int, fps: Int, bitrate: Int, payloadType: UInt8, camera: AVCaptureDevice, rotationAngle: Int = 90, swapDimensions: Bool = true) {
         logger.info("Starting stream: \(width)x\(height)@\(fps)fps, \(bitrate)kbps, PT=\(payloadType) → \(self.controllerAddress):\(self.controllerVideoPort)")
         logger.info("SRTP key=\(self.videoSRTPKey.count)B salt=\(self.videoSRTPSalt.count)B SSRC=\(self.videoSSRC)")
 
@@ -704,10 +721,11 @@ final class CameraStreamSession {
             self.logger.info("UDP state: \(String(describing: state))")
             if case .ready = state {
                 // Only start capture pipeline once UDP is ready.
-                // setupCapture rotates frames to portrait, so swap dimensions
-                // for the encoder to match the actual frame size.
-                self.setupCompression(width: height, height: width, fps: fps, bitrate: bitrate)
-                self.setupCapture(width: width, height: height, fps: fps, camera: camera)
+                // Swap encoder dimensions when the rotation produces portrait frames.
+                let encWidth = swapDimensions ? height : width
+                let encHeight = swapDimensions ? width : height
+                self.setupCompression(width: encWidth, height: encHeight, fps: fps, bitrate: bitrate)
+                self.setupCapture(width: width, height: height, fps: fps, camera: camera, rotationAngle: rotationAngle)
                 self.startRTCPTimer()
             }
         }
@@ -754,7 +772,7 @@ final class CameraStreamSession {
 
     // MARK: - Video Capture
 
-    private func setupCapture(width: Int, height: Int, fps: Int, camera: AVCaptureDevice) {
+    private func setupCapture(width: Int, height: Int, fps: Int, camera: AVCaptureDevice, rotationAngle: Int = 90) {
         do {
             try camera.lockForConfiguration()
             // Find closest frame rate range
@@ -790,12 +808,10 @@ final class CameraStreamSession {
         output.setSampleBufferDelegate(delegate, queue: captureQueue)
         if session.canAddOutput(output) { session.addOutput(output) }
 
-        // Fix orientation — the sensor's native orientation is landscape-left,
-        // so we need to tell the connection to rotate to portrait.
-        if let connection = output.connection(with: .video) {
-            if connection.isVideoRotationAngleSupported(90) {
-                connection.videoRotationAngle = 90
-            }
+        // Rotate output to match device orientation.
+        if let connection = output.connection(with: .video),
+           connection.isVideoRotationAngleSupported(rotationAngle) {
+            connection.videoRotationAngle = rotationAngle
         }
 
         self.captureSession = session

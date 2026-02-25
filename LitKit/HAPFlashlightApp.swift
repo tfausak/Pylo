@@ -29,6 +29,12 @@ enum VideoQuality: String, CaseIterable, Identifiable {
 struct HAPFlashlightApp: App {
     @StateObject private var viewModel = HAPViewModel()
 
+    init() {
+        #if os(iOS)
+        UIDevice.current.beginGeneratingDeviceOrientationNotifications()
+        #endif
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView(viewModel: viewModel)

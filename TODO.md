@@ -1,5 +1,6 @@
 # TODO
 
+- [x] Let device orientation, if available, drive camera orientation.
 - [ ] The app needs a new name. Both "LitKit" and "HAP Flashlight" are limiting. The app now provides multiple accessories (not just lights), and it can conceivably work on many different devices (not just phones).
 - [ ] Can the light support adaptive color temperature?
 - [x] The app makes a camera shutter sound for the snapshots. Is this necessary?
