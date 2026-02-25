@@ -831,6 +831,8 @@ final class CameraStreamSession {
   private var audioPlayerNode: AVAudioPlayerNode?
   private var audioPlayerStarted: Bool = false
   private var incomingSRTPContext: SRTPContext?
+  private var audioListener: NWListener?
+  private var audioListenerConnection: NWConnection?
   var speakerMuted: Bool = false
   var speakerVolume: Int = 100
 
@@ -938,7 +940,7 @@ final class CameraStreamSession {
     rtcpConn.start(queue: rtpQueue)
     self.rtcpConnection = rtcpConn
 
-    // Open UDP for audio RTP to controller's audio port
+    // Open UDP for sending audio RTP to controller's audio port
     let audioParams = NWParameters.udp
     audioParams.requiredLocalEndpoint = NWEndpoint.hostPort(
       host: NWEndpoint.Host(localAddress),
@@ -951,17 +953,61 @@ final class CameraStreamSession {
     )
     audioConn.stateUpdateHandler = { [weak self] state in
       guard let self else { return }
-      self.logger.info("Audio UDP state: \(String(describing: state))")
+      self.logger.info("Audio send UDP state: \(String(describing: state))")
       if case .ready = state {
         self.setupAudioEncoder()
-        self.setupAudioDecoder()
-        self.setupAudioPlayback()
         self.startAudioRTCPTimer()
-        self.startReceivingAudio()
+      }
+      if case .failed = state {
+        // Audio send failed (e.g. ICMP port unreachable) — nil it out so we
+        // stop trying to send, but don't let it affect video or audio receive.
+        self.logger.warning("Audio send connection failed — mic audio will not be delivered")
+        self.audioConnection?.cancel()
+        self.audioConnection = nil
       }
     }
     audioConn.start(queue: rtpQueue)
     self.audioConnection = audioConn
+
+    // Open a separate UDP listener for receiving audio FROM the controller.
+    // We use NWListener instead of the connected NWConnection because a
+    // connected UDP socket fails from ICMP errors when the controller isn't
+    // listening yet, poisoning the socket and killing audio receive.
+    do {
+      let listenParams = NWParameters.udp
+      listenParams.requiredLocalEndpoint = NWEndpoint.hostPort(
+        host: NWEndpoint.Host(localAddress),
+        port: NWEndpoint.Port(rawValue: localAudioPort)!
+      )
+      listenParams.allowLocalEndpointReuse = true
+      let listener = try NWListener(using: listenParams)
+      listener.stateUpdateHandler = { [weak self] state in
+        self?.logger.info("Audio receive listener state: \(String(describing: state))")
+      }
+      listener.newConnectionHandler = { [weak self] newConn in
+        guard let self else { return }
+        self.logger.info("Audio receive: incoming connection from \(String(describing: newConn.endpoint))")
+        // Only accept one incoming audio flow
+        if self.audioListenerConnection != nil {
+          newConn.cancel()
+          return
+        }
+        self.audioListenerConnection = newConn
+        newConn.stateUpdateHandler = { [weak self] state in
+          if case .failed = state {
+            self?.audioListenerConnection = nil
+          }
+        }
+        newConn.start(queue: self.rtpQueue)
+        self.startReceivingAudio(on: newConn)
+      }
+      listener.start(queue: rtpQueue)
+      self.audioListener = listener
+      self.setupAudioDecoder()
+      self.setupAudioPlayback()
+    } catch {
+      logger.error("Failed to create audio receive listener: \(error)")
+    }
   }
 
   func stopStreaming() {
@@ -1003,6 +1049,12 @@ final class CameraStreamSession {
     audioSRTPContext = nil
     audioSampleCount = 0
     incomingAudioPacketCount = 0
+
+    // Audio receive cleanup
+    audioListenerConnection?.cancel()
+    audioListenerConnection = nil
+    audioListener?.cancel()
+    audioListener = nil
 
     // Audio speaker cleanup
     audioPlayerNode?.stop()
@@ -1858,12 +1910,12 @@ final class CameraStreamSession {
 
   // MARK: - Receive Incoming Audio
 
-  private func startReceivingAudio() {
-    receiveNextAudioPacket()
+  private func startReceivingAudio(on connection: NWConnection) {
+    receiveNextAudioPacket(on: connection)
   }
 
-  private func receiveNextAudioPacket() {
-    audioConnection?.receiveMessage { [weak self] data, _, _, error in
+  private func receiveNextAudioPacket(on connection: NWConnection) {
+    connection.receiveMessage { [weak self] data, _, _, error in
       guard let self else { return }
       if let data {
         self.rtpQueue.async {
@@ -1871,10 +1923,10 @@ final class CameraStreamSession {
         }
       }
       if let error {
-        self.logger.debug("Audio receive error: \(error)")
+        self.logger.warning("Audio receive stopped: \(error)")
+        return  // Stop the loop — connection is broken
       }
-      // Continue receiving
-      self.receiveNextAudioPacket()
+      self.receiveNextAudioPacket(on: connection)
     }
   }
 
