@@ -1,3 +1,4 @@
+import AudioToolbox
 import AVFoundation
 import UIKit
 import CoreImage
@@ -34,6 +35,11 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
 
     /// Whether the microphone is muted.
     private var isMuted: Bool = false
+
+    /// Whether the speaker is muted.
+    private var speakerMuted: Bool = false
+    /// Speaker volume (0-100).
+    private var speakerVolume: Int = 100
 
     // Pending setup endpoint response (written by controller, read back after)
     private var setupEndpointsResponse = Data()
@@ -74,6 +80,10 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
     //
     // Service: Microphone (iid 15)
     //   - Mute:              iid 16
+    //
+    // Service: Speaker (iid 17)
+    //   - Mute:              iid 18
+    //   - Volume:            iid 19
 
     // MARK: - HAP UUIDs
 
@@ -85,7 +95,9 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
     static let uuidSetupEndpoints             = "118"
     static let uuidStreamingStatus            = "120"
     static let uuidMicrophone                 = "112"
+    static let uuidSpeaker                    = "113"
     static let uuidMute                       = "11A"
+    static let uuidVolume                     = "119"
 
     // MARK: - Read Characteristic
 
@@ -103,6 +115,8 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
         case 13: return ""  // write-only effectively
         case 14: return streamingStatusTLV().base64EncodedString()
         case 16: return isMuted
+        case 18: return speakerMuted
+        case 19: return speakerVolume
         default: return nil
         }
     }
@@ -120,8 +134,15 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
         case 13:
             return handleSelectedRTPStreamConfig(value)
         case 16:
-            if let v = value as? Bool { isMuted = v; return true }
-            if let v = value as? Int { isMuted = v != 0; return true }
+            if let v = value as? Bool { isMuted = v; streamSession?.isMuted = v; return true }
+            if let v = value as? Int { isMuted = v != 0; streamSession?.isMuted = (v != 0); return true }
+            return false
+        case 18:
+            if let v = value as? Bool { speakerMuted = v; streamSession?.speakerMuted = v; return true }
+            if let v = value as? Int { speakerMuted = v != 0; streamSession?.speakerMuted = (v != 0); return true }
+            return false
+        case 19:
+            if let v = value as? Int { speakerVolume = max(0, min(100, v)); streamSession?.speakerVolume = speakerVolume; return true }
             return false
         default:
             return false
@@ -345,6 +366,7 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
                     var width: UInt16 = 1280, height: UInt16 = 720, fps: UInt8 = 30
                     var maxBitrate: Int = 2000
                     var payloadType: UInt8 = 99
+                    var audioPayloadType: UInt8 = 110
                     for (ptag, pval) in tlvs {
                         if ptag == 0x02 { // Selected video parameters
                             let vsub = TLV8.decode(pval) as [(UInt8, Data)]
@@ -372,10 +394,20 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
                                 default: break
                                 }
                             }
+                        } else if ptag == 0x03 { // Selected audio parameters
+                            let asub = TLV8.decode(pval) as [(UInt8, Data)]
+                            for (atag, aval) in asub {
+                                if atag == 0x03 { // Audio RTP parameters
+                                    let rtpSub = TLV8.decode(aval) as [(UInt8, Data)]
+                                    for (rtag, rval) in rtpSub {
+                                        if rtag == 0x01, let pt = rval.first { audioPayloadType = pt }
+                                    }
+                                }
+                            }
                         }
                     }
-                    logger.info("Selected video: \(width)x\(height)@\(fps)fps, \(maxBitrate)kbps, PT=\(payloadType)")
-                    startStreaming(width: Int(width), height: Int(height), fps: Int(fps), bitrate: maxBitrate, payloadType: payloadType)
+                    logger.info("Selected video: \(width)x\(height)@\(fps)fps, \(maxBitrate)kbps, PT=\(payloadType), audioPT=\(audioPayloadType)")
+                    startStreaming(width: Int(width), height: Int(height), fps: Int(fps), bitrate: maxBitrate, payloadType: payloadType, audioPayloadType: audioPayloadType)
 
                 case 0, 2: // END(0) or RECONFIGURE(2) - for now treat reconfigure as restart
                     logger.info("Stream \(command == 0 ? "STOP" : "RECONFIGURE") requested")
@@ -413,7 +445,7 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
         return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
     }
 
-    private func startStreaming(width: Int, height: Int, fps: Int, bitrate: Int, payloadType: UInt8) {
+    private func startStreaming(width: Int, height: Int, fps: Int, bitrate: Int, payloadType: UInt8, audioPayloadType: UInt8 = 110) {
         guard let session = streamSession else {
             logger.error("No stream session configured")
             return
@@ -424,10 +456,14 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
             return
         }
 
+        session.isMuted = isMuted
+        session.speakerMuted = speakerMuted
+        session.speakerVolume = speakerVolume
+
         let effectiveBitrate = max(bitrate, minimumBitrate)
         let rotation = currentRotation()
         logger.info("Bitrate: negotiated=\(bitrate)kbps, minimum=\(self.minimumBitrate)kbps, effective=\(effectiveBitrate)kbps, rotation=\(rotation.angle)°")
-        session.startStreaming(width: width, height: height, fps: fps, bitrate: effectiveBitrate, payloadType: payloadType, camera: camera, rotationAngle: rotation.angle, swapDimensions: rotation.swapDimensions)
+        session.startStreaming(width: width, height: height, fps: fps, bitrate: effectiveBitrate, payloadType: payloadType, audioPayloadType: audioPayloadType, camera: camera, rotationAngle: rotation.angle, swapDimensions: rotation.swapDimensions)
         onStateChange?(aid, 14, streamingStatusTLV().base64EncodedString())
     }
 
@@ -597,6 +633,18 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
                          "perms": ["pr", "pw", "ev"], "value": isMuted],
                     ]
                 ],
+                // Speaker Service
+                [
+                    "iid": 17,
+                    "type": Self.uuidSpeaker,
+                    "characteristics": [
+                        ["iid": 18, "type": Self.uuidMute, "format": "bool",
+                         "perms": ["pr", "pw", "ev"], "value": speakerMuted],
+                        ["iid": 19, "type": Self.uuidVolume, "format": "uint8",
+                         "perms": ["pr", "pw", "ev"], "value": speakerVolume,
+                         "minValue": 0, "maxValue": 100, "minStep": 1],
+                    ]
+                ],
             ]
         ]
     }
@@ -668,6 +716,31 @@ final class CameraStreamSession {
     // RTCP timer
     private var rtcpTimer: DispatchSourceTimer?
 
+    // Audio pipeline (microphone → controller)
+    private var audioOutput: AVCaptureAudioDataOutput?
+    private var audioConverter: AudioConverterRef?
+    private var audioConnection: NWConnection?
+    private var audioSRTPContext: SRTPContext?
+    private var audioRTPSeq: UInt16 = 0
+    private var audioRTPTimestamp: UInt32 = 0
+    private var audioPayloadType: UInt8 = 110
+    private var audioPacketsSent: Int = 0
+    private var audioOctetsSent: Int = 0
+    private var audioRTCPTimer: DispatchSourceTimer?
+    var isMuted: Bool = false
+
+    // Audio pipeline (controller → speaker)
+    private var audioDecoder: AudioConverterRef?
+    private var audioEngine: AVAudioEngine?
+    private var audioPlayerNode: AVAudioPlayerNode?
+    private var incomingSRTPContext: SRTPContext?
+    var speakerMuted: Bool = false
+    var speakerVolume: Int = 100
+
+    // Audio encoder state — accumulates PCM until we have a full AAC-ELD frame
+    private var pcmAccumulator = Data()
+    private let aacFrameSamples = 480  // AAC-ELD frame size at 16kHz
+
     init(
         sessionID: Data,
         controllerAddress: String, controllerVideoPort: UInt16, controllerAudioPort: UInt16,
@@ -691,12 +764,13 @@ final class CameraStreamSession {
         self.audioSSRC = audioSSRC
     }
 
-    func startStreaming(width: Int, height: Int, fps: Int, bitrate: Int, payloadType: UInt8, camera: AVCaptureDevice, rotationAngle: Int = 90, swapDimensions: Bool = true) {
+    func startStreaming(width: Int, height: Int, fps: Int, bitrate: Int, payloadType: UInt8, audioPayloadType: UInt8 = 110, camera: AVCaptureDevice, rotationAngle: Int = 90, swapDimensions: Bool = true) {
         logger.info("Starting stream: \(width)x\(height)@\(fps)fps, \(bitrate)kbps, PT=\(payloadType) → \(self.controllerAddress):\(self.controllerVideoPort)")
         logger.info("SRTP key=\(self.videoSRTPKey.count)B salt=\(self.videoSRTPSalt.count)B SSRC=\(self.videoSSRC)")
 
         self.targetFPS = fps
         self.rtpPayloadType = payloadType
+        self.audioPayloadType = audioPayloadType
         // Start seq/ts at low values — some SRTP receivers mis-estimate the
         // rollover counter when the first sequence number is > 2^15, causing
         // every authentication check to fail (black video).
@@ -704,9 +778,16 @@ final class CameraStreamSession {
         self.rtpTimestamp = 0
         self.packetsSent = 0
         self.octetsSent = 0
+        self.audioRTPSeq = 0
+        self.audioRTPTimestamp = 0
+        self.audioPacketsSent = 0
+        self.audioOctetsSent = 0
+        self.pcmAccumulator = Data()
 
         // Initialize SRTP with shared keys (both sides use the same key material)
         srtpContext = SRTPContext(masterKey: videoSRTPKey, masterSalt: videoSRTPSalt)
+        audioSRTPContext = SRTPContext(masterKey: audioSRTPKey, masterSalt: audioSRTPSalt)
+        incomingSRTPContext = SRTPContext(masterKey: audioSRTPKey, masterSalt: audioSRTPSalt)
 
         // Open UDP to controller, binding to our advertised local port
         let host = NWEndpoint.Host(controllerAddress)
@@ -746,11 +827,37 @@ final class CameraStreamSession {
         }
         rtcpConn.start(queue: rtpQueue)
         self.rtcpConnection = rtcpConn
+
+        // Open UDP for audio RTP to controller's audio port
+        let audioParams = NWParameters.udp
+        audioParams.requiredLocalEndpoint = NWEndpoint.hostPort(
+            host: NWEndpoint.Host(localAddress),
+            port: NWEndpoint.Port(rawValue: localAudioPort)!
+        )
+        let audioConn = NWConnection(
+            host: host,
+            port: NWEndpoint.Port(rawValue: controllerAudioPort)!,
+            using: audioParams
+        )
+        audioConn.stateUpdateHandler = { [weak self] state in
+            guard let self else { return }
+            self.logger.info("Audio UDP state: \(String(describing: state))")
+            if case .ready = state {
+                self.setupAudioEncoder()
+                self.setupAudioDecoder()
+                self.setupAudioPlayback()
+                self.startAudioRTCPTimer()
+                self.startReceivingAudio()
+            }
+        }
+        audioConn.start(queue: rtpQueue)
+        self.audioConnection = audioConn
     }
 
     func stopStreaming() {
         logger.info("Stopping stream")
 
+        // Video cleanup
         rtcpTimer?.cancel()
         rtcpTimer = nil
 
@@ -769,6 +876,33 @@ final class CameraStreamSession {
         rtcpConnection?.cancel()
         rtcpConnection = nil
         srtpContext = nil
+
+        // Audio mic cleanup
+        audioRTCPTimer?.cancel()
+        audioRTCPTimer = nil
+        audioOutput = nil
+
+        if let enc = audioConverter {
+            AudioConverterDispose(enc)
+        }
+        audioConverter = nil
+        pcmAccumulator = Data()
+
+        audioConnection?.cancel()
+        audioConnection = nil
+        audioSRTPContext = nil
+
+        // Audio speaker cleanup
+        audioPlayerNode?.stop()
+        audioPlayerNode = nil
+        audioEngine?.stop()
+        audioEngine = nil
+
+        if let dec = audioDecoder {
+            AudioConverterDispose(dec)
+        }
+        audioDecoder = nil
+        incomingSRTPContext = nil
     }
 
     // MARK: - Video Capture
@@ -815,10 +949,40 @@ final class CameraStreamSession {
             connection.videoRotationAngle = CGFloat(rotationAngle)
         }
 
+        // Add microphone input for audio capture
+        if let mic = AVCaptureDevice.default(for: .audio),
+           let micInput = try? AVCaptureDeviceInput(device: mic),
+           session.canAddInput(micInput) {
+            session.addInput(micInput)
+
+            let audioOut = AVCaptureAudioDataOutput()
+            let audioDelegate = AudioCaptureDelegate { [weak self] sampleBuffer in
+                self?.handleAudioSampleBuffer(sampleBuffer)
+            }
+            audioOut.setSampleBufferDelegate(audioDelegate, queue: captureQueue)
+            if session.canAddOutput(audioOut) {
+                session.addOutput(audioOut)
+                self.audioOutput = audioOut
+                objc_setAssociatedObject(audioOut, "delegate", audioDelegate, .OBJC_ASSOCIATION_RETAIN)
+            }
+        }
+
         self.captureSession = session
         self.videoOutput = output
         // Store delegate to prevent deallocation
         objc_setAssociatedObject(output, "delegate", delegate, .OBJC_ASSOCIATION_RETAIN)
+
+        // Configure audio session for simultaneous capture and playback
+        #if os(iOS)
+        do {
+            let audioSession = AVAudioSession.sharedInstance()
+            try audioSession.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
+            try audioSession.setPreferredSampleRate(16000)
+            try audioSession.setActive(true)
+        } catch {
+            logger.error("AVAudioSession setup error: \(error)")
+        }
+        #endif
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             session.startRunning()
@@ -1126,6 +1290,505 @@ final class CameraStreamSession {
         })
         logger.debug("Sent RTCP-SR: packets=\(self.packetsSent) octets=\(self.octetsSent)")
     }
+
+    // MARK: - Audio Encoder (PCM → AAC-ELD)
+
+    private func setupAudioEncoder() {
+        // Input: Linear PCM Float32, 16kHz, mono
+        var inputDesc = AudioStreamBasicDescription(
+            mSampleRate: 16000,
+            mFormatID: kAudioFormatLinearPCM,
+            mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked,
+            mBytesPerPacket: 4,
+            mFramesPerPacket: 1,
+            mBytesPerFrame: 4,
+            mChannelsPerFrame: 1,
+            mBitsPerChannel: 32,
+            mReserved: 0
+        )
+
+        // Output: AAC-ELD, 16kHz, mono
+        var outputDesc = AudioStreamBasicDescription(
+            mSampleRate: 16000,
+            mFormatID: kAudioFormatMPEG4AAC_ELD,
+            mFormatFlags: 0,
+            mBytesPerPacket: 0,
+            mFramesPerPacket: 480,
+            mBytesPerFrame: 0,
+            mChannelsPerFrame: 1,
+            mBitsPerChannel: 0,
+            mReserved: 0
+        )
+
+        var converter: AudioConverterRef?
+        let status = AudioConverterNew(&inputDesc, &outputDesc, &converter)
+        if status != noErr {
+            logger.error("AudioConverter (encoder) create failed: \(status)")
+            return
+        }
+
+        // Set bitrate to 24kbps (good quality for voice)
+        var bitrate: UInt32 = 24000
+        AudioConverterSetProperty(converter!, kAudioConverterEncodeBitRate,
+                                  UInt32(MemoryLayout<UInt32>.size), &bitrate)
+
+        self.audioConverter = converter
+        logger.info("AAC-ELD encoder created (16kHz mono → AAC-ELD)")
+    }
+
+    // MARK: - Audio Sample Buffer Processing
+
+    private func handleAudioSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
+        guard audioConverter != nil, audioConnection != nil else { return }
+        guard !isMuted else { return }
+
+        // Get PCM data from the sample buffer
+        guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { return }
+        var totalLength = 0
+        var dataPointer: UnsafeMutablePointer<CChar>?
+        CMBlockBufferGetDataPointer(blockBuffer, atOffset: 0, lengthAtOffsetOut: nil,
+                                    totalLengthOut: &totalLength, dataPointerOut: &dataPointer)
+        guard let ptr = dataPointer, totalLength > 0 else { return }
+
+        // Get the source format to know what we're dealing with
+        guard let formatDesc = CMSampleBufferGetFormatDescription(sampleBuffer) else { return }
+        let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc)?.pointee
+
+        let rawData = Data(bytes: ptr, count: totalLength)
+
+        // Convert to Float32 at 16kHz if needed (the mic may deliver Int16 at 44.1/48kHz)
+        let pcmFloat32: Data
+        if let asbd, asbd.mFormatID == kAudioFormatLinearPCM {
+            pcmFloat32 = convertToFloat32_16kHz(rawData, sourceASBD: asbd)
+        } else {
+            return // Unexpected format
+        }
+
+        // Accumulate PCM and encode when we have enough for an AAC-ELD frame
+        pcmAccumulator.append(pcmFloat32)
+        let frameSizeBytes = aacFrameSamples * 4  // 480 samples * 4 bytes/sample (Float32)
+
+        while pcmAccumulator.count >= frameSizeBytes {
+            let frameData = pcmAccumulator.prefix(frameSizeBytes)
+            pcmAccumulator = Data(pcmAccumulator.dropFirst(frameSizeBytes))
+            encodeAndSendAudioFrame(Data(frameData))
+        }
+    }
+
+    /// Convert PCM audio data to Float32 at 16kHz mono.
+    private func convertToFloat32_16kHz(_ data: Data, sourceASBD: AudioStreamBasicDescription) -> Data {
+        let sourceSampleRate = sourceASBD.mSampleRate
+        let sourceChannels = Int(sourceASBD.mChannelsPerFrame)
+        let isFloat = (sourceASBD.mFormatFlags & kAudioFormatFlagIsFloat) != 0
+        let is16Bit = sourceASBD.mBitsPerChannel == 16
+        let bytesPerSample = Int(sourceASBD.mBitsPerChannel / 8)
+
+        // First convert to Float32 mono
+        var floatSamples: [Float] = []
+
+        if isFloat && bytesPerSample == 4 {
+            // Already Float32
+            data.withUnsafeBytes { ptr in
+                let floatPtr = ptr.bindMemory(to: Float.self)
+                if sourceChannels == 1 {
+                    floatSamples = Array(floatPtr)
+                } else {
+                    // Mix down to mono
+                    for i in stride(from: 0, to: floatPtr.count, by: sourceChannels) {
+                        floatSamples.append(floatPtr[i])
+                    }
+                }
+            }
+        } else if is16Bit {
+            // Int16 → Float32
+            data.withUnsafeBytes { ptr in
+                let int16Ptr = ptr.bindMemory(to: Int16.self)
+                for i in stride(from: 0, to: int16Ptr.count, by: sourceChannels) {
+                    floatSamples.append(Float(int16Ptr[i]) / 32768.0)
+                }
+            }
+        } else {
+            return Data()
+        }
+
+        // Resample to 16kHz if needed
+        if abs(sourceSampleRate - 16000) > 1 {
+            let ratio = 16000.0 / sourceSampleRate
+            let outputCount = Int(Double(floatSamples.count) * ratio)
+            var resampled = [Float](repeating: 0, count: outputCount)
+            for i in 0..<outputCount {
+                let srcIdx = Double(i) / ratio
+                let idx = Int(srcIdx)
+                let frac = Float(srcIdx - Double(idx))
+                if idx + 1 < floatSamples.count {
+                    resampled[i] = floatSamples[idx] * (1 - frac) + floatSamples[idx + 1] * frac
+                } else if idx < floatSamples.count {
+                    resampled[i] = floatSamples[idx]
+                }
+            }
+            floatSamples = resampled
+        }
+
+        return floatSamples.withUnsafeBytes { Data($0) }
+    }
+
+    /// Encode a single AAC-ELD frame (480 samples) and send as an RTP packet.
+    private func encodeAndSendAudioFrame(_ pcmData: Data) {
+        guard let converter = audioConverter else { return }
+
+        // Set up input data for the converter callback
+        var inputData = pcmData
+        var packetSize: UInt32 = 1
+        let outputBufferSize: UInt32 = 1024  // Plenty for a single AAC-ELD frame
+        let outputBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: Int(outputBufferSize))
+        defer { outputBuffer.deallocate() }
+
+        var outputBufferList = AudioBufferList(
+            mNumberBuffers: 1,
+            mBuffers: AudioBuffer(
+                mNumberChannels: 1,
+                mDataByteSize: outputBufferSize,
+                mData: outputBuffer
+            )
+        )
+
+        var outputPacketDesc = AudioStreamPacketDescription()
+
+        let status = withUnsafeMutablePointer(to: &inputData) { inputDataPtr in
+            AudioConverterFillComplexBuffer(
+                converter,
+                { (_, ioNumberDataPackets, ioData, outDataPacketDescription, inUserData) -> OSStatus in
+                    guard let userData = inUserData else { return -1 }
+                    let pcm = userData.assumingMemoryBound(to: Data.self).pointee
+                    ioNumberDataPackets.pointee = UInt32(pcm.count / 4)  // Float32 samples
+                    pcm.withUnsafeBytes { ptr in
+                        ioData.pointee.mBuffers.mData = UnsafeMutableRawPointer(mutating: ptr.baseAddress)
+                        ioData.pointee.mBuffers.mDataByteSize = UInt32(pcm.count)
+                        ioData.pointee.mBuffers.mNumberChannels = 1
+                    }
+                    return noErr
+                },
+                inputDataPtr,
+                &packetSize,
+                &outputBufferList,
+                &outputPacketDesc
+            )
+        }
+
+        guard status == noErr else {
+            if status != 0 { logger.debug("AAC-ELD encode error: \(status)") }
+            return
+        }
+
+        let encodedSize = Int(outputBufferList.mBuffers.mDataByteSize)
+        guard encodedSize > 0 else { return }
+        let aacData = Data(bytes: outputBuffer, count: encodedSize)
+
+        sendAudioRTPPacket(payload: aacData)
+    }
+
+    // MARK: - Audio RTP Send
+
+    private func sendAudioRTPPacket(payload: Data) {
+        // Build 12-byte RTP header
+        var header = Data(count: 12)
+        header[0] = 0x80  // V=2
+        header[1] = 0x80 | (audioPayloadType & 0x7F)  // M=1 (every AAC frame is a complete AU)
+        header[2] = UInt8(audioRTPSeq >> 8)
+        header[3] = UInt8(audioRTPSeq & 0xFF)
+        header[4] = UInt8((audioRTPTimestamp >> 24) & 0xFF)
+        header[5] = UInt8((audioRTPTimestamp >> 16) & 0xFF)
+        header[6] = UInt8((audioRTPTimestamp >> 8) & 0xFF)
+        header[7] = UInt8(audioRTPTimestamp & 0xFF)
+        header[8] = UInt8((audioSSRC >> 24) & 0xFF)
+        header[9] = UInt8((audioSSRC >> 16) & 0xFF)
+        header[10] = UInt8((audioSSRC >> 8) & 0xFF)
+        header[11] = UInt8(audioSSRC & 0xFF)
+
+        audioRTPSeq &+= 1
+        audioRTPTimestamp &+= UInt32(aacFrameSamples)  // 480 samples at 16kHz clock
+
+        var rtpPacket = header
+        rtpPacket.append(payload)
+
+        // SRTP protect with audio context
+        if let ctx = audioSRTPContext {
+            rtpPacket = ctx.protect(rtpPacket)
+        }
+
+        audioPacketsSent += 1
+        audioOctetsSent += payload.count
+        audioConnection?.send(content: rtpPacket, completion: .contentProcessed { [weak self] error in
+            if let error {
+                self?.logger.error("Audio UDP send error: \(error)")
+            }
+        })
+    }
+
+    // MARK: - Audio RTCP Sender Report
+
+    private func startAudioRTCPTimer() {
+        let timer = DispatchSource.makeTimerSource(queue: rtpQueue)
+        timer.schedule(deadline: .now() + 1.0, repeating: 5.0)
+        timer.setEventHandler { [weak self] in
+            self?.sendAudioRTCPSenderReport()
+        }
+        timer.resume()
+        self.audioRTCPTimer = timer
+    }
+
+    private func sendAudioRTCPSenderReport() {
+        guard let ctx = audioSRTPContext else { return }
+
+        var sr = Data(count: 28)
+        sr[0] = 0x80
+        sr[1] = 200
+        sr[2] = 0x00
+        sr[3] = 0x06
+        sr[4] = UInt8((audioSSRC >> 24) & 0xFF)
+        sr[5] = UInt8((audioSSRC >> 16) & 0xFF)
+        sr[6] = UInt8((audioSSRC >> 8) & 0xFF)
+        sr[7] = UInt8(audioSSRC & 0xFF)
+        let now = Date()
+        let ntpEpochOffset: TimeInterval = 2208988800
+        let ntpTime = now.timeIntervalSince1970 + ntpEpochOffset
+        let ntpSec = UInt32(ntpTime)
+        let ntpFrac = UInt32((ntpTime - Double(ntpSec)) * 4294967296.0)
+        sr[8]  = UInt8((ntpSec >> 24) & 0xFF)
+        sr[9]  = UInt8((ntpSec >> 16) & 0xFF)
+        sr[10] = UInt8((ntpSec >> 8) & 0xFF)
+        sr[11] = UInt8(ntpSec & 0xFF)
+        sr[12] = UInt8((ntpFrac >> 24) & 0xFF)
+        sr[13] = UInt8((ntpFrac >> 16) & 0xFF)
+        sr[14] = UInt8((ntpFrac >> 8) & 0xFF)
+        sr[15] = UInt8(ntpFrac & 0xFF)
+        sr[16] = UInt8((audioRTPTimestamp >> 24) & 0xFF)
+        sr[17] = UInt8((audioRTPTimestamp >> 16) & 0xFF)
+        sr[18] = UInt8((audioRTPTimestamp >> 8) & 0xFF)
+        sr[19] = UInt8(audioRTPTimestamp & 0xFF)
+        let pc = UInt32(audioPacketsSent)
+        sr[20] = UInt8((pc >> 24) & 0xFF)
+        sr[21] = UInt8((pc >> 16) & 0xFF)
+        sr[22] = UInt8((pc >> 8) & 0xFF)
+        sr[23] = UInt8(pc & 0xFF)
+        let oc = UInt32(audioOctetsSent)
+        sr[24] = UInt8((oc >> 24) & 0xFF)
+        sr[25] = UInt8((oc >> 16) & 0xFF)
+        sr[26] = UInt8((oc >> 8) & 0xFF)
+        sr[27] = UInt8(oc & 0xFF)
+
+        // Audio RTCP is sent on the audio connection (same port pair for HAP)
+        let srtcpPacket = ctx.protectRTCP(sr)
+        audioConnection?.send(content: srtcpPacket, completion: .contentProcessed { [weak self] error in
+            if let error {
+                self?.logger.error("Audio RTCP send error: \(error)")
+            }
+        })
+        logger.debug("Sent audio RTCP-SR: packets=\(self.audioPacketsSent) octets=\(self.audioOctetsSent)")
+    }
+
+    // MARK: - Audio Decoder (AAC-ELD → PCM)
+
+    private func setupAudioDecoder() {
+        // Input: AAC-ELD, 16kHz, mono
+        var inputDesc = AudioStreamBasicDescription(
+            mSampleRate: 16000,
+            mFormatID: kAudioFormatMPEG4AAC_ELD,
+            mFormatFlags: 0,
+            mBytesPerPacket: 0,
+            mFramesPerPacket: 480,
+            mBytesPerFrame: 0,
+            mChannelsPerFrame: 1,
+            mBitsPerChannel: 0,
+            mReserved: 0
+        )
+
+        // Output: Linear PCM Float32, 16kHz, mono
+        var outputDesc = AudioStreamBasicDescription(
+            mSampleRate: 16000,
+            mFormatID: kAudioFormatLinearPCM,
+            mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked,
+            mBytesPerPacket: 4,
+            mFramesPerPacket: 1,
+            mBytesPerFrame: 4,
+            mChannelsPerFrame: 1,
+            mBitsPerChannel: 32,
+            mReserved: 0
+        )
+
+        var decoder: AudioConverterRef?
+        let status = AudioConverterNew(&inputDesc, &outputDesc, &decoder)
+        if status != noErr {
+            logger.error("AudioConverter (decoder) create failed: \(status)")
+            return
+        }
+
+        self.audioDecoder = decoder
+        logger.info("AAC-ELD decoder created")
+    }
+
+    // MARK: - Audio Playback (AVAudioEngine)
+
+    private func setupAudioPlayback() {
+        let engine = AVAudioEngine()
+        let playerNode = AVAudioPlayerNode()
+
+        engine.attach(playerNode)
+
+        // Connect player to main mixer with Float32/16kHz/mono format
+        guard let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16000, channels: 1, interleaved: false) else {
+            logger.error("Failed to create audio format for playback")
+            return
+        }
+        engine.connect(playerNode, to: engine.mainMixerNode, format: format)
+
+        do {
+            try engine.start()
+            playerNode.play()
+        } catch {
+            logger.error("AVAudioEngine start error: \(error)")
+            return
+        }
+
+        self.audioEngine = engine
+        self.audioPlayerNode = playerNode
+        logger.info("Audio playback engine started")
+    }
+
+    // MARK: - Receive Incoming Audio
+
+    private func startReceivingAudio() {
+        receiveNextAudioPacket()
+    }
+
+    private func receiveNextAudioPacket() {
+        audioConnection?.receiveMessage { [weak self] data, _, _, error in
+            guard let self else { return }
+            if let data {
+                self.rtpQueue.async {
+                    self.handleIncomingAudioPacket(data)
+                }
+            }
+            if let error {
+                self.logger.debug("Audio receive error: \(error)")
+            }
+            // Continue receiving
+            self.receiveNextAudioPacket()
+        }
+    }
+
+    private func handleIncomingAudioPacket(_ srtpData: Data) {
+        guard let ctx = incomingSRTPContext else { return }
+        guard !speakerMuted else { return }
+
+        // SRTP unprotect
+        guard let rtpPacket = ctx.unprotect(srtpData) else {
+            logger.debug("Failed to unprotect incoming audio SRTP packet")
+            return
+        }
+
+        // Extract AAC-ELD payload from RTP (skip 12-byte header)
+        guard rtpPacket.count > 12 else { return }
+        let aacPayload = Data(rtpPacket[rtpPacket.startIndex + 12..<rtpPacket.endIndex])
+        guard !aacPayload.isEmpty else { return }
+
+        // Decode AAC-ELD → PCM
+        guard let decoder = audioDecoder else { return }
+
+        let outputSamples = aacFrameSamples
+        let outputBufferSize = outputSamples * 4  // Float32
+        let outputBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: outputBufferSize)
+        defer { outputBuffer.deallocate() }
+
+        var outputBufferList = AudioBufferList(
+            mNumberBuffers: 1,
+            mBuffers: AudioBuffer(
+                mNumberChannels: 1,
+                mDataByteSize: UInt32(outputBufferSize),
+                mData: outputBuffer
+            )
+        )
+
+        var packetCount: UInt32 = 1
+
+        let status: OSStatus = aacPayload.withUnsafeBytes { aacBuf -> OSStatus in
+            guard let aacBase = aacBuf.baseAddress else { return -1 }
+
+            var cbData = AudioDecoderInput(
+                srcData: aacBase,
+                srcSize: UInt32(aacPayload.count),
+                packetDesc: AudioStreamPacketDescription(
+                    mStartOffset: 0,
+                    mVariableFramesInPacket: 0,
+                    mDataByteSize: UInt32(aacPayload.count)
+                ),
+                consumed: false
+            )
+
+            return withUnsafeMutablePointer(to: &cbData) { cbPtr in
+                AudioConverterFillComplexBuffer(
+                    decoder,
+                    { (_, ioNumberDataPackets, ioData, outDataPacketDescription, inUserData) -> OSStatus in
+                        guard let userData = inUserData else { return -1 }
+                        let cb = userData.assumingMemoryBound(to: AudioDecoderInput.self)
+
+                        if cb.pointee.consumed {
+                            ioNumberDataPackets.pointee = 0
+                            return -1
+                        }
+                        cb.pointee.consumed = true
+                        ioNumberDataPackets.pointee = 1
+
+                        ioData.pointee.mBuffers.mData = UnsafeMutableRawPointer(mutating: cb.pointee.srcData)
+                        ioData.pointee.mBuffers.mDataByteSize = cb.pointee.srcSize
+                        ioData.pointee.mBuffers.mNumberChannels = 1
+
+                        // Point to the packetDesc field within our struct
+                        if let outDesc = outDataPacketDescription {
+                            let descOffset = MemoryLayout<AudioDecoderInput>.offset(of: \.packetDesc)!
+                            outDesc.pointee = userData.advanced(by: descOffset)
+                                .assumingMemoryBound(to: AudioStreamPacketDescription.self)
+                        }
+                        return noErr
+                    },
+                    cbPtr,
+                    &packetCount,
+                    &outputBufferList,
+                    nil
+                )
+            }
+        }
+
+        guard status == noErr else {
+            logger.debug("AAC-ELD decode error: \(status)")
+            return
+        }
+
+        let decodedSize = Int(outputBufferList.mBuffers.mDataByteSize)
+        guard decodedSize > 0, let playerNode = audioPlayerNode else { return }
+
+        // Apply volume gain
+        let gain = Float(speakerVolume) / 100.0
+        let sampleCount = decodedSize / 4
+        let pcmData = Data(bytes: outputBuffer, count: decodedSize)
+
+        guard let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16000, channels: 1, interleaved: false),
+              let pcmBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(sampleCount)) else {
+            return
+        }
+
+        pcmBuffer.frameLength = AVAudioFrameCount(sampleCount)
+        if let channelData = pcmBuffer.floatChannelData?[0] {
+            pcmData.withUnsafeBytes { ptr in
+                guard let src = ptr.bindMemory(to: Float.self).baseAddress else { return }
+                for i in 0..<sampleCount {
+                    channelData[i] = src[i] * gain
+                }
+            }
+        }
+
+        playerNode.scheduleBuffer(pcmBuffer)
+    }
 }
 
 // MARK: - Video Capture Delegate
@@ -1141,6 +1804,30 @@ private final class VideoCaptureDelegate: NSObject, AVCaptureVideoDataOutputSamp
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         handler(pixelBuffer, pts)
+    }
+}
+
+// MARK: - Audio Decoder Callback Data
+
+/// Helper for passing compressed audio data + packet description through the AudioConverter C callback.
+private struct AudioDecoderInput {
+    var srcData: UnsafeRawPointer?
+    var srcSize: UInt32
+    var packetDesc: AudioStreamPacketDescription
+    var consumed: Bool
+}
+
+// MARK: - Audio Capture Delegate
+
+private final class AudioCaptureDelegate: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
+    let handler: (CMSampleBuffer) -> Void
+
+    init(handler: @escaping (CMSampleBuffer) -> Void) {
+        self.handler = handler
+    }
+
+    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        handler(sampleBuffer)
     }
 }
 
@@ -1168,6 +1855,11 @@ final class SRTPContext {
     private var lastSequenceNumber: UInt16 = 0
     private var packetCount: Int = 0
     private var srtcpIndex: UInt32 = 0
+
+    // Incoming (receive) direction ROC tracking — separate from outgoing
+    private var incomingROC: UInt32 = 0
+    private var incomingLastSeq: UInt16 = 0
+    private var incomingInitialized: Bool = false
 
     init(masterKey: Data, masterSalt: Data) {
         self.masterKey = masterKey
@@ -1280,6 +1972,74 @@ final class SRTPContext {
         srtpPacket.append(tag.prefix(10))  // Truncate to 80 bits
 
         return srtpPacket
+    }
+
+    /// Decrypt and verify an incoming SRTP packet, returning the plain RTP packet.
+    /// Returns nil if authentication fails.
+    func unprotect(_ srtpPacket: Data) -> Data? {
+        // SRTP = RTP header (12+) || encrypted payload || auth tag (10 bytes)
+        guard srtpPacket.count >= 22 else { return nil }  // 12 header + 0 payload + 10 tag
+
+        let tagStart = srtpPacket.count - 10
+        let receivedTag = Data(srtpPacket[srtpPacket.startIndex + tagStart..<srtpPacket.endIndex])
+        let authenticated = Data(srtpPacket[srtpPacket.startIndex..<srtpPacket.startIndex + tagStart])
+
+        // Extract sequence number from header
+        let seq = UInt16(authenticated[authenticated.startIndex + 2]) << 8 |
+                  UInt16(authenticated[authenticated.startIndex + 3])
+
+        // Track incoming ROC
+        if !incomingInitialized {
+            incomingLastSeq = seq
+            incomingInitialized = true
+        } else if seq < incomingLastSeq && (incomingLastSeq - seq) > 0x8000 {
+            incomingROC += 1
+        }
+        incomingLastSeq = seq
+
+        // Verify HMAC-SHA1-80
+        var authInput = authenticated
+        var roc = incomingROC.bigEndian
+        authInput.append(Data(bytes: &roc, count: 4))
+        let expectedTag = hmacSHA1(key: sessionAuthKey, data: authInput)
+        guard receivedTag == expectedTag.prefix(10) else {
+            logger.debug("SRTP unprotect: auth tag mismatch")
+            return nil
+        }
+
+        // Extract SSRC and build IV (same as protect)
+        let header = Data(authenticated[authenticated.startIndex..<authenticated.startIndex + 12])
+        let encryptedPayload = Data(authenticated[authenticated.startIndex + 12..<authenticated.endIndex])
+
+        let ssrc = UInt32(header[header.startIndex + 8]) << 24 |
+                   UInt32(header[header.startIndex + 9]) << 16 |
+                   UInt32(header[header.startIndex + 10]) << 8 |
+                   UInt32(header[header.startIndex + 11])
+
+        let packetIndex = UInt64(incomingROC) << 16 | UInt64(seq)
+
+        var iv = Data(count: 16)
+        iv[4] = UInt8((ssrc >> 24) & 0xFF)
+        iv[5] = UInt8((ssrc >> 16) & 0xFF)
+        iv[6] = UInt8((ssrc >> 8) & 0xFF)
+        iv[7] = UInt8(ssrc & 0xFF)
+        iv[8] = UInt8((packetIndex >> 40) & 0xFF)
+        iv[9] = UInt8((packetIndex >> 32) & 0xFF)
+        iv[10] = UInt8((packetIndex >> 24) & 0xFF)
+        iv[11] = UInt8((packetIndex >> 16) & 0xFF)
+        iv[12] = UInt8((packetIndex >> 8) & 0xFF)
+        iv[13] = UInt8(packetIndex & 0xFF)
+
+        for i in 0..<min(14, sessionSalt.count) {
+            iv[i] ^= sessionSalt[sessionSalt.startIndex + i]
+        }
+
+        // AES-CTR decrypt (symmetric — same as encrypt)
+        let decryptedPayload = aesCTREncrypt(key: sessionKey, iv: iv, data: encryptedPayload)
+
+        var rtpPacket = Data(header)
+        rtpPacket.append(decryptedPayload)
+        return rtpPacket
     }
 
     /// Encrypt and authenticate an RTCP packet, returning the SRTCP packet.
