@@ -43,10 +43,18 @@ final class HAPViewModel: ObservableObject {
             lightMonitor?.restart(with: selectedCamera)
         }
     }
+    @Published var selectedStreamCamera: CameraOption? {
+        didSet {
+            guard let selectedStreamCamera, oldValue?.id != selectedStreamCamera.id else { return }
+            UserDefaults.standard.set(selectedStreamCamera.id, forKey: "selectedStreamCameraID")
+            cameraAccessory?.selectedCameraID = selectedStreamCamera.id
+        }
+    }
 
     private var server: HAPServer?
     private var lightMonitor: AmbientLightMonitor?
     private var motionMonitor: MotionMonitor?
+    private var cameraAccessory: HAPCameraAccessory?
 
     @MainActor
     func start() {
@@ -151,7 +159,7 @@ final class HAPViewModel: ObservableObject {
                 }
             }
 
-            // Discover available cameras; restore previous selection or default to front
+            // Discover available cameras; restore previous selections
             let cameras = CameraOption.availableCameras()
             self.availableCameras = cameras
             if self.selectedCamera == nil {
@@ -160,6 +168,14 @@ final class HAPViewModel: ObservableObject {
                     ?? cameras.first { $0.name.localizedCaseInsensitiveContains("front") }
                     ?? cameras.first
             }
+            if self.selectedStreamCamera == nil {
+                let savedID = UserDefaults.standard.string(forKey: "selectedStreamCameraID")
+                self.selectedStreamCamera = cameras.first(where: { $0.id == savedID })
+                    ?? cameras.first { $0.name.localizedCaseInsensitiveContains("back") }
+                    ?? cameras.first
+            }
+            self.cameraAccessory = camera
+            camera.selectedCameraID = self.selectedStreamCamera?.id
 
             // Set up ambient light monitor
             let monitor = AmbientLightMonitor()
@@ -216,6 +232,7 @@ final class HAPViewModel: ObservableObject {
         motionMonitor = nil
         lightMonitor?.stop()
         lightMonitor = nil
+        cameraAccessory = nil
         server?.stop()
         server = nil
         isRunning = false
@@ -395,14 +412,35 @@ struct ContentView: View {
 
                         GroupBox("Camera") {
                             VStack(spacing: 8) {
-                                Image(systemName: viewModel.isCameraStreaming ? "video.fill" : "video")
-                                    .font(.system(size: 32))
-                                    .foregroundColor(viewModel.isCameraStreaming ? .green : .gray)
-                                Text(viewModel.isCameraStreaming ? "Streaming" : "Idle")
-                                    .font(.headline)
-                                Text("Back camera via HomeKit")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
+                                if viewModel.availableCameras.isEmpty {
+                                    Image(systemName: "video.slash")
+                                        .font(.system(size: 32))
+                                        .foregroundColor(.secondary)
+                                    Text("No cameras found")
+                                        .font(.headline)
+                                    Text("A camera is required for HomeKit streaming")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                } else {
+                                    Image(systemName: viewModel.isCameraStreaming ? "video.fill" : "video")
+                                        .font(.system(size: 32))
+                                        .foregroundColor(viewModel.isCameraStreaming ? .green : .gray)
+                                    Text(viewModel.isCameraStreaming ? "Streaming" : "Idle")
+                                        .font(.headline)
+
+                                    if viewModel.availableCameras.count > 1 {
+                                        Picker("Camera", selection: $viewModel.selectedStreamCamera) {
+                                            ForEach(viewModel.availableCameras) { camera in
+                                                Text(camera.name).tag(Optional(camera))
+                                            }
+                                        }
+                                        .pickerStyle(.menu)
+                                    }
+
+                                    Text(viewModel.selectedStreamCamera?.name ?? "Camera via HomeKit")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
                             }
                             .frame(maxWidth: .infinity)
                         }

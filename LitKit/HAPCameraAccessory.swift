@@ -21,6 +21,9 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
 
     private let logger = Logger(subsystem: "com.example.hap", category: "Camera")
 
+    /// Which camera to use for streaming and snapshots (nil = default back wide-angle).
+    var selectedCameraID: String?
+
     /// Active streaming session (nil when idle).
     private var streamSession: CameraStreamSession?
 
@@ -382,13 +385,26 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
 
     // MARK: - Streaming Control
 
+    /// Resolve the selected camera device, falling back to the default back wide-angle.
+    private func resolveCamera() -> AVCaptureDevice? {
+        if let id = selectedCameraID, let device = AVCaptureDevice(uniqueID: id) {
+            return device
+        }
+        return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
+    }
+
     private func startStreaming(width: Int, height: Int, fps: Int, bitrate: Int, payloadType: UInt8) {
         guard let session = streamSession else {
             logger.error("No stream session configured")
             return
         }
 
-        session.startStreaming(width: width, height: height, fps: fps, bitrate: bitrate, payloadType: payloadType)
+        guard let camera = resolveCamera() else {
+            logger.error("No camera available for streaming")
+            return
+        }
+
+        session.startStreaming(width: width, height: height, fps: fps, bitrate: bitrate, payloadType: payloadType, camera: camera)
         onStateChange?(aid, 14, streamingStatusTLV().base64EncodedString())
     }
 
@@ -451,7 +467,7 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
 
     // MARK: - Snapshot
 
-    /// Capture a single JPEG frame from the back camera synchronously.
+    /// Capture a single JPEG frame from the selected camera synchronously.
     /// Uses a dedicated session (only when no stream is active to avoid camera conflicts).
     func captureSnapshot(width: Int, height: Int) -> Data? {
         // If streaming is active, skip snapshot to avoid camera conflicts
@@ -461,8 +477,8 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
             return nil
         }
 
-        guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
-            logger.error("No back camera for snapshot")
+        guard let camera = resolveCamera() else {
+            logger.error("No camera available for snapshot")
             return nil
         }
 
@@ -634,7 +650,7 @@ final class CameraStreamSession {
         self.audioSSRC = audioSSRC
     }
 
-    func startStreaming(width: Int, height: Int, fps: Int, bitrate: Int, payloadType: UInt8) {
+    func startStreaming(width: Int, height: Int, fps: Int, bitrate: Int, payloadType: UInt8, camera: AVCaptureDevice) {
         logger.info("Starting stream: \(width)x\(height)@\(fps)fps, \(bitrate)kbps, PT=\(payloadType) → \(self.controllerAddress):\(self.controllerVideoPort)")
         logger.info("SRTP key=\(self.videoSRTPKey.count)B salt=\(self.videoSRTPSalt.count)B SSRC=\(self.videoSSRC)")
 
@@ -666,7 +682,7 @@ final class CameraStreamSession {
             if case .ready = state {
                 // Only start capture pipeline once UDP is ready
                 self.setupCompression(width: width, height: height, fps: fps, bitrate: bitrate)
-                self.setupCapture(width: width, height: height, fps: fps)
+                self.setupCapture(width: width, height: height, fps: fps, camera: camera)
                 self.startRTCPTimer()
             }
         }
@@ -713,12 +729,7 @@ final class CameraStreamSession {
 
     // MARK: - Video Capture
 
-    private func setupCapture(width: Int, height: Int, fps: Int) {
-        guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
-            logger.error("No back camera available")
-            return
-        }
-
+    private func setupCapture(width: Int, height: Int, fps: Int, camera: AVCaptureDevice) {
         do {
             try camera.lockForConfiguration()
             // Find closest frame rate range
