@@ -1,0 +1,121 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#4FC3F7"/>
+      <stop offset="100%" stop-color="#0288D1"/>
+    </linearGradient>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#E8EAF6"/>
+      <stop offset="100%" stop-color="#C5CAE9"/>
+    </linearGradient>
+    <linearGradient id="face" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#E8EAF6"/>
+    </linearGradient>
+    <linearGradient id="antenna-glow-l" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FF8A65"/>
+      <stop offset="100%" stop-color="#F4511E"/>
+    </linearGradient>
+    <linearGradient id="antenna-glow-r" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#AED581"/>
+      <stop offset="100%" stop-color="#7CB342"/>
+    </linearGradient>
+    <!-- Soft shadow filter -->
+    <filter id="shadow" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="8" stdDeviation="18" flood-color="#01579B" flood-opacity="0.25"/>
+    </filter>
+    <filter id="glow-orange" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="12" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="glow-green" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="12" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="inner-shadow">
+      <feComponentTransfer in="SourceAlpha">
+        <feFuncA type="table" tableValues="1 0"/>
+      </feComponentTransfer>
+      <feGaussianBlur stdDeviation="6"/>
+      <feOffset dx="0" dy="4" result="offsetblur"/>
+      <feFlood flood-color="#90CAF9" flood-opacity="0.5" result="color"/>
+      <feComposite in2="offsetblur" operator="in"/>
+      <feComposite in2="SourceAlpha" operator="in"/>
+      <feMerge>
+        <feMergeNode in="SourceGraphic"/>
+        <feMergeNode/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1024" height="1024" rx="224" fill="url(#bg)"/>
+
+  <!-- Subtle pattern dots -->
+  <g opacity="0.06">
+    <circle cx="150" cy="150" r="20" fill="white"/>
+    <circle cx="300" cy="100" r="15" fill="white"/>
+    <circle cx="750" cy="180" r="18" fill="white"/>
+    <circle cx="880" cy="120" r="12" fill="white"/>
+    <circle cx="200" cy="880" r="16" fill="white"/>
+    <circle cx="820" cy="850" r="22" fill="white"/>
+    <circle cx="500" cy="920" r="14" fill="white"/>
+    <circle cx="100" cy="500" r="10" fill="white"/>
+    <circle cx="920" cy="550" r="13" fill="white"/>
+  </g>
+
+  <!-- Left antenna -->
+  <g>
+    <line x1="370" y1="310" x2="310" y2="175" stroke="#B0BEC5" stroke-width="14" stroke-linecap="round"/>
+    <circle cx="310" cy="175" r="32" fill="url(#antenna-glow-l)" filter="url(#glow-orange)"/>
+    <circle cx="304" cy="168" r="10" fill="white" opacity="0.5"/>
+  </g>
+
+  <!-- Right antenna -->
+  <g>
+    <line x1="654" y1="310" x2="714" y2="175" stroke="#B0BEC5" stroke-width="14" stroke-linecap="round"/>
+    <circle cx="714" cy="175" r="32" fill="url(#antenna-glow-r)" filter="url(#glow-green)"/>
+    <circle cx="708" cy="168" r="10" fill="white" opacity="0.5"/>
+  </g>
+
+  <!-- Robot head/body - main shape -->
+  <rect x="242" y="290" width="540" height="480" rx="100" fill="url(#body)" filter="url(#shadow)"/>
+
+  <!-- Face plate -->
+  <rect x="292" y="340" width="440" height="310" rx="70" fill="url(#face)" filter="url(#inner-shadow)"/>
+
+  <!-- Eyes -->
+  <!-- Left eye -->
+  <g>
+    <ellipse cx="410" cy="470" rx="52" ry="56" fill="#263238"/>
+    <ellipse cx="410" cy="465" rx="44" ry="48" fill="#37474F"/>
+    <circle cx="395" cy="450" r="18" fill="white" opacity="0.85"/>
+    <circle cx="420" cy="475" r="8" fill="white" opacity="0.4"/>
+  </g>
+  <!-- Right eye -->
+  <g>
+    <ellipse cx="614" cy="470" rx="52" ry="56" fill="#263238"/>
+    <ellipse cx="614" cy="465" rx="44" ry="48" fill="#37474F"/>
+    <circle cx="599" cy="450" r="18" fill="white" opacity="0.85"/>
+    <circle cx="624" cy="475" r="8" fill="white" opacity="0.4"/>
+  </g>
+
+  <!-- Cute rosy cheeks -->
+  <ellipse cx="340" cy="540" rx="36" ry="24" fill="#F48FB1" opacity="0.35"/>
+  <ellipse cx="684" cy="540" rx="36" ry="24" fill="#F48FB1" opacity="0.35"/>
+
+  <!-- Smile -->
+  <path d="M 450 560 Q 512 610 574 560" fill="none" stroke="#546E7A" stroke-width="12" stroke-linecap="round"/>
+
+  <!-- Ear panels -->
+  <rect x="222" y="400" width="36" height="100" rx="18" fill="#90A4AE"/>
+  <rect x="766" y="400" width="36" height="100" rx="18" fill="#90A4AE"/>
+
+  <!-- Belly/chest area -->
+  <g>
+    <rect x="432" y="680" width="160" height="60" rx="30" fill="#90A4AE" opacity="0.5"/>
+    <!-- Status light -->
+    <circle cx="512" cy="710" r="14" fill="#4FC3F7"/>
+    <circle cx="512" cy="710" r="8" fill="white" opacity="0.6"/>
+  </g>
+</svg>
