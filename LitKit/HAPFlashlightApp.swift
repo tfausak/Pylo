@@ -30,6 +30,7 @@ final class HAPViewModel: ObservableObject {
     @Published var setupCode = PairSetupHandler.setupCode
     @Published var ambientLux: Float = 1.0
     @Published var isMotionDetected = false
+    @Published var isCameraStreaming = false
 
     private var server: HAPServer?
     private var lightMonitor: AmbientLightMonitor?
@@ -61,6 +62,15 @@ final class HAPViewModel: ObservableObject {
                 firmwareRevision: "0.1.0"
             )
 
+            let camera = HAPCameraAccessory(
+                aid: 3,
+                name: "iPhone Camera",
+                model: "HAP-PoC",
+                manufacturer: "DIY",
+                serialNumber: serial + "-cam",
+                firmwareRevision: "0.1.0"
+            )
+
             let pairingStore = PairingStore()
             let identity = DeviceIdentity()
 
@@ -76,6 +86,19 @@ final class HAPViewModel: ObservableObject {
                         self.ambientLux = lux
                     } else if iid == 14, let detected = value as? Bool {
                         self.isMotionDetected = detected
+                    }
+                    self.server?.notifySubscribers(aid: aid, iid: iid, value: value)
+                }
+            }
+
+            camera.onStateChange = { [weak self] aid, iid, value in
+                Task { @MainActor in
+                    guard let self else { return }
+                    if iid == 14 { // StreamingStatus changed
+                        // Check if streaming (base64 TLV8 with status byte)
+                        if let b64 = value as? String, let data = Data(base64Encoded: b64), data.count >= 3 {
+                            self.isCameraStreaming = data[data.startIndex + 2] == 1
+                        }
                     }
                     self.server?.notifySubscribers(aid: aid, iid: iid, value: value)
                 }
@@ -98,7 +121,7 @@ final class HAPViewModel: ObservableObject {
             do {
                 let hapServer = try HAPServer(
                     bridge: bridge,
-                    accessories: [lightbulb],
+                    accessories: [lightbulb, camera],
                     pairingStore: pairingStore,
                     deviceIdentity: identity
                 )
@@ -278,6 +301,20 @@ struct ContentView: View {
                                 Text(viewModel.isMotionDetected ? "Motion Detected" : "No Motion")
                                     .font(.headline)
                                 Text("Accelerometer movement")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            .frame(maxWidth: .infinity)
+                        }
+
+                        GroupBox("Camera") {
+                            VStack(spacing: 8) {
+                                Image(systemName: viewModel.isCameraStreaming ? "video.fill" : "video")
+                                    .font(.system(size: 32))
+                                    .foregroundColor(viewModel.isCameraStreaming ? .green : .gray)
+                                Text(viewModel.isCameraStreaming ? "Streaming" : "Idle")
+                                    .font(.headline)
+                                Text("Back camera via HomeKit")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }

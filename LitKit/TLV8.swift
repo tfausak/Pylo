@@ -121,4 +121,46 @@ enum TLV8 {
     static func encode(_ tag: Tag, _ byte: UInt8) -> Data {
         encode([(tag, Data([byte]))])
     }
+
+    // MARK: - Raw-Tag Builder (for camera / non-pairing TLV8)
+
+    /// Builder for constructing TLV8 blobs with raw UInt8 tags.
+    struct Builder {
+        private(set) var data = Data()
+
+        mutating func add(_ tag: UInt8, _ value: Data) {
+            var offset = value.startIndex
+            if value.isEmpty {
+                data.append(tag)
+                data.append(0)
+            } else {
+                while offset < value.endIndex {
+                    let chunkSize = min(255, value.endIndex - offset)
+                    data.append(tag)
+                    data.append(UInt8(chunkSize))
+                    data.append(contentsOf: value[offset..<offset + chunkSize])
+                    offset += chunkSize
+                }
+            }
+        }
+
+        mutating func add(_ tag: UInt8, byte: UInt8) {
+            add(tag, Data([byte]))
+        }
+
+        mutating func add(_ tag: UInt8, uint16: UInt16) {
+            withUnsafeBytes(of: uint16.littleEndian) { add(tag, Data($0)) }
+        }
+
+        mutating func add(_ tag: UInt8, uint32: UInt32) {
+            withUnsafeBytes(of: uint32.littleEndian) { add(tag, Data($0)) }
+        }
+
+        mutating func add(_ tag: UInt8, tlv: Builder) {
+            add(tag, tlv.data)
+        }
+
+        func build() -> Data { data }
+        func base64() -> String { data.base64EncodedString() }
+    }
 }

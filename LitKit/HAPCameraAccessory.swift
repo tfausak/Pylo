@@ -1,0 +1,1423 @@
+import AVFoundation
+import CommonCrypto
+import Foundation
+import Network
+import os
+import VideoToolbox
+
+// MARK: - Camera Accessory
+
+/// HAP camera sub-accessory exposing CameraRTPStreamManagement.
+/// Handles the full pipeline: TLV8 negotiation → video capture → H.264 → RTP → SRTP → UDP.
+final class HAPCameraAccessory: HAPAccessoryProtocol {
+
+    let aid: Int
+    let name: String
+    let model: String
+    let manufacturer: String
+    let serialNumber: String
+    let firmwareRevision: String
+    var onStateChange: ((_ aid: Int, _ iid: Int, _ value: Any) -> Void)?
+
+    private let logger = Logger(subsystem: "com.example.hap", category: "Camera")
+
+    /// Active streaming session (nil when idle).
+    private var streamSession: CameraStreamSession?
+
+    /// Whether the microphone is muted.
+    private var isMuted: Bool = false
+
+    // Pending setup endpoint response (written by controller, read back after)
+    private var setupEndpointsResponse = Data()
+
+    init(
+        aid: Int,
+        name: String = "iPhone Camera",
+        model: String = "HAP-PoC",
+        manufacturer: String = "DIY",
+        serialNumber: String = "000000",
+        firmwareRevision: String = "0.1.0"
+    ) {
+        self.aid = aid
+        self.name = name
+        self.model = model
+        self.manufacturer = manufacturer
+        self.serialNumber = serialNumber
+        self.firmwareRevision = firmwareRevision
+    }
+
+    // MARK: - IID Map
+    //
+    // Service: Accessory Information (iid 1)
+    //   - Identify:          iid 2
+    //   - Manufacturer:      iid 3
+    //   - Model:             iid 4
+    //   - Name:              iid 5
+    //   - Serial Number:     iid 6
+    //   - Firmware Revision: iid 7
+    //
+    // Service: CameraRTPStreamManagement (iid 8)
+    //   - SupportedVideoStreamConfiguration: iid 9
+    //   - SupportedAudioStreamConfiguration: iid 10
+    //   - SupportedRTPConfiguration:         iid 11
+    //   - SetupEndpoints:                    iid 12
+    //   - SelectedRTPStreamConfiguration:    iid 13
+    //   - StreamingStatus:                   iid 14
+    //
+    // Service: Microphone (iid 15)
+    //   - Mute:              iid 16
+
+    // MARK: - HAP UUIDs
+
+    static let uuidCameraRTPStreamManagement = "110"
+    static let uuidSupportedVideoStreamConfig = "114"
+    static let uuidSupportedAudioStreamConfig = "115"
+    static let uuidSupportedRTPConfig         = "116"
+    static let uuidSelectedRTPStreamConfig    = "117"
+    static let uuidSetupEndpoints             = "118"
+    static let uuidStreamingStatus            = "120"
+    static let uuidMicrophone                 = "112"
+    static let uuidMute                       = "11A"
+
+    // MARK: - Read Characteristic
+
+    func readCharacteristic(iid: Int) -> Any? {
+        switch iid {
+        case 3: return manufacturer
+        case 4: return model
+        case 5: return name
+        case 6: return serialNumber
+        case 7: return firmwareRevision
+        case 9: return Self.supportedVideoConfig().base64()
+        case 10: return Self.supportedAudioConfig().base64()
+        case 11: return Self.supportedRTPConfig().base64()
+        case 12: return setupEndpointsResponse.base64EncodedString()
+        case 13: return ""  // write-only effectively
+        case 14: return streamingStatusTLV().base64EncodedString()
+        case 16: return isMuted
+        default: return nil
+        }
+    }
+
+    // MARK: - Write Characteristic
+
+    @discardableResult
+    func writeCharacteristic(iid: Int, value: Any) -> Bool {
+        switch iid {
+        case 2:
+            identify()
+            return true
+        case 12:
+            return handleSetupEndpoints(value)
+        case 13:
+            return handleSelectedRTPStreamConfig(value)
+        case 16:
+            if let v = value as? Bool { isMuted = v; return true }
+            if let v = value as? Int { isMuted = v != 0; return true }
+            return false
+        default:
+            return false
+        }
+    }
+
+    func identify() {
+        logger.info("Camera identify requested")
+    }
+
+    // MARK: - Supported Configurations (static TLV8 blobs)
+
+    /// SupportedVideoStreamConfiguration TLV8
+    static func supportedVideoConfig() -> TLV8.Builder {
+        // H.264 codec parameters: Constrained Baseline profile, Level 3.1
+        var codecParams = TLV8.Builder()
+        codecParams.add(0x01, byte: 0x00)  // ProfileID: Constrained Baseline
+        codecParams.add(0x02, byte: 0x00)  // Level: 3.1
+        codecParams.add(0x03, byte: 0x00)  // Packetization: Non-interleaved
+
+        // Resolution: 1920x1080 @ 30fps
+        var attrs1080 = TLV8.Builder()
+        attrs1080.add(0x01, uint16: 1920)
+        attrs1080.add(0x02, uint16: 1080)
+        attrs1080.add(0x03, byte: 30)
+
+        // Resolution: 1280x720 @ 30fps
+        var attrs720 = TLV8.Builder()
+        attrs720.add(0x01, uint16: 1280)
+        attrs720.add(0x02, uint16: 720)
+        attrs720.add(0x03, byte: 30)
+
+        // Resolution: 320x240 @ 15fps
+        var attrs240 = TLV8.Builder()
+        attrs240.add(0x01, uint16: 320)
+        attrs240.add(0x02, uint16: 240)
+        attrs240.add(0x03, byte: 15)
+
+        // Video codec config
+        var codecConfig = TLV8.Builder()
+        codecConfig.add(0x01, byte: 0x00)       // CodecType: H.264
+        codecConfig.add(0x02, tlv: codecParams)
+        codecConfig.add(0x03, tlv: attrs1080)
+        codecConfig.add(0x03, tlv: attrs720)
+        codecConfig.add(0x03, tlv: attrs240)
+
+        // Top-level
+        var config = TLV8.Builder()
+        config.add(0x01, tlv: codecConfig)
+        return config
+    }
+
+    /// SupportedAudioStreamConfiguration TLV8
+    static func supportedAudioConfig() -> TLV8.Builder {
+        // AAC-ELD codec params: 1 channel, variable bitrate, 16kHz
+        var codecParams = TLV8.Builder()
+        codecParams.add(0x01, byte: 1)     // Channels: 1
+        codecParams.add(0x02, byte: 0)     // BitRate: Variable
+        codecParams.add(0x03, byte: 1)     // SampleRate: 16kHz
+
+        // Audio codec config
+        var codecConfig = TLV8.Builder()
+        codecConfig.add(0x01, byte: 2)     // CodecType: AAC-ELD
+        codecConfig.add(0x02, tlv: codecParams)
+
+        // Top-level
+        var config = TLV8.Builder()
+        config.add(0x01, tlv: codecConfig)
+        config.add(0x02, byte: 0)          // ComfortNoiseSupport: No
+        return config
+    }
+
+    /// SupportedRTPConfiguration TLV8
+    static func supportedRTPConfig() -> TLV8.Builder {
+        var config = TLV8.Builder()
+        config.add(0x02, byte: 0x00)  // SRTP crypto: AES_CM_128_HMAC_SHA1_80
+        return config
+    }
+
+    // MARK: - Streaming Status
+
+    private func streamingStatusTLV() -> Data {
+        var b = TLV8.Builder()
+        let status: UInt8 = streamSession != nil ? 1 : 0  // 0=Available, 1=InUse, 2=Unavailable
+        b.add(0x01, byte: status)
+        return b.build()
+    }
+
+    // MARK: - Setup Endpoints
+
+    private func handleSetupEndpoints(_ value: Any) -> Bool {
+        guard let b64 = value as? String, let data = Data(base64Encoded: b64) else { return false }
+        let tlvs = TLV8.decode(data) as [(UInt8, Data)]
+
+        var sessionID = Data()
+        var controllerAddress = ""
+        var controllerVideoPort: UInt16 = 0
+        var controllerAudioPort: UInt16 = 0
+        var videoSRTPKey = Data()
+        var videoSRTPSalt = Data()
+        var audioSRTPKey = Data()
+        var audioSRTPSalt = Data()
+
+        for (tag, val) in tlvs {
+            switch tag {
+            case 0x01: sessionID = val
+            case 0x03: // Controller address
+                let sub = TLV8.decode(val) as [(UInt8, Data)]
+                for (stag, sval) in sub {
+                    switch stag {
+                    case 0x02: controllerAddress = String(data: sval, encoding: .utf8) ?? ""
+                    case 0x03: if sval.count >= 2 { controllerVideoPort = UInt16(sval[sval.startIndex]) | UInt16(sval[sval.startIndex + 1]) << 8 }
+                    case 0x04: if sval.count >= 2 { controllerAudioPort = UInt16(sval[sval.startIndex]) | UInt16(sval[sval.startIndex + 1]) << 8 }
+                    default: break
+                    }
+                }
+            case 0x04: // Video SRTP params
+                let sub = TLV8.decode(val) as [(UInt8, Data)]
+                for (stag, sval) in sub {
+                    switch stag {
+                    case 0x02: videoSRTPKey = sval
+                    case 0x03: videoSRTPSalt = sval
+                    default: break
+                    }
+                }
+            case 0x05: // Audio SRTP params
+                let sub = TLV8.decode(val) as [(UInt8, Data)]
+                for (stag, sval) in sub {
+                    switch stag {
+                    case 0x02: audioSRTPKey = sval
+                    case 0x03: audioSRTPSalt = sval
+                    default: break
+                    }
+                }
+            default: break
+            }
+        }
+
+        logger.info("SetupEndpoints: controller=\(controllerAddress):\(controllerVideoPort)/\(controllerAudioPort)")
+
+        let videoSSRC = UInt32.random(in: 1...UInt32.max)
+        let audioSSRC = UInt32.random(in: 1...UInt32.max)
+
+        // Determine local IP address — must be on the same subnet as the controller
+        let localAddress = Self.localIPAddress(matching: controllerAddress) ?? "0.0.0.0"
+
+        // Allocate UDP ports
+        let videoPort: UInt16 = UInt16.random(in: 50000...59999)
+        let audioPort: UInt16 = videoPort + 1
+
+        logger.info("SetupEndpoints response: local=\(localAddress):\(videoPort) SSRC=\(videoSSRC)")
+
+        // Create the stream session — both sides use the SAME SRTP keys
+        let session = CameraStreamSession(
+            sessionID: sessionID,
+            controllerAddress: controllerAddress,
+            controllerVideoPort: controllerVideoPort,
+            controllerAudioPort: controllerAudioPort,
+            videoSRTPKey: videoSRTPKey,
+            videoSRTPSalt: videoSRTPSalt,
+            audioSRTPKey: audioSRTPKey,
+            audioSRTPSalt: audioSRTPSalt,
+            localAddress: localAddress,
+            localVideoPort: videoPort,
+            localAudioPort: audioPort,
+            videoSSRC: videoSSRC,
+            audioSSRC: audioSSRC
+        )
+        self.streamSession = session
+
+        // Build response TLV8 — echo back the controller's SRTP keys
+        // Both sides use the same shared key material
+        var addrTLV = TLV8.Builder()
+        addrTLV.add(0x01, byte: 0x00)  // IPv4
+        addrTLV.add(0x02, Data(localAddress.utf8))
+        addrTLV.add(0x03, uint16: videoPort)
+        addrTLV.add(0x04, uint16: audioPort)
+
+        var videoSRTPTLV = TLV8.Builder()
+        videoSRTPTLV.add(0x01, byte: 0x00)  // AES_CM_128_HMAC_SHA1_80
+        videoSRTPTLV.add(0x02, videoSRTPKey)
+        videoSRTPTLV.add(0x03, videoSRTPSalt)
+
+        var audioSRTPTLV = TLV8.Builder()
+        audioSRTPTLV.add(0x01, byte: 0x00)
+        audioSRTPTLV.add(0x02, audioSRTPKey)
+        audioSRTPTLV.add(0x03, audioSRTPSalt)
+
+        var response = TLV8.Builder()
+        response.add(0x01, sessionID)
+        response.add(0x02, byte: 0x00)  // Status: Success
+        response.add(0x03, tlv: addrTLV)
+        response.add(0x04, tlv: videoSRTPTLV)
+        response.add(0x05, tlv: audioSRTPTLV)
+        response.add(0x06, uint32: videoSSRC)
+        response.add(0x07, uint32: audioSSRC)
+
+        setupEndpointsResponse = response.build()
+        return true
+    }
+
+    // MARK: - Selected RTP Stream Configuration (START/STOP/RECONFIGURE)
+
+    private func handleSelectedRTPStreamConfig(_ value: Any) -> Bool {
+        guard let b64 = value as? String, let data = Data(base64Encoded: b64) else { return false }
+        let tlvs = TLV8.decode(data) as [(UInt8, Data)]
+
+        // Parse session control
+        for (tag, val) in tlvs {
+            if tag == 0x01 {
+                let sub = TLV8.decode(val) as [(UInt8, Data)]
+                var command: UInt8 = 0
+                for (stag, sval) in sub {
+                    if stag == 0x02, let c = sval.first { command = c }
+                }
+
+                switch command {
+                case 1: // START
+                    logger.info("Stream START requested")
+                    // Parse selected video params and RTP params
+                    var width: UInt16 = 1280, height: UInt16 = 720, fps: UInt8 = 30
+                    var maxBitrate: Int = 2000
+                    var payloadType: UInt8 = 99
+                    for (ptag, pval) in tlvs {
+                        if ptag == 0x02 { // Selected video parameters
+                            let vsub = TLV8.decode(pval) as [(UInt8, Data)]
+                            for (vtag, vval) in vsub {
+                                switch vtag {
+                                case 0x03: // Video attributes (width, height, fps)
+                                    let attrSub = TLV8.decode(vval) as [(UInt8, Data)]
+                                    for (atag, aval) in attrSub {
+                                        switch atag {
+                                        case 0x01: if aval.count >= 2 { width = UInt16(aval[aval.startIndex]) | UInt16(aval[aval.startIndex + 1]) << 8 }
+                                        case 0x02: if aval.count >= 2 { height = UInt16(aval[aval.startIndex]) | UInt16(aval[aval.startIndex + 1]) << 8 }
+                                        case 0x03: if let f = aval.first { fps = f }
+                                        default: break
+                                        }
+                                    }
+                                case 0x04: // Video RTP parameters (PT, SSRC, bitrate)
+                                    let rtpSub = TLV8.decode(vval) as [(UInt8, Data)]
+                                    for (rtag, rval) in rtpSub {
+                                        switch rtag {
+                                        case 0x01: if let pt = rval.first { payloadType = pt } // Payload type
+                                        case 0x03: if rval.count >= 2 { maxBitrate = Int(UInt16(rval[rval.startIndex]) | UInt16(rval[rval.startIndex + 1]) << 8) }
+                                        default: break
+                                        }
+                                    }
+                                default: break
+                                }
+                            }
+                        }
+                    }
+                    logger.info("Selected video: \(width)x\(height)@\(fps)fps, \(maxBitrate)kbps, PT=\(payloadType)")
+                    startStreaming(width: Int(width), height: Int(height), fps: Int(fps), bitrate: maxBitrate, payloadType: payloadType)
+
+                case 0, 2: // END(0) or RECONFIGURE(2) - for now treat reconfigure as restart
+                    logger.info("Stream \(command == 0 ? "STOP" : "RECONFIGURE") requested")
+                    stopStreaming()
+                default:
+                    break
+                }
+            }
+        }
+        return true
+    }
+
+    // MARK: - Streaming Control
+
+    private func startStreaming(width: Int, height: Int, fps: Int, bitrate: Int, payloadType: UInt8) {
+        guard let session = streamSession else {
+            logger.error("No stream session configured")
+            return
+        }
+
+        session.startStreaming(width: width, height: height, fps: fps, bitrate: bitrate, payloadType: payloadType)
+        onStateChange?(aid, 14, streamingStatusTLV().base64EncodedString())
+    }
+
+    private func stopStreaming() {
+        streamSession?.stopStreaming()
+        streamSession = nil
+        onStateChange?(aid, 14, streamingStatusTLV().base64EncodedString())
+    }
+
+    // MARK: - Utility
+
+    /// Returns the local IPv4 address on the same subnet as `peerAddress`.
+    /// Falls back to any private address on en0 (WiFi) if no subnet match found.
+    static func localIPAddress(matching peerAddress: String = "") -> String? {
+        var ifaddr: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&ifaddr) == 0, let firstAddr = ifaddr else { return nil }
+        defer { freeifaddrs(ifaddr) }
+
+        // Extract the peer's /24 prefix (e.g. "192.168.4.") for subnet matching
+        let peerPrefix: String? = {
+            let parts = peerAddress.split(separator: ".")
+            guard parts.count == 4 else { return nil }
+            return parts[0..<3].joined(separator: ".") + "."
+        }()
+
+        var subnetMatch: String?
+        var wifiAddress: String?
+        var anyPrivate: String?
+
+        for ptr in sequence(first: firstAddr, next: { $0.pointee.ifa_next }) {
+            let flags = Int32(ptr.pointee.ifa_flags)
+            guard (flags & (IFF_UP | IFF_RUNNING)) != 0, (flags & IFF_LOOPBACK) == 0 else { continue }
+            let addr = ptr.pointee.ifa_addr.pointee
+            guard addr.sa_family == UInt8(AF_INET) else { continue }
+
+            var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            guard getnameinfo(ptr.pointee.ifa_addr, socklen_t(addr.sa_len),
+                              &hostname, socklen_t(hostname.count),
+                              nil, 0, NI_NUMERICHOST) == 0 else { continue }
+            let ip = String(cString: hostname)
+            guard ip.hasPrefix("192.") || ip.hasPrefix("10.") || ip.hasPrefix("172.") else { continue }
+
+            let ifName = String(cString: ptr.pointee.ifa_name)
+
+            // Best: same /24 subnet as the controller
+            if let prefix = peerPrefix, ip.hasPrefix(prefix), subnetMatch == nil {
+                subnetMatch = ip
+            }
+            // Good: WiFi interface
+            if ifName == "en0", wifiAddress == nil {
+                wifiAddress = ip
+            }
+            // Fallback: any private address
+            if anyPrivate == nil {
+                anyPrivate = ip
+            }
+        }
+        return subnetMatch ?? wifiAddress ?? anyPrivate
+    }
+
+    // MARK: - Snapshot
+
+    /// Capture a single JPEG frame from the back camera synchronously.
+    /// Uses a dedicated session (only when no stream is active to avoid camera conflicts).
+    func captureSnapshot(width: Int, height: Int) -> Data? {
+        // If streaming is active, skip snapshot to avoid camera conflicts
+        // (the FigCaptureSourceRemote errors come from two sessions fighting over the camera)
+        if streamSession != nil {
+            logger.info("Skipping snapshot — stream is active")
+            return nil
+        }
+
+        guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
+            logger.error("No back camera for snapshot")
+            return nil
+        }
+
+        let session = AVCaptureSession()
+        session.sessionPreset = width > 1280 ? .hd1920x1080 : width > 640 ? .hd1280x720 : .medium
+
+        guard let input = try? AVCaptureDeviceInput(device: camera),
+              session.canAddInput(input) else { return nil }
+        session.addInput(input)
+
+        let photoOutput = AVCapturePhotoOutput()
+        guard session.canAddOutput(photoOutput) else { return nil }
+        session.addOutput(photoOutput)
+
+        session.startRunning()
+        defer { session.stopRunning() }
+
+        let delegate = SnapshotDelegate()
+        let settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.jpeg])
+        photoOutput.capturePhoto(with: settings, delegate: delegate)
+
+        // Wait up to 3 seconds for the photo
+        _ = delegate.semaphore.wait(timeout: .now() + 3)
+        return delegate.jpegData
+    }
+
+    // MARK: - JSON Serialization
+
+    func toJSON() -> [String: Any] {
+        [
+            "aid": aid,
+            "services": [
+                // Accessory Information Service
+                [
+                    "iid": 1,
+                    "type": HAPAccessory.uuidAccessoryInformation,
+                    "characteristics": [
+                        ["iid": 2, "type": HAPAccessory.uuidIdentify, "format": "bool",
+                         "perms": ["pw"]],
+                        ["iid": 3, "type": HAPAccessory.uuidManufacturer, "format": "string",
+                         "perms": ["pr"], "value": manufacturer],
+                        ["iid": 4, "type": HAPAccessory.uuidModel, "format": "string",
+                         "perms": ["pr"], "value": model],
+                        ["iid": 5, "type": HAPAccessory.uuidName, "format": "string",
+                         "perms": ["pr"], "value": name],
+                        ["iid": 6, "type": HAPAccessory.uuidSerialNumber, "format": "string",
+                         "perms": ["pr"], "value": serialNumber],
+                        ["iid": 7, "type": HAPAccessory.uuidFirmwareRevision, "format": "string",
+                         "perms": ["pr"], "value": firmwareRevision],
+                    ]
+                ],
+                // Camera RTP Stream Management Service
+                [
+                    "iid": 8,
+                    "type": Self.uuidCameraRTPStreamManagement,
+                    "characteristics": [
+                        ["iid": 9, "type": Self.uuidSupportedVideoStreamConfig, "format": "tlv8",
+                         "perms": ["pr"], "value": Self.supportedVideoConfig().base64()],
+                        ["iid": 10, "type": Self.uuidSupportedAudioStreamConfig, "format": "tlv8",
+                         "perms": ["pr"], "value": Self.supportedAudioConfig().base64()],
+                        ["iid": 11, "type": Self.uuidSupportedRTPConfig, "format": "tlv8",
+                         "perms": ["pr"], "value": Self.supportedRTPConfig().base64()],
+                        ["iid": 12, "type": Self.uuidSetupEndpoints, "format": "tlv8",
+                         "perms": ["pr", "pw"], "value": ""],
+                        ["iid": 13, "type": Self.uuidSelectedRTPStreamConfig, "format": "tlv8",
+                         "perms": ["pr", "pw"], "value": ""],
+                        ["iid": 14, "type": Self.uuidStreamingStatus, "format": "tlv8",
+                         "perms": ["pr", "ev"], "value": streamingStatusTLV().base64EncodedString()],
+                    ]
+                ],
+                // Microphone Service (required alongside CameraRTPStreamManagement)
+                [
+                    "iid": 15,
+                    "type": Self.uuidMicrophone,
+                    "characteristics": [
+                        ["iid": 16, "type": Self.uuidMute, "format": "bool",
+                         "perms": ["pr", "pw", "ev"], "value": isMuted],
+                    ]
+                ],
+            ]
+        ]
+    }
+}
+
+// MARK: - Snapshot Delegate
+
+private final class SnapshotDelegate: NSObject, AVCapturePhotoCaptureDelegate {
+    let semaphore = DispatchSemaphore(value: 0)
+    var jpegData: Data?
+
+    func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
+        jpegData = photo.fileDataRepresentation()
+        semaphore.signal()
+    }
+}
+
+// MARK: - Camera Stream Session
+
+/// Holds all state for a single streaming session: addresses, ports, SRTP keys, and the
+/// video capture + RTP pipeline.
+final class CameraStreamSession {
+
+    let sessionID: Data
+    let controllerAddress: String
+    let controllerVideoPort: UInt16
+    let controllerAudioPort: UInt16
+
+    // Shared SRTP keys (both sides use the same key material)
+    let videoSRTPKey: Data
+    let videoSRTPSalt: Data
+    let audioSRTPKey: Data
+    let audioSRTPSalt: Data
+
+    let localAddress: String
+    let localVideoPort: UInt16
+    let localAudioPort: UInt16
+
+    let videoSSRC: UInt32
+    let audioSSRC: UInt32
+
+    private let logger = Logger(subsystem: "com.example.hap", category: "CameraStream")
+
+    // Video pipeline
+    private var captureSession: AVCaptureSession?
+    private var videoOutput: AVCaptureVideoDataOutput?
+    private var compressionSession: VTCompressionSession?
+    private let captureQueue = DispatchQueue(label: "com.example.hap.camera.capture")
+    private let rtpQueue = DispatchQueue(label: "com.example.hap.camera.rtp")
+
+    // UDP connections (RTP on video port, RTCP on video port + 1)
+    private var udpConnection: NWConnection?
+    private var rtcpConnection: NWConnection?
+
+    // RTP state
+    private var sequenceNumber: UInt16 = 0
+    private var rtpTimestamp: UInt32 = 0
+    private var frameCount: Int = 0
+    private var packetsSent: Int = 0
+    private var octetsSent: Int = 0
+    private var targetFPS: Int = 30
+    private var rtpPayloadType: UInt8 = 99
+
+    // SRTP state
+    private var srtpContext: SRTPContext?
+
+    // RTCP timer
+    private var rtcpTimer: DispatchSourceTimer?
+
+    init(
+        sessionID: Data,
+        controllerAddress: String, controllerVideoPort: UInt16, controllerAudioPort: UInt16,
+        videoSRTPKey: Data, videoSRTPSalt: Data,
+        audioSRTPKey: Data, audioSRTPSalt: Data,
+        localAddress: String, localVideoPort: UInt16, localAudioPort: UInt16,
+        videoSSRC: UInt32, audioSSRC: UInt32
+    ) {
+        self.sessionID = sessionID
+        self.controllerAddress = controllerAddress
+        self.controllerVideoPort = controllerVideoPort
+        self.controllerAudioPort = controllerAudioPort
+        self.videoSRTPKey = videoSRTPKey
+        self.videoSRTPSalt = videoSRTPSalt
+        self.audioSRTPKey = audioSRTPKey
+        self.audioSRTPSalt = audioSRTPSalt
+        self.localAddress = localAddress
+        self.localVideoPort = localVideoPort
+        self.localAudioPort = localAudioPort
+        self.videoSSRC = videoSSRC
+        self.audioSSRC = audioSSRC
+    }
+
+    func startStreaming(width: Int, height: Int, fps: Int, bitrate: Int, payloadType: UInt8) {
+        logger.info("Starting stream: \(width)x\(height)@\(fps)fps, \(bitrate)kbps, PT=\(payloadType) → \(self.controllerAddress):\(self.controllerVideoPort)")
+        logger.info("SRTP key=\(self.videoSRTPKey.count)B salt=\(self.videoSRTPSalt.count)B SSRC=\(self.videoSSRC)")
+
+        self.targetFPS = fps
+        self.rtpPayloadType = payloadType
+        // Start seq/ts at low values — some SRTP receivers mis-estimate the
+        // rollover counter when the first sequence number is > 2^15, causing
+        // every authentication check to fail (black video).
+        self.sequenceNumber = 0
+        self.rtpTimestamp = 0
+        self.packetsSent = 0
+        self.octetsSent = 0
+
+        // Initialize SRTP with shared keys (both sides use the same key material)
+        srtpContext = SRTPContext(masterKey: videoSRTPKey, masterSalt: videoSRTPSalt)
+
+        // Open UDP to controller, binding to our advertised local port
+        let host = NWEndpoint.Host(controllerAddress)
+        let port = NWEndpoint.Port(rawValue: controllerVideoPort)!
+        let params = NWParameters.udp
+        params.requiredLocalEndpoint = NWEndpoint.hostPort(
+            host: NWEndpoint.Host(localAddress),
+            port: NWEndpoint.Port(rawValue: localVideoPort)!
+        )
+        let conn = NWConnection(host: host, port: port, using: params)
+        conn.stateUpdateHandler = { [weak self] state in
+            guard let self else { return }
+            self.logger.info("UDP state: \(String(describing: state))")
+            if case .ready = state {
+                // Only start capture pipeline once UDP is ready
+                self.setupCompression(width: width, height: height, fps: fps, bitrate: bitrate)
+                self.setupCapture(width: width, height: height, fps: fps)
+                self.startRTCPTimer()
+            }
+        }
+        conn.start(queue: rtpQueue)
+        self.udpConnection = conn
+
+        // Open separate UDP for RTCP on port + 1
+        let rtcpPort = NWEndpoint.Port(rawValue: controllerVideoPort + 1)!
+        let rtcpParams = NWParameters.udp
+        rtcpParams.requiredLocalEndpoint = NWEndpoint.hostPort(
+            host: NWEndpoint.Host(localAddress),
+            port: NWEndpoint.Port(rawValue: localVideoPort + 1)!
+        )
+        let rtcpConn = NWConnection(host: host, port: rtcpPort, using: rtcpParams)
+        rtcpConn.stateUpdateHandler = { [weak self] state in
+            self?.logger.info("RTCP UDP state: \(String(describing: state))")
+        }
+        rtcpConn.start(queue: rtpQueue)
+        self.rtcpConnection = rtcpConn
+    }
+
+    func stopStreaming() {
+        logger.info("Stopping stream")
+
+        rtcpTimer?.cancel()
+        rtcpTimer = nil
+
+        if let session = captureSession {
+            DispatchQueue.global(qos: .background).async { session.stopRunning() }
+        }
+        captureSession = nil
+
+        if let cs = compressionSession {
+            VTCompressionSessionInvalidate(cs)
+        }
+        compressionSession = nil
+
+        udpConnection?.cancel()
+        udpConnection = nil
+        rtcpConnection?.cancel()
+        rtcpConnection = nil
+        srtpContext = nil
+    }
+
+    // MARK: - Video Capture
+
+    private func setupCapture(width: Int, height: Int, fps: Int) {
+        guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
+            logger.error("No back camera available")
+            return
+        }
+
+        do {
+            try camera.lockForConfiguration()
+            // Find closest frame rate range
+            for range in camera.activeFormat.videoSupportedFrameRateRanges {
+                if range.maxFrameRate >= Double(fps) {
+                    camera.activeVideoMinFrameDuration = CMTime(value: 1, timescale: CMTimeScale(fps))
+                    camera.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: CMTimeScale(fps))
+                    break
+                }
+            }
+            camera.unlockForConfiguration()
+        } catch {
+            logger.error("Camera config error: \(error)")
+        }
+
+        let session = AVCaptureSession()
+        session.sessionPreset = width > 1280 ? .hd1920x1080 : width > 640 ? .hd1280x720 : .medium
+
+        do {
+            let input = try AVCaptureDeviceInput(device: camera)
+            if session.canAddInput(input) { session.addInput(input) }
+        } catch {
+            logger.error("Camera input error: \(error)")
+            return
+        }
+
+        let output = AVCaptureVideoDataOutput()
+        output.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange]
+        output.alwaysDiscardsLateVideoFrames = true
+        let delegate = VideoCaptureDelegate { [weak self] pixelBuffer, pts in
+            self?.encodeFrame(pixelBuffer, pts: pts)
+        }
+        output.setSampleBufferDelegate(delegate, queue: captureQueue)
+        if session.canAddOutput(output) { session.addOutput(output) }
+
+        self.captureSession = session
+        self.videoOutput = output
+        // Store delegate to prevent deallocation
+        objc_setAssociatedObject(output, "delegate", delegate, .OBJC_ASSOCIATION_RETAIN)
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            session.startRunning()
+            self?.logger.info("Capture session running: \(session.isRunning)")
+        }
+    }
+
+    // MARK: - H.264 Compression
+
+    private func setupCompression(width: Int, height: Int, fps: Int, bitrate: Int) {
+        var session: VTCompressionSession?
+        let status = VTCompressionSessionCreate(
+            allocator: nil,
+            width: Int32(width),
+            height: Int32(height),
+            codecType: kCMVideoCodecType_H264,
+            encoderSpecification: nil,
+            imageBufferAttributes: nil,
+            compressedDataAllocator: nil,
+            outputCallback: nil,
+            refcon: nil,
+            compressionSessionOut: &session
+        )
+
+        guard status == noErr, let cs = session else {
+            logger.error("VTCompressionSession create failed: \(status)")
+            return
+        }
+
+        VTSessionSetProperty(cs, key: kVTCompressionPropertyKey_RealTime, value: kCFBooleanTrue)
+        VTSessionSetProperty(cs, key: kVTCompressionPropertyKey_ProfileLevel,
+                             value: kVTProfileLevel_H264_Baseline_AutoLevel)
+        VTSessionSetProperty(cs, key: kVTCompressionPropertyKey_AverageBitRate,
+                             value: (bitrate * 1000) as CFNumber)
+        VTSessionSetProperty(cs, key: kVTCompressionPropertyKey_MaxKeyFrameInterval,
+                             value: (fps * 2) as CFNumber)  // Keyframe every 2 seconds
+        VTSessionSetProperty(cs, key: kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration,
+                             value: 2.0 as CFNumber)  // Also set duration-based interval
+        VTSessionSetProperty(cs, key: kVTCompressionPropertyKey_ExpectedFrameRate,
+                             value: fps as CFNumber)
+        VTSessionSetProperty(cs, key: kVTCompressionPropertyKey_AllowFrameReordering,
+                             value: kCFBooleanFalse)
+        // Data rate limit: allow bursts up to 1.5x average per second
+        let bytesPerSecond = (bitrate * 1000 / 8) as CFNumber
+        let one = 1.0 as CFNumber
+        VTSessionSetProperty(cs, key: kVTCompressionPropertyKey_DataRateLimits,
+                             value: [bytesPerSecond, one] as CFArray)
+
+        VTCompressionSessionPrepareToEncodeFrames(cs)
+        self.compressionSession = cs
+    }
+
+    private func encodeFrame(_ pixelBuffer: CVPixelBuffer, pts: CMTime) {
+        guard let cs = compressionSession else { return }
+
+        frameCount += 1
+        if frameCount <= 3 || frameCount % 100 == 0 {
+            logger.info("Encoding frame \(self.frameCount) (\(CVPixelBufferGetWidth(pixelBuffer))x\(CVPixelBufferGetHeight(pixelBuffer)))")
+        }
+
+        // Force keyframe on first frame
+        let props: CFDictionary? = frameCount == 1
+            ? [kVTEncodeFrameOptionKey_ForceKeyFrame: true] as CFDictionary
+            : nil
+
+        var flags = VTEncodeInfoFlags()
+        let status = VTCompressionSessionEncodeFrame(
+            cs,
+            imageBuffer: pixelBuffer,
+            presentationTimeStamp: pts,
+            duration: .invalid,
+            frameProperties: props,
+            infoFlagsOut: &flags,
+            outputHandler: { [weak self] status, _, sampleBuffer in
+                if status != noErr {
+                    self?.logger.error("Encode output error: \(status)")
+                    return
+                }
+                guard let sampleBuffer, let self else { return }
+                self.rtpQueue.async {
+                    self.processEncodedFrame(sampleBuffer)
+                }
+            }
+        )
+        if status != noErr {
+            logger.error("VTCompressionSessionEncodeFrame failed: \(status)")
+        }
+    }
+
+    // MARK: - RTP Packetization
+
+    private func processEncodedFrame(_ sampleBuffer: CMSampleBuffer) {
+        guard let dataBuffer = sampleBuffer.dataBuffer else { return }
+
+        // Get H.264 NAL units from the sample buffer
+        var totalLength = 0
+        var dataPointer: UnsafeMutablePointer<CChar>?
+        CMBlockBufferGetDataPointer(dataBuffer, atOffset: 0, lengthAtOffsetOut: nil,
+                                    totalLengthOut: &totalLength, dataPointerOut: &dataPointer)
+        guard let ptr = dataPointer, totalLength > 0 else { return }
+
+        let data = Data(bytes: ptr, count: totalLength)
+
+        // Check for keyframe — if so, send SPS/PPS first
+        let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false) as? [[CFString: Any]]
+        let isKeyframe = !(attachments?.first?[kCMSampleAttachmentKey_NotSync] as? Bool ?? false)
+
+        if isKeyframe || frameCount <= 3 || frameCount % 100 == 0 {
+            logger.info("Frame \(self.frameCount) encoded: \(totalLength) bytes, keyframe=\(isKeyframe)")
+        }
+
+        if isKeyframe, let formatDesc = CMSampleBufferGetFormatDescription(sampleBuffer) {
+            sendParameterSets(formatDesc)
+        }
+
+        // Parse AVCC-format NAL units (4-byte length prefix)
+        // First pass: collect non-SEI NAL units
+        var nalUnits: [Data] = []
+        var offset = 0
+        var nalIndex = 0
+        while offset + 4 <= data.count {
+            let nalLength = Int(data[offset]) << 24 | Int(data[offset+1]) << 16 |
+                            Int(data[offset+2]) << 8 | Int(data[offset+3])
+            offset += 4
+            guard nalLength > 0, offset + nalLength <= data.count else { break }
+
+            let nalUnit = data[offset..<offset + nalLength]
+            let nalType = nalUnit[nalUnit.startIndex] & 0x1F
+
+            if frameCount <= 3 || isKeyframe {
+                logger.info("  NAL[\(nalIndex)]: type=\(nalType) size=\(nalLength)")
+            }
+
+            nalUnits.append(Data(nalUnit))
+            offset += nalLength
+            nalIndex += 1
+        }
+
+        // Second pass: send with correct marker bits
+        for (i, nal) in nalUnits.enumerated() {
+            let isLast = (i == nalUnits.count - 1)
+            sendNALUnit(nal, marker: isLast)
+        }
+
+        // Advance RTP timestamp (90kHz clock)
+        rtpTimestamp &+= UInt32(90000 / targetFPS)
+    }
+
+    private func sendParameterSets(_ formatDesc: CMFormatDescription) {
+        // Extract SPS
+        var spsSize = 0, spsCount = 0
+        var spsPtr: UnsafePointer<UInt8>?
+        guard CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
+            formatDesc, parameterSetIndex: 0, parameterSetPointerOut: &spsPtr,
+            parameterSetSizeOut: &spsSize, parameterSetCountOut: &spsCount, nalUnitHeaderLengthOut: nil
+        ) == noErr, let spsPtr else { return }
+        let sps = Data(bytes: spsPtr, count: spsSize)
+
+        // Extract PPS
+        var ppsSize = 0
+        var ppsPtr: UnsafePointer<UInt8>?
+        guard CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
+            formatDesc, parameterSetIndex: 1, parameterSetPointerOut: &ppsPtr,
+            parameterSetSizeOut: &ppsSize, parameterSetCountOut: nil, nalUnitHeaderLengthOut: nil
+        ) == noErr, let ppsPtr else { return }
+        let pps = Data(bytes: ppsPtr, count: ppsSize)
+
+        // Send SPS and PPS as individual single-NAL-unit RTP packets
+        // marker=false because the IDR slice follows in the same access unit
+        sendRTPPacket(payload: sps, marker: false)
+        sendRTPPacket(payload: pps, marker: false)
+    }
+
+    /// Send a single NAL unit, fragmenting into FU-A packets if > MTU.
+    /// `marker` should be true only for the last NAL unit of an access unit (RFC 6184 §5.1).
+    private func sendNALUnit(_ nal: Data, marker: Bool) {
+        let maxPayload = 1200 - 12  // MTU minus RTP header
+
+        if nal.count <= maxPayload {
+            // Single NAL unit packet — marker only if this is the last NAL of the access unit
+            sendRTPPacket(payload: nal, marker: marker)
+        } else {
+            // FU-A fragmentation (RFC 6184 §5.8)
+            let nalHeader = nal[nal.startIndex]
+            let nri = nalHeader & 0x60        // NRI bits
+            let nalType = nalHeader & 0x1F    // NAL unit type
+
+            var offset = 1 // Skip original NAL header
+            let nalBody = nal.dropFirst()
+            let total = nalBody.count
+
+            while offset - 1 < total {
+                let remaining = total - (offset - 1)
+                let chunkSize = min(maxPayload - 2, remaining)  // -2 for FU indicator + FU header
+                let isFirst = (offset == 1)
+                let isLast = (chunkSize == remaining)
+
+                let fuIndicator: UInt8 = nri | 28  // Type 28 = FU-A
+                var fuHeader: UInt8 = nalType
+                if isFirst { fuHeader |= 0x80 }    // Start bit
+                if isLast  { fuHeader |= 0x40 }    // End bit
+
+                var payload = Data([fuIndicator, fuHeader])
+                payload.append(nal[(nal.startIndex + offset)..<(nal.startIndex + offset + chunkSize)])
+                // Only set marker on the last fragment AND only if this is the last NAL of the access unit
+                sendRTPPacket(payload: payload, marker: isLast && marker)
+
+                offset += chunkSize
+            }
+        }
+    }
+
+    private func sendRTPPacket(payload: Data, marker: Bool) {
+        // RTP header (12 bytes) per RFC 3550
+        var header = Data(count: 12)
+        header[0] = 0x80  // V=2, P=0, X=0, CC=0
+        header[1] = (marker ? 0x80 : 0x00) | (rtpPayloadType & 0x7F)  // M bit + dynamic PT
+        header[2] = UInt8(sequenceNumber >> 8)
+        header[3] = UInt8(sequenceNumber & 0xFF)
+        header[4] = UInt8((rtpTimestamp >> 24) & 0xFF)
+        header[5] = UInt8((rtpTimestamp >> 16) & 0xFF)
+        header[6] = UInt8((rtpTimestamp >> 8) & 0xFF)
+        header[7] = UInt8(rtpTimestamp & 0xFF)
+        header[8] = UInt8((videoSSRC >> 24) & 0xFF)
+        header[9] = UInt8((videoSSRC >> 16) & 0xFF)
+        header[10] = UInt8((videoSSRC >> 8) & 0xFF)
+        header[11] = UInt8(videoSSRC & 0xFF)
+
+        sequenceNumber &+= 1
+
+        var rtpPacket = header
+        rtpPacket.append(payload)
+
+        // Encrypt with SRTP
+        if let ctx = srtpContext {
+            rtpPacket = ctx.protect(rtpPacket)
+        }
+
+        // Send via UDP
+        packetsSent += 1
+        octetsSent += payload.count
+        if packetsSent <= 5 || packetsSent % 500 == 0 {
+            logger.info("Sending SRTP packet #\(self.packetsSent) (\(rtpPacket.count) bytes)")
+        }
+        udpConnection?.send(content: rtpPacket, completion: .contentProcessed { [weak self] error in
+            if let error {
+                self?.logger.error("UDP send error: \(error)")
+            } else if self?.packetsSent == 1 {
+                self?.logger.info("First UDP packet sent successfully")
+            }
+        })
+    }
+
+    // MARK: - RTCP Sender Report
+
+    private func startRTCPTimer() {
+        let timer = DispatchSource.makeTimerSource(queue: rtpQueue)
+        timer.schedule(deadline: .now() + 0.5, repeating: 5.0)
+        timer.setEventHandler { [weak self] in
+            self?.sendRTCPSenderReport()
+        }
+        timer.resume()
+        self.rtcpTimer = timer
+    }
+
+    private func sendRTCPSenderReport() {
+        guard let ctx = srtpContext else { return }
+
+        // Build RTCP Sender Report (RFC 3550 §6.4.1)
+        // Header: V=2, P=0, RC=0, PT=200 (SR), length=6 (28 bytes / 4 - 1)
+        var sr = Data(count: 28)
+        sr[0] = 0x80  // V=2, P=0, RC=0
+        sr[1] = 200   // PT = Sender Report
+        sr[2] = 0x00  // Length (MSB)
+        sr[3] = 0x06  // Length = 6 (28/4 - 1)
+        // SSRC
+        sr[4] = UInt8((videoSSRC >> 24) & 0xFF)
+        sr[5] = UInt8((videoSSRC >> 16) & 0xFF)
+        sr[6] = UInt8((videoSSRC >> 8) & 0xFF)
+        sr[7] = UInt8(videoSSRC & 0xFF)
+        // NTP timestamp (seconds since 1900-01-01)
+        let now = Date()
+        let ntpEpochOffset: TimeInterval = 2208988800  // seconds from 1900 to 1970
+        let ntpTime = now.timeIntervalSince1970 + ntpEpochOffset
+        let ntpSec = UInt32(ntpTime)
+        let ntpFrac = UInt32((ntpTime - Double(ntpSec)) * 4294967296.0)
+        sr[8]  = UInt8((ntpSec >> 24) & 0xFF)
+        sr[9]  = UInt8((ntpSec >> 16) & 0xFF)
+        sr[10] = UInt8((ntpSec >> 8) & 0xFF)
+        sr[11] = UInt8(ntpSec & 0xFF)
+        sr[12] = UInt8((ntpFrac >> 24) & 0xFF)
+        sr[13] = UInt8((ntpFrac >> 16) & 0xFF)
+        sr[14] = UInt8((ntpFrac >> 8) & 0xFF)
+        sr[15] = UInt8(ntpFrac & 0xFF)
+        // RTP timestamp (current)
+        sr[16] = UInt8((rtpTimestamp >> 24) & 0xFF)
+        sr[17] = UInt8((rtpTimestamp >> 16) & 0xFF)
+        sr[18] = UInt8((rtpTimestamp >> 8) & 0xFF)
+        sr[19] = UInt8(rtpTimestamp & 0xFF)
+        // Sender's packet count
+        let pc = UInt32(packetsSent)
+        sr[20] = UInt8((pc >> 24) & 0xFF)
+        sr[21] = UInt8((pc >> 16) & 0xFF)
+        sr[22] = UInt8((pc >> 8) & 0xFF)
+        sr[23] = UInt8(pc & 0xFF)
+        // Sender's octet count
+        let oc = UInt32(octetsSent)
+        sr[24] = UInt8((oc >> 24) & 0xFF)
+        sr[25] = UInt8((oc >> 16) & 0xFF)
+        sr[26] = UInt8((oc >> 8) & 0xFF)
+        sr[27] = UInt8(oc & 0xFF)
+
+        // Encrypt with SRTCP and send on RTCP port (video port + 1)
+        let srtcpPacket = ctx.protectRTCP(sr)
+        rtcpConnection?.send(content: srtcpPacket, completion: .contentProcessed { [weak self] error in
+            if let error {
+                self?.logger.error("RTCP send error: \(error)")
+            }
+        })
+        logger.info("Sent RTCP-SR: packets=\(self.packetsSent) octets=\(self.octetsSent)")
+    }
+}
+
+// MARK: - Video Capture Delegate
+
+private final class VideoCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
+    let handler: (CVPixelBuffer, CMTime) -> Void
+
+    init(handler: @escaping (CVPixelBuffer, CMTime) -> Void) {
+        self.handler = handler
+    }
+
+    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+        handler(pixelBuffer, pts)
+    }
+}
+
+// MARK: - SRTP Context
+
+/// Minimal SRTP implementation using AES-128-ICM + HMAC-SHA1-80.
+/// Handles key derivation and per-packet encryption/authentication per RFC 3711.
+final class SRTPContext {
+
+    private let masterKey: Data    // 16 bytes
+    private let masterSalt: Data   // 14 bytes
+
+    // Derived SRTP session keys
+    private let sessionKey: Data       // 16 bytes — AES encryption key
+    private let sessionSalt: Data      // 14 bytes — IV/counter salt
+    private let sessionAuthKey: Data   // 20 bytes — HMAC-SHA1 key
+
+    // Derived SRTCP session keys (labels 0x03, 0x04, 0x05)
+    private let srtcpKey: Data
+    private let srtcpSalt: Data
+    private let srtcpAuthKey: Data
+
+    private let logger = Logger(subsystem: "com.example.hap", category: "SRTP")
+    private var rolloverCounter: UInt32 = 0
+    private var lastSequenceNumber: UInt16 = 0
+    private var packetCount: Int = 0
+    private var srtcpIndex: UInt32 = 0
+
+    init(masterKey: Data, masterSalt: Data) {
+        self.masterKey = masterKey
+        self.masterSalt = masterSalt
+
+        // Derive SRTP session keys via AES-CM PRF (RFC 3711 §4.3.1)
+        self.sessionKey = Self.deriveKey(masterKey: masterKey, masterSalt: masterSalt, label: 0x00, length: 16)
+        self.sessionSalt = Self.deriveKey(masterKey: masterKey, masterSalt: masterSalt, label: 0x02, length: 14)
+        self.sessionAuthKey = Self.deriveKey(masterKey: masterKey, masterSalt: masterSalt, label: 0x01, length: 20)
+
+        // Derive SRTCP session keys (RFC 3711 §4.3.1, labels 0x03-0x05)
+        self.srtcpKey = Self.deriveKey(masterKey: masterKey, masterSalt: masterSalt, label: 0x03, length: 16)
+        self.srtcpSalt = Self.deriveKey(masterKey: masterKey, masterSalt: masterSalt, label: 0x05, length: 14)
+        self.srtcpAuthKey = Self.deriveKey(masterKey: masterKey, masterSalt: masterSalt, label: 0x04, length: 20)
+
+        logger.info("Master key=\(masterKey.map { String(format: "%02x", $0) }.joined()) salt=\(masterSalt.map { String(format: "%02x", $0) }.joined())")
+        logger.info("Session key=\(self.sessionKey.map { String(format: "%02x", $0) }.joined()) salt=\(self.sessionSalt.map { String(format: "%02x", $0) }.joined()) authKey=\(self.sessionAuthKey.map { String(format: "%02x", $0) }.joined())")
+
+        // Self-test key derivation against RFC 3711 Appendix B.3
+        Self.runSelfTest()
+    }
+
+    /// Verify key derivation against RFC 3711 Appendix B.3 test vectors.
+    private static func runSelfTest() {
+        let logger = Logger(subsystem: "com.example.hap", category: "SRTP")
+        let testKey = Data([0xE1, 0xF9, 0x7A, 0x0D, 0x3E, 0x01, 0x8B, 0xE0,
+                            0xD6, 0x4F, 0xA3, 0x2C, 0x06, 0xDE, 0x41, 0x39])
+        let testSalt = Data([0x0E, 0xC6, 0x75, 0xAD, 0x49, 0x8A, 0xFE, 0xEB,
+                             0xB6, 0x96, 0x0B, 0x3A, 0xAB, 0xE6])
+        let expectedCipherKey = Data([0xC6, 0x1E, 0x7A, 0x93, 0x74, 0x4F, 0x39, 0xEE,
+                                      0x10, 0x73, 0x4A, 0xFE, 0x3F, 0xF7, 0xA0, 0x87])
+        let expectedSalt = Data([0x30, 0xCB, 0xBC, 0x08, 0x86, 0x3D, 0x8C, 0x85,
+                                 0xD4, 0x9D, 0xB3, 0x4A, 0x9A, 0xE1])
+        let expectedAuthKey = Data([0xCE, 0xBE, 0x32, 0x1F, 0x6F, 0xF7, 0x71, 0x6B,
+                                    0x6F, 0xD4, 0xAB, 0x49, 0xAF, 0x25, 0x6A, 0x15,
+                                    0x6D, 0x38, 0xBA, 0xA4])
+
+        let ck = deriveKey(masterKey: testKey, masterSalt: testSalt, label: 0x00, length: 16)
+        let cs = deriveKey(masterKey: testKey, masterSalt: testSalt, label: 0x02, length: 14)
+        let ak = deriveKey(masterKey: testKey, masterSalt: testSalt, label: 0x01, length: 20)
+
+            let pass = (ck == expectedCipherKey && cs == expectedSalt && ak == expectedAuthKey)
+        logger.info("SRTP self-test: \(pass ? "PASS" : "FAIL")")
+        if !pass {
+            logger.error("SRTP self-test FAILED! cipher=\(ck == expectedCipherKey) salt=\(cs == expectedSalt) auth=\(ak == expectedAuthKey)")
+            logger.error("  Got cipher: \(ck.map { String(format: "%02x", $0) }.joined())")
+            logger.error("  Expected:   \(expectedCipherKey.map { String(format: "%02x", $0) }.joined())")
+        }
+    }
+
+    /// Encrypt and authenticate an RTP packet in place, returning the SRTP packet.
+    func protect(_ rtpPacket: Data) -> Data {
+        guard rtpPacket.count >= 12 else { return rtpPacket }
+
+        let header = Data(rtpPacket[rtpPacket.startIndex..<rtpPacket.startIndex + 12])
+        let payload = Data(rtpPacket[rtpPacket.startIndex + 12..<rtpPacket.endIndex])
+
+        // Extract SSRC and sequence number from header
+        let ssrc = UInt32(header[header.startIndex + 8]) << 24 |
+                   UInt32(header[header.startIndex + 9]) << 16 |
+                   UInt32(header[header.startIndex + 10]) << 8 |
+                   UInt32(header[header.startIndex + 11])
+        let seq = UInt16(header[header.startIndex + 2]) << 8 |
+                  UInt16(header[header.startIndex + 3])
+
+        // Track rollover counter
+        if seq < lastSequenceNumber && (lastSequenceNumber - seq) > 0x8000 {
+            rolloverCounter += 1
+        }
+        lastSequenceNumber = seq
+
+        // Packet index = ROC * 65536 + SEQ
+        let packetIndex = UInt64(rolloverCounter) << 16 | UInt64(seq)
+
+        // Build the IV for AES-ICM (RFC 3711 §4.1.1)
+        // IV = (k_s * 2^16) XOR (SSRC * 2^64) XOR (i * 2^16)
+        // k_s (14 bytes) at bytes 0-13, SSRC (4 bytes) at bytes 4-7,
+        // packet index (6 bytes) at bytes 8-13, block counter at bytes 14-15
+        var iv = Data(count: 16)
+        iv[4] = UInt8((ssrc >> 24) & 0xFF)
+        iv[5] = UInt8((ssrc >> 16) & 0xFF)
+        iv[6] = UInt8((ssrc >> 8) & 0xFF)
+        iv[7] = UInt8(ssrc & 0xFF)
+        iv[8] = UInt8((packetIndex >> 40) & 0xFF)
+        iv[9] = UInt8((packetIndex >> 32) & 0xFF)
+        iv[10] = UInt8((packetIndex >> 24) & 0xFF)
+        iv[11] = UInt8((packetIndex >> 16) & 0xFF)
+        iv[12] = UInt8((packetIndex >> 8) & 0xFF)
+        iv[13] = UInt8(packetIndex & 0xFF)
+
+        // XOR with session salt (14 bytes at bytes 0-13)
+        for i in 0..<min(14, sessionSalt.count) {
+            iv[i] ^= sessionSalt[sessionSalt.startIndex + i]
+        }
+
+        // Encrypt payload with AES-128-CTR
+        let encryptedPayload = aesCTREncrypt(key: sessionKey, iv: iv, data: Data(payload))
+
+        packetCount += 1
+        if packetCount == 1 {
+            logger.info("SRTP #1: seq=\(seq) SSRC=\(ssrc) idx=\(packetIndex)")
+            logger.info("SRTP #1 IV: \(iv.map { String(format: "%02x", $0) }.joined())")
+            logger.info("SRTP #1 payload(\(payload.count)B): \(payload.prefix(16).map { String(format: "%02x", $0) }.joined())")
+            logger.info("SRTP #1 encrypted(\(encryptedPayload.count)B): \(encryptedPayload.prefix(16).map { String(format: "%02x", $0) }.joined())")
+        }
+
+        // Assemble: original header + encrypted payload
+        var srtpPacket = Data(header)
+        srtpPacket.append(encryptedPayload)
+
+        // Compute HMAC-SHA1 authentication tag over (header + encrypted payload + ROC)
+        var authInput = srtpPacket
+        var roc = rolloverCounter.bigEndian
+        authInput.append(Data(bytes: &roc, count: 4))
+
+        let tag = hmacSHA1(key: sessionAuthKey, data: authInput)
+        srtpPacket.append(tag.prefix(10))  // Truncate to 80 bits
+
+        if packetCount == 1 {
+            logger.info("SRTP #1 tag: \(tag.prefix(10).map { String(format: "%02x", $0) }.joined())")
+            let sameAsPlaintext = (payload == encryptedPayload)
+            logger.info("SRTP #1 encryption changed data: \(!sameAsPlaintext)")
+        }
+
+        return srtpPacket
+    }
+
+    /// Encrypt and authenticate an RTCP packet, returning the SRTCP packet.
+    /// Format: RTCP_header(8B) || encrypted_payload || E_flag+SRTCP_index(4B) || auth_tag(10B)
+    func protectRTCP(_ rtcpPacket: Data) -> Data {
+        guard rtcpPacket.count >= 8 else { return rtcpPacket }
+
+        let header = Data(rtcpPacket[rtcpPacket.startIndex..<rtcpPacket.startIndex + 8])
+        let payload = Data(rtcpPacket[rtcpPacket.startIndex + 8..<rtcpPacket.endIndex])
+
+        // Extract SSRC from header (bytes 4-7)
+        let ssrc = UInt32(header[header.startIndex + 4]) << 24 |
+                   UInt32(header[header.startIndex + 5]) << 16 |
+                   UInt32(header[header.startIndex + 6]) << 8 |
+                   UInt32(header[header.startIndex + 7])
+
+        let index = srtcpIndex
+        srtcpIndex += 1
+
+        // Build IV: (srtcp_salt * 2^16) XOR (SSRC * 2^64) XOR (index * 2^16)
+        var iv = Data(count: 16)
+        iv[4] = UInt8((ssrc >> 24) & 0xFF)
+        iv[5] = UInt8((ssrc >> 16) & 0xFF)
+        iv[6] = UInt8((ssrc >> 8) & 0xFF)
+        iv[7] = UInt8(ssrc & 0xFF)
+        // SRTCP index is 32-bit (not 48-bit like SRTP packet index), placed at bytes 10-13
+        iv[10] = UInt8((index >> 24) & 0xFF)
+        iv[11] = UInt8((index >> 16) & 0xFF)
+        iv[12] = UInt8((index >> 8) & 0xFF)
+        iv[13] = UInt8(index & 0xFF)
+
+        for i in 0..<min(14, srtcpSalt.count) {
+            iv[i] ^= srtcpSalt[srtcpSalt.startIndex + i]
+        }
+
+        let encryptedPayload = aesCTREncrypt(key: srtcpKey, iv: iv, data: payload)
+
+        // Assemble: header + encrypted payload + E||index + auth tag
+        var srtcpPacket = Data(header)
+        srtcpPacket.append(encryptedPayload)
+
+        // E flag (bit 31) = 1 (encrypted) + 31-bit SRTCP index
+        let eIndex = (UInt32(1) << 31) | (index & 0x7FFFFFFF)
+        var eIndexBE = eIndex.bigEndian
+        srtcpPacket.append(Data(bytes: &eIndexBE, count: 4))
+
+        // Auth tag covers: header + encrypted payload + E||index
+        let tag = hmacSHA1(key: srtcpAuthKey, data: srtcpPacket)
+        srtcpPacket.append(tag.prefix(10))
+
+        return srtcpPacket
+    }
+
+    // MARK: - Key Derivation (AES-CM PRF)
+
+    /// RFC 3711 §4.3.1 — derive a session key using AES-CM as a PRF.
+    private static func deriveKey(masterKey: Data, masterSalt: Data, label: UInt8, length: Int) -> Data {
+        // x = label || 0x000000000000 (7 bytes) — then r = salt XOR (x left-padded to 14 bytes)
+        var r = Data(count: 14)
+        // Copy salt
+        for i in 0..<min(14, masterSalt.count) {
+            r[i] = masterSalt[masterSalt.startIndex + i]
+        }
+        // XOR label at byte index 7 (within the 14-byte block)
+        r[7] ^= label
+
+        // Build IV: r || 0x0000 (pad to 16 bytes)
+        var iv = Data(count: 16)
+        for i in 0..<14 { iv[i] = r[i] }
+        // iv[14] = 0, iv[15] = 0 (block counter = 0)
+
+        // Generate keystream by encrypting the IV with AES-ECB (counter mode with counter = 0,1,...)
+        var result = Data()
+        var counter: UInt16 = 0
+        while result.count < length {
+            iv[14] = UInt8(counter >> 8)
+            iv[15] = UInt8(counter & 0xFF)
+
+            // Buffer must be >= inputLength + blockSize for CCCrypt
+            var block = Data(count: 32)
+            var outLength = 0
+            let status = block.withUnsafeMutableBytes { outPtr in
+                iv.withUnsafeBytes { ivPtr in
+                    masterKey.withUnsafeBytes { keyPtr in
+                        CCCrypt(
+                            CCOperation(kCCEncrypt),
+                            CCAlgorithm(kCCAlgorithmAES),
+                            CCOptions(kCCOptionECBMode),
+                            keyPtr.baseAddress, masterKey.count,
+                            nil,
+                            ivPtr.baseAddress, 16,
+                            outPtr.baseAddress, 32,
+                            &outLength
+                        )
+                    }
+                }
+            }
+            if status != kCCSuccess || outLength == 0 {
+                // Fallback: should never happen
+                break
+            }
+            result.append(block.prefix(min(outLength, 16)))
+            counter += 1
+        }
+        return Data(result.prefix(length))
+    }
+
+    // MARK: - AES-128-CTR Encryption
+
+    private func aesCTREncrypt(key: Data, iv: Data, data: Data) -> Data {
+        guard !data.isEmpty else { return data }
+
+        var cryptorRef: CCCryptorRef?
+        let createStatus = key.withUnsafeBytes { keyPtr in
+            iv.withUnsafeBytes { ivPtr in
+                CCCryptorCreateWithMode(
+                    CCOperation(kCCEncrypt),
+                    CCMode(kCCModeCTR),
+                    CCAlgorithm(kCCAlgorithmAES),
+                    CCPadding(ccNoPadding),
+                    ivPtr.baseAddress,
+                    keyPtr.baseAddress, key.count,
+                    nil, 0, 0,
+                    CCModeOptions(kCCModeOptionCTR_BE),
+                    &cryptorRef
+                )
+            }
+        }
+
+        guard createStatus == kCCSuccess, let cryptor = cryptorRef else {
+            return data  // Fallback: return plaintext (shouldn't happen)
+        }
+
+        let resultCount = data.count
+        var result = Data(count: resultCount)
+        var outLength = 0
+        let updateStatus = result.withUnsafeMutableBytes { outPtr in
+            data.withUnsafeBytes { inPtr in
+                CCCryptorUpdate(
+                    cryptor,
+                    inPtr.baseAddress, data.count,
+                    outPtr.baseAddress, resultCount,
+                    &outLength
+                )
+            }
+        }
+
+        CCCryptorRelease(cryptor)
+
+        if updateStatus != kCCSuccess {
+            return data
+        }
+
+        return result
+    }
+
+    // MARK: - HMAC-SHA1
+
+    private func hmacSHA1(key: Data, data: Data) -> Data {
+        var result = Data(count: Int(CC_SHA1_DIGEST_LENGTH))
+        result.withUnsafeMutableBytes { resultPtr in
+            data.withUnsafeBytes { dataPtr in
+                key.withUnsafeBytes { keyPtr in
+                    CCHmac(
+                        CCHmacAlgorithm(kCCHmacAlgSHA1),
+                        keyPtr.baseAddress, key.count,
+                        dataPtr.baseAddress, data.count,
+                        resultPtr.baseAddress
+                    )
+                }
+            }
+        }
+        return result
+    }
+}

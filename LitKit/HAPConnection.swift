@@ -191,6 +191,9 @@ final class HAPConnection {
         case ("POST", "/pairings"):
             return handlePairings(request, server: server)
 
+        case ("POST", "/resource"):
+            return handleResource(request, server: server)
+
         default:
             logger.warning("Unknown route: \(request.method) \(request.path)")
             return HTTPResponse(status: 404, body: nil, contentType: "application/hap+json")
@@ -259,8 +262,12 @@ final class HAPConnection {
     private func handleGetAccessories(server: HAPServer) -> HTTPResponse {
         // Return all accessories (bridge + sub-accessories), sorted by aid
         let allJSON = server.accessories.keys.sorted().compactMap { server.accessories[$0]?.toJSON() }
-        guard let data = try? JSONSerialization.data(withJSONObject: ["accessories": allJSON]) else {
+        let responseObj: [String: Any] = ["accessories": allJSON]
+        guard let data = try? JSONSerialization.data(withJSONObject: responseObj) else {
             return HTTPResponse(status: 500, body: nil, contentType: "application/hap+json")
+        }
+        if let jsonStr = String(data: data, encoding: .utf8) {
+            logger.info("GET /accessories response (\(data.count) bytes):\n\(jsonStr)")
         }
         return HTTPResponse(status: 200, body: data, contentType: "application/hap+json")
     }
@@ -291,6 +298,30 @@ final class HAPConnection {
 
     private func handlePairings(_ request: HTTPRequest, server: HAPServer) -> HTTPResponse {
         return PairingsHandler.handle(request: request, connection: self, server: server)
+    }
+
+    private func handleResource(_ request: HTTPRequest, server: HAPServer) -> HTTPResponse {
+        // POST /resource — Home.app requests JPEG snapshots for camera tiles.
+        // Body: {"aid": 3, "image-width": 320, "image-height": 240, "resource-type": "image"}
+        guard let body = request.body,
+              let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+              let aid = json["aid"] as? Int,
+              let resourceType = json["resource-type"] as? String,
+              resourceType == "image",
+              let camera = server.accessory(aid: aid) as? HAPCameraAccessory else {
+            return HTTPResponse(status: 404, body: nil, contentType: "application/hap+json")
+        }
+
+        let width = json["image-width"] as? Int ?? 320
+        let height = json["image-height"] as? Int ?? 240
+        logger.info("Snapshot requested: \(width)x\(height) from aid \(aid)")
+
+        if let jpeg = camera.captureSnapshot(width: width, height: height) {
+            return HTTPResponse(status: 200, body: jpeg, contentType: "image/jpeg")
+        } else {
+            logger.warning("Snapshot capture failed")
+            return HTTPResponse(status: 500, body: nil, contentType: "application/hap+json")
+        }
     }
 }
 
