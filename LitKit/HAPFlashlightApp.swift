@@ -1,4 +1,5 @@
 import Combine
+import CoreImage.CIFilterBuiltins
 import SwiftUI
 
 // MARK: - App Entry Point
@@ -99,6 +100,42 @@ final class HAPViewModel: ObservableObject {
     }
 }
 
+// MARK: - HomeKit QR Code Helpers
+
+/// Build the `X-HM://` setup URI defined by the HAP spec.
+/// The payload is a 45-bit integer, base-36 encoded and zero-padded to 9 chars:
+///   bits  0–26: setup code as plain integer (digits without dashes)
+///   bits 27–30: flags (2 = IP)
+///   bits 31–38: accessory category
+///   bits 39–44: reserved / version (0)
+private func hapSetupURI(setupCode: String, category: Int = HAPAccessoryCategory.lightbulb.rawValue) -> String {
+    let digits = setupCode.filter(\.isWholeNumber)
+    guard let code = UInt64(digits) else { return "" }
+    let flags: UInt64 = 2 // IP accessory
+    var payload: UInt64 = 0
+    payload |= code
+    payload |= flags << 27
+    payload |= UInt64(category) << 31
+
+    // Base-36 encode, uppercase, zero-padded to 9 characters
+    var encoded = String(payload, radix: 36, uppercase: true)
+    while encoded.count < 9 { encoded = "0" + encoded }
+    return "X-HM://\(encoded)"
+}
+
+/// Generate a crisp QR code `UIImage` from a string using CoreImage.
+private func generateQRCode(from string: String) -> UIImage? {
+    let context = CIContext()
+    let filter = CIFilter.qrCodeGenerator()
+    filter.message = Data(string.utf8)
+    filter.correctionLevel = "M"
+    guard let output = filter.outputImage else { return nil }
+    let scale = CGAffineTransform(scaleX: 10, y: 10)
+    let scaled = output.transformed(by: scale)
+    guard let cgImage = context.createCGImage(scaled, from: scaled.extent) else { return nil }
+    return UIImage(cgImage: cgImage)
+}
+
 // MARK: - Content View
 
 struct ContentView: View {
@@ -126,16 +163,25 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            // Setup Code
+            // Setup Code + QR
             if viewModel.isRunning {
                 GroupBox("Setup Code") {
-                    Text(viewModel.setupCode)
-                        .font(.system(.title, design: .monospaced))
-                        .fontWeight(.bold)
-                        .frame(maxWidth: .infinity)
-                    Text("Enter this in Home.app when adding the accessory")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    VStack(spacing: 12) {
+                        if let qr = generateQRCode(from: hapSetupURI(setupCode: viewModel.setupCode)) {
+                            Image(uiImage: qr)
+                                .interpolation(.none)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 180, height: 180)
+                        }
+                        Text(viewModel.setupCode)
+                            .font(.system(.title, design: .monospaced))
+                            .fontWeight(.bold)
+                            .frame(maxWidth: .infinity)
+                        Text("Scan with Home.app or enter the code manually")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
                 }
             }
 
