@@ -14,8 +14,17 @@ enum PairSetupHandler {
     private static let logger = Logger(subsystem: "com.example.hap", category: "PairSetup")
 
     /// The setup code displayed to the user (format: XXX-XX-XXX).
-    /// In a real app, display this on screen and let the user enter it in Home.app.
-    static let setupCode = "111-22-333"
+    /// Generated randomly on first launch and persisted to Keychain.
+    static let setupCode: String = {
+        if let data = KeychainHelper.load(key: "setup-code"),
+           let code = String(data: data, encoding: .utf8) {
+            return code
+        }
+        let d = (0..<8).map { _ in Int.random(in: 0...9) }
+        let code = "\(d[0])\(d[1])\(d[2])-\(d[3])\(d[4])-\(d[5])\(d[6])\(d[7])"
+        KeychainHelper.save(key: "setup-code", data: Data(code.utf8))
+        return code
+    }()
 
     static func handle(request: HTTPRequest, connection: HAPConnection, server: HAPServer) -> HTTPResponse {
         guard let body = request.body else {

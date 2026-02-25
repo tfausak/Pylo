@@ -4,7 +4,7 @@ import os
 
 // MARK: - Keychain Helper
 
-private enum KeychainHelper {
+enum KeychainHelper {
 
     private static let service = "com.example.hap"
     private static let signingKeyAccount = "device-signing-key"
