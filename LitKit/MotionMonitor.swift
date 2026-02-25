@@ -7,6 +7,9 @@ final class MotionMonitor {
 
     var onMotionChange: ((Bool) -> Void)?
 
+    /// Whether the device has an accelerometer.
+    var isAvailable: Bool { motionManager.isAccelerometerAvailable }
+
     private let logger = Logger(subsystem: "com.example.hap", category: "Motion")
     private let motionManager = CMMotionManager()
 

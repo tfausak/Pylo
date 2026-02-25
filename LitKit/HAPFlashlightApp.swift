@@ -33,6 +33,7 @@ final class HAPViewModel: ObservableObject {
     @Published var setupCode = PairSetupHandler.setupCode
     @Published var ambientLux: Float = 1.0
     @Published var isMotionDetected = false
+    @Published var isMotionAvailable = false
     @Published var isCameraStreaming = false
     @Published var hasPairings = false
     @Published var availableCameras: [CameraOption] = []
@@ -186,6 +187,7 @@ final class HAPViewModel: ObservableObject {
 
             // Set up motion monitor (accelerometer)
             let motion = MotionMonitor()
+            self.isMotionAvailable = motion.isAvailable
             motion.onMotionChange = { [weak motionSensor] detected in
                 motionSensor?.updateMotionDetected(detected)
             }
@@ -398,14 +400,25 @@ struct ContentView: View {
 
                         GroupBox("Motion Sensor") {
                             VStack(spacing: 8) {
-                                Image(systemName: viewModel.isMotionDetected ? "figure.walk.motion" : "figure.stand")
-                                    .font(.system(size: 32))
-                                    .foregroundColor(viewModel.isMotionDetected ? .blue : .gray)
-                                Text(viewModel.isMotionDetected ? "Motion Detected" : "No Motion")
-                                    .font(.headline)
-                                Text("Accelerometer movement")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
+                                if viewModel.isMotionAvailable {
+                                    Image(systemName: viewModel.isMotionDetected ? "figure.walk.motion" : "figure.stand")
+                                        .font(.system(size: 32))
+                                        .foregroundColor(viewModel.isMotionDetected ? .blue : .gray)
+                                    Text(viewModel.isMotionDetected ? "Motion Detected" : "No Motion")
+                                        .font(.headline)
+                                    Text("Accelerometer movement")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                } else {
+                                    Image(systemName: "figure.stand")
+                                        .font(.system(size: 32))
+                                        .foregroundColor(.secondary)
+                                    Text("No accelerometer found")
+                                        .font(.headline)
+                                    Text("An accelerometer is required for motion sensing")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
                             }
                             .frame(maxWidth: .infinity)
                         }
