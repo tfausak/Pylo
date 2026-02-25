@@ -27,8 +27,9 @@ final class HAPServer {
     /// Device identity (long-term Ed25519 key pair).
     let deviceIdentity: DeviceIdentity
 
-    /// Current configuration number. Increment when accessory DB changes.
-    var configurationNumber: Int = 8
+    /// Configuration number — derived from a hash of the accessory database structure
+    /// so it updates automatically whenever services or characteristics change.
+    private(set) var configurationNumber: Int = 1
 
     init(bridge: HAPBridgeInfo, accessories: [HAPAccessoryProtocol], pairingStore: PairingStore, deviceIdentity: DeviceIdentity) throws {
         self.bridge = bridge
@@ -45,6 +46,16 @@ final class HAPServer {
         let params = NWParameters.tcp
         params.includePeerToPeer = true
         self.listener = try NWListener(using: params)
+
+        // Compute c# from the accessory database structure so it auto-updates
+        // when services/characteristics change (HAP spec §6.6.1, range 1...4294967295).
+        let allJSON = self.accessories.keys.sorted().compactMap { self.accessories[$0]?.toJSON() }
+        if let data = try? JSONSerialization.data(withJSONObject: allJSON),
+           let str = String(data: data, encoding: .utf8) {
+            var hash: UInt32 = 5381
+            for byte in str.utf8 { hash = hash &* 33 &+ UInt32(byte) }
+            self.configurationNumber = Int(hash & 0x7FFFFFFF) | 1  // ensure ≥ 1
+        }
     }
 
     func start() {
