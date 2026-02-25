@@ -188,7 +188,7 @@ final class HAPViewModel: ObservableObject {
 ///   bits 27–30: flags (2 = IP)
 ///   bits 31–38: accessory category
 ///   bits 39–44: reserved / version (0)
-private func hapSetupURI(setupCode: String, category: Int = HAPAccessoryCategory.lightbulb.rawValue) -> String {
+private func hapSetupURI(setupCode: String, category: Int = HAPAccessoryCategory.bridge.rawValue) -> String {
     let digits = setupCode.filter(\.isWholeNumber)
     guard let code = UInt64(digits) else { return "" }
     let flags: UInt64 = 2 // IP accessory
