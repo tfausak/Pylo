@@ -17,7 +17,7 @@ final class SRPServer {
 
   /// N: A large safe prime (N = 2q+1, where q is prime)
   /// All arithmetic is done modulo N.
-  private static let N = BigUInt(
+  private static let prime = BigUInt(
     "FFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD1"
       + "29024E088A67CC74020BBEA63B139B22514A08798E3404DD"
       + "EF9519B3CD3A431B302B0A6DF25F14374FE1356D6D51C245"
@@ -88,7 +88,7 @@ final class SRPServer {
     let x = BigUInt(Data(SHA512.hash(data: xData)))
 
     // 3. Compute verifier v = g^x mod N
-    self.verifier = Self.g.power(x, modulus: Self.N)
+    self.verifier = Self.g.power(x, modulus: Self.prime)
 
     // 4. Generate random private key b (256 bits = 32 bytes)
     var bBytes = [UInt8](repeating: 0, count: 32)
@@ -99,17 +99,17 @@ final class SRPServer {
 
     // 5. Compute k = H(N | PAD(g)) per SRP-6a (required by HAP)
     var kData = Data()
-    kData.append(Self.pad(Self.N))
+    kData.append(Self.pad(Self.prime))
     kData.append(Self.pad(Self.g))
     self.k = BigUInt(Data(SHA512.hash(data: kData)))
 
     // 6. Compute B = (k*v + g^b mod N) mod N
-    let gb = Self.g.power(self.privateKey, modulus: Self.N)
-    let kv = (self.k * self.verifier) % Self.N
-    let B = (kv + gb) % Self.N
+    let gb = Self.g.power(self.privateKey, modulus: Self.prime)
+    let kv = (self.k * self.verifier) % Self.prime
+    let serverPublicKey = (kv + gb) % Self.prime
 
     // 7. Store B as public key
-    self.publicKey = Self.pad(B)
+    self.publicKey = Self.pad(serverPublicKey)
   }
 
   // MARK: - Step 2: Receive Client Public Key
@@ -117,31 +117,31 @@ final class SRPServer {
   /// Sets the client's public key A. Returns false if A is invalid (A mod N == 0).
   func setClientPublicKey(_ clientPublicKey: Data) -> Bool {
     // 1. Convert A from Data to BigUInt
-    let A = BigUInt(clientPublicKey)
+    let clientA = BigUInt(clientPublicKey)
 
     // 2. Verify A % N != 0 (security check to prevent invalid keys)
-    guard A % Self.N != 0 else {
+    guard clientA % Self.prime != 0 else {
       return false
     }
 
-    self.clientPublicKey = A
+    self.clientPublicKey = clientA
 
     // 3. Compute u = H(PAD(A) | PAD(B))
     var uData = Data()
-    uData.append(Self.pad(A))
+    uData.append(Self.pad(clientA))
     uData.append(self.publicKey)
     self.u = BigUInt(Data(SHA512.hash(data: uData)))
 
     // 4. Compute S = (A * v^u)^b mod N
     guard let u = self.u else { return false }
-    let vu = self.verifier.power(u, modulus: Self.N)
-    let Avu = (A * vu) % Self.N
-    let S = Avu.power(self.privateKey, modulus: Self.N)
-    self.sharedSecret = S
+    let vu = self.verifier.power(u, modulus: Self.prime)
+    let avu = (clientA * vu) % Self.prime
+    let s = avu.power(self.privateKey, modulus: Self.prime)
+    self.sharedSecret = s
 
     // 5. Compute K = H(S) — this will become sessionKey after proof verification
-    let K = Data(SHA512.hash(data: Self.pad(S)))
-    self.sessionKey = K
+    let derivedKey = Data(SHA512.hash(data: Self.pad(s)))
+    self.sessionKey = derivedKey
 
     return true
   }
@@ -151,8 +151,8 @@ final class SRPServer {
   /// Verifies the client's proof M1 and returns the server's proof M2.
   /// Returns nil if verification fails (wrong password).
   func verifyClientProof(_ clientProof: Data) -> Data? {
-    guard let A = self.clientPublicKey,
-      let K = self.sessionKey
+    guard let clientA = self.clientPublicKey,
+      let derivedKey = self.sessionKey
     else {
       return nil
     }
@@ -160,7 +160,7 @@ final class SRPServer {
     // Compute M1 = H(H(N) XOR H(g) | H(I) | s | A | B | K)
 
     // H(N) XOR H(g) — hash the raw (unpadded) serializations of N and g
-    let hashN = Data(SHA512.hash(data: Self.N.serialize()))
+    let hashN = Data(SHA512.hash(data: Self.prime.serialize()))
     let hashG = Data(SHA512.hash(data: Self.g.serialize()))
     let xorResult = Self.xor(hashN, hashG)
 
@@ -172,9 +172,9 @@ final class SRPServer {
     m1Data.append(xorResult)
     m1Data.append(hashI)
     m1Data.append(self.salt)
-    m1Data.append(Self.pad(A))
+    m1Data.append(Self.pad(clientA))
     m1Data.append(self.publicKey)
-    m1Data.append(K)
+    m1Data.append(derivedKey)
 
     let expectedM1 = Data(SHA512.hash(data: m1Data))
 
@@ -186,13 +186,13 @@ final class SRPServer {
 
     // 3. Compute M2 = H(A | M1 | K)
     var m2Data = Data()
-    m2Data.append(Self.pad(A))
+    m2Data.append(Self.pad(clientA))
     m2Data.append(expectedM1)
-    m2Data.append(K)
+    m2Data.append(derivedKey)
 
-    let M2 = Data(SHA512.hash(data: m2Data))
+    let serverProof = Data(SHA512.hash(data: m2Data))
 
-    return M2
+    return serverProof
   }
 
   // MARK: - Helper Functions
@@ -237,46 +237,28 @@ final class SRPServer {
 // H is SHA-512 throughout HAP's SRP usage.
 // Use: SHA512.hash(data: ...) from CryptoKit.
 
-/*
- ============================================================
- IMPLEMENTATION GUIDE
-
- Here's what the complete SRP-6a looks like once you add BigInt.
- This is about 150 lines of actual code:
-
- import BigInt
-
- // RFC 5054, 3072-bit group
- private static let N = BigUInt(
-     "FFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD1" +
-     "29024E088A67CC74020BBEA63B139B22514A08798E3404DD" +
-     "EF9519B3CD3A431B302B0A6DF25F14374FE1356D6D51C245" +
-     "E485B576625E7EC6F44C42E9A637ED6B0BFF5CB6F406B7ED" +
-     "EE386BFB5A899FA5AE9F24117C4B1FE649286651ECE45B3D" +
-     "C2007CB8A163BF0598DA48361C55D39A69163FA8FD24CF5F" +
-     "83655D23DCA3AD961C62F356208552BB9ED529077096966D" +
-     "670C354E4ABC9804F1746C08CA18217C32905E462E36CE3B" +
-     "E39E772C180E86039B2783A2EC07A28FB5C55DF06F4C52C9" +
-     "DE2BCBF6955817183995497CEA956AE515D2261898FA0510" +
-     "15728E5A8AAAC42DAD33170D04507A33A85521ABDF1CBA64" +
-     "ECFB850458DBEF0A8AEA71575D060C7DB3970F85A6E1E4C7" +
-     "ABF5AE8CDB0933D71E8C94E04A25619DCEE3D2261AD2EE6B" +
-     "F12FFA06D98A0864D87602733EC86A64521F2B18177B200CB" +
-     "BE117577A615D6C770988C0BAD946E208E24FA074E5AB3143" +
-     "DB5BFCE0FD108E4B82D120A93AD2CAFFFFFFFFFFFFFFFF",
-     radix: 16
- )!
-
- private static let g = BigUInt(5)
-
- // Then implement:
- //
- // init: salt, x, v, b, k, B
- // setClientPublicKey: A, u, S, K
- // verifyClientProof: M1 verification, M2 computation
- //
- // All using BigUInt.power(_:modulus:) for modular exponentiation
- // and SHA512.hash(data:) for hashing.
-
- ============================================================
-*/
+// MARK: - Implementation Guide
+//
+// Here's what the complete SRP-6a looks like once you add BigInt.
+// This is about 150 lines of actual code:
+//
+// import BigInt
+//
+// // RFC 5054, 3072-bit group
+// private static let prime = BigUInt(
+//     "FFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD1" +
+//     ...
+//     "DB5BFCE0FD108E4B82D120A93AD2CAFFFFFFFFFFFFFFFF",
+//     radix: 16
+// )!
+//
+// private static let g = BigUInt(5)
+//
+// Then implement:
+//
+// init: salt, x, v, b, k, B
+// setClientPublicKey: A, u, S, K
+// verifyClientProof: M1 verification, M2 computation
+//
+// All using BigUInt.power(_:modulus:) for modular exponentiation
+// and SHA512.hash(data:) for hashing.

@@ -35,7 +35,7 @@ final class AmbientLightMonitor {
   private var activeDevice: AVCaptureDevice?
 
   // Calibration constant (incident-light meter constant)
-  private let K: Float = 12.5
+  private let calibrationConstant: Float = 12.5
 
   func start(with camera: CameraOption? = nil) {
     guard captureSession == nil else { return }
@@ -127,7 +127,7 @@ final class AmbientLightMonitor {
     guard duration > 0, iso > 0 else { return }
 
     // lux = (K × f²) / (ISO × t)
-    let lux = (K * fNumber * fNumber) / (iso * duration)
+    let lux = (calibrationConstant * fNumber * fNumber) / (iso * duration)
 
     // Clamp to HAP range
     let clamped = max(0.0001, min(100_000, lux))

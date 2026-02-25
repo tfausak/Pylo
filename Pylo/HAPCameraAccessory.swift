@@ -1497,7 +1497,7 @@ final class CameraStreamSession {
     // Convert to Float32 at 16kHz if needed (the mic may deliver Int16 at 44.1/48kHz)
     let pcmFloat32: Data
     if let asbd, asbd.mFormatID == kAudioFormatLinearPCM {
-      pcmFloat32 = convertToFloat32_16kHz(rawData, sourceASBD: asbd)
+      pcmFloat32 = convertToFloat32At16kHz(rawData, sourceASBD: asbd)
     } else {
       return  // Unexpected format
     }
@@ -1514,8 +1514,9 @@ final class CameraStreamSession {
   }
 
   /// Convert PCM audio data to Float32 at 16kHz mono.
-  private func convertToFloat32_16kHz(_ data: Data, sourceASBD: AudioStreamBasicDescription) -> Data
-  {
+  private func convertToFloat32At16kHz(
+    _ data: Data, sourceASBD: AudioStreamBasicDescription
+  ) -> Data {
     let sourceSampleRate = sourceASBD.mSampleRate
     let sourceChannels = Int(sourceASBD.mChannelsPerFrame)
     let isFloat = (sourceASBD.mFormatFlags & kAudioFormatFlagIsFloat) != 0
