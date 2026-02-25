@@ -319,9 +319,9 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
     // Determine local IP address — must be on the same subnet as the controller
     let localAddress = Self.localIPAddress(matching: controllerAddress) ?? "0.0.0.0"
 
-    // Allocate UDP ports
-    let videoPort: UInt16 = UInt16.random(in: 50000...59999)
-    let audioPort: UInt16 = videoPort + 1
+    // Allocate UDP ports — video RTCP uses videoPort+1, so audio must start at +2
+    let videoPort: UInt16 = UInt16.random(in: 50000...59998)
+    let audioPort: UInt16 = videoPort + 2
 
     logger.info("SetupEndpoints response: local=\(localAddress):\(videoPort) SSRC=\(videoSSRC)")
 
@@ -1227,7 +1227,9 @@ final class CameraStreamSession {
       as? [[CFString: Any]]
     let isKeyframe = !(attachments?.first?[kCMSampleAttachmentKey_NotSync] as? Bool ?? false)
 
-    logger.debug("Frame \(self.frameCount) encoded: \(totalLength) bytes, keyframe=\(isKeyframe)")
+    if isKeyframe || frameCount % 300 == 1 {
+      logger.debug("Frame \(self.frameCount) encoded: \(totalLength) bytes, keyframe=\(isKeyframe)")
+    }
 
     if isKeyframe, let formatDesc = CMSampleBufferGetFormatDescription(sampleBuffer) {
       sendParameterSets(formatDesc)
@@ -1364,7 +1366,7 @@ final class CameraStreamSession {
     udpConnection?.send(
       content: rtpPacket,
       completion: .contentProcessed { [weak self] error in
-        if let error {
+        if let error, self?.packetsSent ?? 0 <= 1 || (self?.packetsSent ?? 0) % 300 == 0 {
           self?.logger.error("UDP send error: \(error)")
         }
       })
@@ -1502,7 +1504,7 @@ final class CameraStreamSession {
     }
     guard !isMuted else { return }
     audioSampleCount += 1
-    if audioSampleCount % 100 == 1 {
+    if audioSampleCount == 1 || audioSampleCount % 500 == 0 {
       logger.info("Audio mic sample #\(self.audioSampleCount) received")
     }
 
@@ -1669,7 +1671,7 @@ final class CameraStreamSession {
     guard encodedSize > 0 else { return }
     let aacData = Data(bytes: outputBuffer, count: encodedSize)
 
-    if audioPacketsSent % 100 == 0 {
+    if audioPacketsSent == 0 || audioPacketsSent % 500 == 0 {
       logger.info("Audio encoded frame: \(encodedSize)B AAC-ELD, total packets sent: \(self.audioPacketsSent)")
     }
     sendAudioRTPPacket(payload: aacData)
@@ -1709,7 +1711,7 @@ final class CameraStreamSession {
     audioConnection?.send(
       content: rtpPacket,
       completion: .contentProcessed { [weak self] error in
-        if let error {
+        if let error, self?.audioPacketsSent ?? 0 <= 1 || (self?.audioPacketsSent ?? 0) % 500 == 0 {
           self?.logger.error("Audio UDP send error: \(error)")
         }
       })
@@ -1882,7 +1884,7 @@ final class CameraStreamSession {
     guard let ctx = incomingSRTPContext else { return }
     guard !speakerMuted else { return }
     incomingAudioPacketCount += 1
-    if incomingAudioPacketCount % 100 == 1 {
+    if incomingAudioPacketCount == 1 || incomingAudioPacketCount % 500 == 0 {
       logger.info("Incoming audio SRTP packet #\(self.incomingAudioPacketCount), size=\(srtpData.count)B")
     }
 
@@ -1971,7 +1973,7 @@ final class CameraStreamSession {
 
     let decodedSize = Int(outputBufferList.mBuffers.mDataByteSize)
     guard decodedSize > 0, let playerNode = audioPlayerNode else { return }
-    if incomingAudioPacketCount % 100 == 1 {
+    if incomingAudioPacketCount == 1 || incomingAudioPacketCount % 500 == 0 {
       logger.info("Audio decoded: \(decodedSize)B PCM, scheduling for playback")
     }
 
