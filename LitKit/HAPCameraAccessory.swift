@@ -765,6 +765,14 @@ final class CameraStreamSession {
         output.setSampleBufferDelegate(delegate, queue: captureQueue)
         if session.canAddOutput(output) { session.addOutput(output) }
 
+        // Fix orientation — the sensor's native orientation is landscape-left,
+        // so we need to tell the connection to rotate to portrait.
+        if let connection = output.connection(with: .video) {
+            if connection.isVideoRotationAngleSupported(90) {
+                connection.videoRotationAngle = 90
+            }
+        }
+
         self.captureSession = session
         self.videoOutput = output
         // Store delegate to prevent deallocation

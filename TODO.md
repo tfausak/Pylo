@@ -5,7 +5,7 @@
 - [ ] The app makes a camera shutter sound for the snapshots. Is this necessary?
 - [x] The motion sensor should degrade gracefully if none is available, like the cameras.
 - [ ] The camera feed is low quality. Maybe the resolution and bit rate should be configurable?
-- [ ] The camera feed is rotated 90 degrees CCW from where it should be.
+- [x] The camera feed is rotated 90 degrees CCW from where it should be.
 - [x] Light and motion sensors are bundled with flashlight. Is this right, or should they be separate accessories? I think they were originally done this way before the bridge was set up.
 - [x] You should be able to choose which camera is used for the light sensor. Or perhaps even select several and merge their readings together?
 - [x] The server should start automatically when launching the app.
