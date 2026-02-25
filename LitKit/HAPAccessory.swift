@@ -59,24 +59,6 @@ final class HAPAccessory: HAPAccessoryProtocol {
         didSet { applyTorchState() }
     }
 
-    // MARK: - Light Sensor State
-
-    private(set) var ambientLightLevel: Float = 1.0
-
-    func updateAmbientLight(_ lux: Float) {
-        ambientLightLevel = lux
-        onStateChange?(aid, 12, lux)
-    }
-
-    // MARK: - Motion Sensor State
-
-    private(set) var isMotionDetected: Bool = false
-
-    func updateMotionDetected(_ detected: Bool) {
-        isMotionDetected = detected
-        onStateChange?(aid, 14, detected)
-    }
-
     /// Callback for notifying the server of state changes (for EVENT notifications).
     var onStateChange: ((_ aid: Int, _ iid: Int, _ value: Any) -> Void)?
 
@@ -112,12 +94,6 @@ final class HAPAccessory: HAPAccessoryProtocol {
     // Service: Lightbulb (iid 8)
     //   - On:                iid 9
     //   - Brightness:        iid 10
-    //
-    // Service: Light Sensor (iid 11)
-    //   - Current Ambient Light Level: iid 12
-    //
-    // Service: Motion Sensor (iid 13)
-    //   - Motion Detected:  iid 14
 
     // MARK: - HAP Service/Characteristic UUIDs (shortened form)
     // HAP uses Apple-defined UUIDs of the form 000000XX-0000-1000-8000-0026BB765291.
@@ -135,12 +111,6 @@ final class HAPAccessory: HAPAccessoryProtocol {
     static let uuidOn                  = "25"
     static let uuidBrightness          = "8"
 
-    static let uuidLightSensor         = "84"
-    static let uuidAmbientLightLevel   = "6B"
-
-    static let uuidMotionSensor        = "85"
-    static let uuidMotionDetected      = "22"
-
     // MARK: - Read Characteristic
 
     func readCharacteristic(iid: Int) -> Any? {
@@ -152,8 +122,6 @@ final class HAPAccessory: HAPAccessoryProtocol {
         case 7: return firmwareRevision
         case 9: return isOn
         case 10: return brightness
-        case 12: return ambientLightLevel
-        case 14: return isMotionDetected
         default: return nil
         }
     }
@@ -277,25 +245,6 @@ final class HAPAccessory: HAPAccessoryProtocol {
                                            minValue: 0, maxValue: 100, unit: "percentage"),
                     ]
                 ],
-                // Light Sensor Service
-                [
-                    "iid": 11,
-                    "type": Self.uuidLightSensor,
-                    "characteristics": [
-                        characteristicJSON(iid: 12, type: Self.uuidAmbientLightLevel, format: "float",
-                                           perms: ["pr", "ev"], value: ambientLightLevel,
-                                           minValue: Float(0.0001), maxValue: Float(100000), unit: "lux"),
-                    ]
-                ],
-                // Motion Sensor Service
-                [
-                    "iid": 13,
-                    "type": Self.uuidMotionSensor,
-                    "characteristics": [
-                        characteristicJSON(iid: 14, type: Self.uuidMotionDetected, format: "bool",
-                                           perms: ["pr", "ev"], value: isMotionDetected),
-                    ]
-                ],
             ]
         ]
     }
@@ -395,6 +344,197 @@ final class HAPBridgeInfo: HAPAccessoryProtocol {
                          "perms": ["pr"], "value": firmwareRevision],
                     ]
                 ]
+            ]
+        ]
+    }
+}
+
+// MARK: - Light Sensor Accessory
+
+/// Standalone light sensor accessory for the bridge.
+final class HAPLightSensorAccessory: HAPAccessoryProtocol {
+
+    let aid: Int
+    let name: String
+    let model: String
+    let manufacturer: String
+    let serialNumber: String
+    let firmwareRevision: String
+    var onStateChange: ((_ aid: Int, _ iid: Int, _ value: Any) -> Void)?
+
+    private(set) var ambientLightLevel: Float = 1.0
+
+    // IID 8 = Light Sensor service, IID 9 = Current Ambient Light Level
+    private static let uuidLightSensor       = "84"
+    private static let uuidAmbientLightLevel = "6B"
+
+    init(
+        aid: Int,
+        name: String = "Light Sensor",
+        model: String = "HAP-PoC",
+        manufacturer: String = "DIY",
+        serialNumber: String = "000001",
+        firmwareRevision: String = "0.1.0"
+    ) {
+        self.aid = aid
+        self.name = name
+        self.model = model
+        self.manufacturer = manufacturer
+        self.serialNumber = serialNumber
+        self.firmwareRevision = firmwareRevision
+    }
+
+    func updateAmbientLight(_ lux: Float) {
+        ambientLightLevel = lux
+        onStateChange?(aid, 9, lux)
+    }
+
+    func readCharacteristic(iid: Int) -> Any? {
+        switch iid {
+        case 3: return manufacturer
+        case 4: return model
+        case 5: return name
+        case 6: return serialNumber
+        case 7: return firmwareRevision
+        case 9: return ambientLightLevel
+        default: return nil
+        }
+    }
+
+    @discardableResult
+    func writeCharacteristic(iid: Int, value: Any) -> Bool {
+        if iid == 2 { identify(); return true }
+        return false
+    }
+
+    func identify() { }
+
+    func toJSON() -> [String: Any] {
+        [
+            "aid": aid,
+            "services": [
+                [
+                    "iid": 1,
+                    "type": HAPAccessory.uuidAccessoryInformation,
+                    "characteristics": [
+                        ["iid": 2, "type": HAPAccessory.uuidIdentify, "format": "bool",
+                         "perms": ["pw"]],
+                        ["iid": 3, "type": HAPAccessory.uuidManufacturer, "format": "string",
+                         "perms": ["pr"], "value": manufacturer],
+                        ["iid": 4, "type": HAPAccessory.uuidModel, "format": "string",
+                         "perms": ["pr"], "value": model],
+                        ["iid": 5, "type": HAPAccessory.uuidName, "format": "string",
+                         "perms": ["pr"], "value": name],
+                        ["iid": 6, "type": HAPAccessory.uuidSerialNumber, "format": "string",
+                         "perms": ["pr"], "value": serialNumber],
+                        ["iid": 7, "type": HAPAccessory.uuidFirmwareRevision, "format": "string",
+                         "perms": ["pr"], "value": firmwareRevision],
+                    ]
+                ],
+                [
+                    "iid": 8,
+                    "type": Self.uuidLightSensor,
+                    "characteristics": [
+                        ["iid": 9, "type": Self.uuidAmbientLightLevel, "format": "float",
+                         "perms": ["pr", "ev"], "value": ambientLightLevel,
+                         "minValue": Float(0.0001), "maxValue": Float(100000), "unit": "lux"],
+                    ]
+                ],
+            ]
+        ]
+    }
+}
+
+// MARK: - Motion Sensor Accessory
+
+/// Standalone motion sensor accessory for the bridge.
+final class HAPMotionSensorAccessory: HAPAccessoryProtocol {
+
+    let aid: Int
+    let name: String
+    let model: String
+    let manufacturer: String
+    let serialNumber: String
+    let firmwareRevision: String
+    var onStateChange: ((_ aid: Int, _ iid: Int, _ value: Any) -> Void)?
+
+    private(set) var isMotionDetected: Bool = false
+
+    // IID 8 = Motion Sensor service, IID 9 = Motion Detected
+    private static let uuidMotionSensor   = "85"
+    private static let uuidMotionDetected = "22"
+
+    init(
+        aid: Int,
+        name: String = "Motion Sensor",
+        model: String = "HAP-PoC",
+        manufacturer: String = "DIY",
+        serialNumber: String = "000001",
+        firmwareRevision: String = "0.1.0"
+    ) {
+        self.aid = aid
+        self.name = name
+        self.model = model
+        self.manufacturer = manufacturer
+        self.serialNumber = serialNumber
+        self.firmwareRevision = firmwareRevision
+    }
+
+    func updateMotionDetected(_ detected: Bool) {
+        isMotionDetected = detected
+        onStateChange?(aid, 9, detected)
+    }
+
+    func readCharacteristic(iid: Int) -> Any? {
+        switch iid {
+        case 3: return manufacturer
+        case 4: return model
+        case 5: return name
+        case 6: return serialNumber
+        case 7: return firmwareRevision
+        case 9: return isMotionDetected
+        default: return nil
+        }
+    }
+
+    @discardableResult
+    func writeCharacteristic(iid: Int, value: Any) -> Bool {
+        if iid == 2 { identify(); return true }
+        return false
+    }
+
+    func identify() { }
+
+    func toJSON() -> [String: Any] {
+        [
+            "aid": aid,
+            "services": [
+                [
+                    "iid": 1,
+                    "type": HAPAccessory.uuidAccessoryInformation,
+                    "characteristics": [
+                        ["iid": 2, "type": HAPAccessory.uuidIdentify, "format": "bool",
+                         "perms": ["pw"]],
+                        ["iid": 3, "type": HAPAccessory.uuidManufacturer, "format": "string",
+                         "perms": ["pr"], "value": manufacturer],
+                        ["iid": 4, "type": HAPAccessory.uuidModel, "format": "string",
+                         "perms": ["pr"], "value": model],
+                        ["iid": 5, "type": HAPAccessory.uuidName, "format": "string",
+                         "perms": ["pr"], "value": name],
+                        ["iid": 6, "type": HAPAccessory.uuidSerialNumber, "format": "string",
+                         "perms": ["pr"], "value": serialNumber],
+                        ["iid": 7, "type": HAPAccessory.uuidFirmwareRevision, "format": "string",
+                         "perms": ["pr"], "value": firmwareRevision],
+                    ]
+                ],
+                [
+                    "iid": 8,
+                    "type": Self.uuidMotionSensor,
+                    "characteristics": [
+                        ["iid": 9, "type": Self.uuidMotionDetected, "format": "bool",
+                         "perms": ["pr", "ev"], "value": isMotionDetected],
+                    ]
+                ],
             ]
         ]
     }

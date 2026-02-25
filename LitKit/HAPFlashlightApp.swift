@@ -76,6 +76,24 @@ final class HAPViewModel: ObservableObject {
                 firmwareRevision: "0.1.0"
             )
 
+            let lightSensor = HAPLightSensorAccessory(
+                aid: 4,
+                name: "iPhone Light Sensor",
+                model: "HAP-PoC",
+                manufacturer: "DIY",
+                serialNumber: serial + "-lux",
+                firmwareRevision: "0.1.0"
+            )
+
+            let motionSensor = HAPMotionSensorAccessory(
+                aid: 5,
+                name: "iPhone Motion Sensor",
+                model: "HAP-PoC",
+                manufacturer: "DIY",
+                serialNumber: serial + "-motion",
+                firmwareRevision: "0.1.0"
+            )
+
             let pairingStore = PairingStore()
             let identity = DeviceIdentity()
 
@@ -87,9 +105,25 @@ final class HAPViewModel: ObservableObject {
                         self.isLightOn = on
                     } else if iid == 10, let brightness = value as? Int {
                         self.brightness = brightness
-                    } else if iid == 12, let lux = value as? Float {
+                    }
+                    self.server?.notifySubscribers(aid: aid, iid: iid, value: value)
+                }
+            }
+
+            lightSensor.onStateChange = { [weak self] aid, iid, value in
+                Task { @MainActor in
+                    guard let self else { return }
+                    if iid == 9, let lux = value as? Float {
                         self.ambientLux = lux
-                    } else if iid == 14, let detected = value as? Bool {
+                    }
+                    self.server?.notifySubscribers(aid: aid, iid: iid, value: value)
+                }
+            }
+
+            motionSensor.onStateChange = { [weak self] aid, iid, value in
+                Task { @MainActor in
+                    guard let self else { return }
+                    if iid == 9, let detected = value as? Bool {
                         self.isMotionDetected = detected
                     }
                     self.server?.notifySubscribers(aid: aid, iid: iid, value: value)
@@ -111,15 +145,15 @@ final class HAPViewModel: ObservableObject {
 
             // Set up ambient light monitor (front camera)
             let monitor = AmbientLightMonitor()
-            monitor.onLuxUpdate = { [weak lightbulb] lux in
-                lightbulb?.updateAmbientLight(lux)
+            monitor.onLuxUpdate = { [weak lightSensor] lux in
+                lightSensor?.updateAmbientLight(lux)
             }
             self.lightMonitor = monitor
 
             // Set up motion monitor (accelerometer)
             let motion = MotionMonitor()
-            motion.onMotionChange = { [weak lightbulb] detected in
-                lightbulb?.updateMotionDetected(detected)
+            motion.onMotionChange = { [weak motionSensor] detected in
+                motionSensor?.updateMotionDetected(detected)
             }
             self.motionMonitor = motion
 
@@ -132,7 +166,7 @@ final class HAPViewModel: ObservableObject {
             do {
                 let hapServer = try HAPServer(
                     bridge: bridge,
-                    accessories: [lightbulb, camera],
+                    accessories: [lightbulb, camera, lightSensor, motionSensor],
                     pairingStore: pairingStore,
                     deviceIdentity: identity
                 )

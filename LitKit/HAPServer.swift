@@ -28,7 +28,7 @@ final class HAPServer {
     let deviceIdentity: DeviceIdentity
 
     /// Current configuration number. Increment when accessory DB changes.
-    var configurationNumber: Int = 7
+    var configurationNumber: Int = 8
 
     init(bridge: HAPBridgeInfo, accessories: [HAPAccessoryProtocol], pairingStore: PairingStore, deviceIdentity: DeviceIdentity) throws {
         self.bridge = bridge
