@@ -485,17 +485,6 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
     #endif
   }
 
-  /// Maps a rotation angle to the legacy AVCaptureVideoOrientation for iOS <17.
-  private func videoOrientation(fromAngle angle: Int) -> AVCaptureVideoOrientation {
-    switch angle {
-    case 0: return .landscapeRight
-    case 90: return .portrait
-    case 180: return .landscapeLeft
-    case 270: return .portraitUpsideDown
-    default: return .portrait
-    }
-  }
-
   /// Resolve the selected camera device, falling back to the default back wide-angle.
   private func resolveCamera() -> AVCaptureDevice? {
     if let id = selectedCameraID, let device = AVCaptureDevice(uniqueID: id) {
@@ -630,14 +619,10 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
 
     // Rotate to match current device orientation
     let rotation = currentRotation()
-    if let connection = videoOutput.connection(with: .video) {
-      if #available(iOS 17.0, *) {
-        if connection.isVideoRotationAngleSupported(CGFloat(rotation.angle)) {
-          connection.videoRotationAngle = CGFloat(rotation.angle)
-        }
-      } else {
-        connection.videoOrientation = videoOrientation(fromAngle: rotation.angle)
-      }
+    if let connection = videoOutput.connection(with: .video),
+      connection.isVideoRotationAngleSupported(CGFloat(rotation.angle))
+    {
+      connection.videoRotationAngle = CGFloat(rotation.angle)
     }
 
     let grabber = FrameGrabber()
@@ -1081,14 +1066,10 @@ final class CameraStreamSession {
     if session.canAddOutput(output) { session.addOutput(output) }
 
     // Rotate output to match device orientation.
-    if let connection = output.connection(with: .video) {
-      if #available(iOS 17.0, *) {
-        if connection.isVideoRotationAngleSupported(CGFloat(rotationAngle)) {
-          connection.videoRotationAngle = CGFloat(rotationAngle)
-        }
-      } else {
-        connection.videoOrientation = videoOrientation(fromAngle: rotationAngle)
-      }
+    if let connection = output.connection(with: .video),
+      connection.isVideoRotationAngleSupported(CGFloat(rotationAngle))
+    {
+      connection.videoRotationAngle = CGFloat(rotationAngle)
     }
 
     // Add microphone input for audio capture
