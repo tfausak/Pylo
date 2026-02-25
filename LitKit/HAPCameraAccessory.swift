@@ -468,7 +468,9 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
     // MARK: - Snapshot
 
     /// Capture a single JPEG frame from the selected camera synchronously.
-    /// Uses a dedicated session (only when no stream is active to avoid camera conflicts).
+    /// Uses AVCaptureVideoDataOutput instead of AVCapturePhotoOutput to avoid
+    /// the system shutter sound. Only runs when no stream is active to avoid
+    /// camera conflicts.
     func captureSnapshot(width: Int, height: Int) -> Data? {
         // If streaming is active, skip snapshot to avoid camera conflicts
         // (the FigCaptureSourceRemote errors come from two sessions fighting over the camera)
@@ -489,20 +491,33 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
               session.canAddInput(input) else { return nil }
         session.addInput(input)
 
-        let photoOutput = AVCapturePhotoOutput()
-        guard session.canAddOutput(photoOutput) else { return nil }
-        session.addOutput(photoOutput)
+        let videoOutput = AVCaptureVideoDataOutput()
+        videoOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
+        guard session.canAddOutput(videoOutput) else { return nil }
+        session.addOutput(videoOutput)
+
+        // Set orientation to portrait on the connection
+        if let connection = videoOutput.connection(with: .video),
+           connection.isVideoRotationAngleSupported(90) {
+            connection.videoRotationAngle = 90
+        }
+
+        let grabber = FrameGrabber()
+        let queue = DispatchQueue(label: "com.example.hap.snapshot")
+        videoOutput.setSampleBufferDelegate(grabber, queue: queue)
 
         session.startRunning()
         defer { session.stopRunning() }
 
-        let delegate = SnapshotDelegate()
-        let settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.jpeg])
-        photoOutput.capturePhoto(with: settings, delegate: delegate)
+        // Wait up to 3 seconds for a frame
+        _ = grabber.semaphore.wait(timeout: .now() + 3)
 
-        // Wait up to 3 seconds for the photo
-        _ = delegate.semaphore.wait(timeout: .now() + 3)
-        return delegate.jpegData
+        guard let pixelBuffer = grabber.pixelBuffer else { return nil }
+
+        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+        let context = CIContext()
+        let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
+        return context.jpegRepresentation(of: ciImage, colorSpace: colorSpace, options: [:])
     }
 
     // MARK: - JSON Serialization
@@ -563,14 +578,16 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
     }
 }
 
-// MARK: - Snapshot Delegate
+// MARK: - Frame Grabber (for silent snapshots)
 
-private final class SnapshotDelegate: NSObject, AVCapturePhotoCaptureDelegate {
+private final class FrameGrabber: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     let semaphore = DispatchSemaphore(value: 0)
-    var jpegData: Data?
+    var pixelBuffer: CVPixelBuffer?
 
-    func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
-        jpegData = photo.fileDataRepresentation()
+    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        // Grab only the first frame
+        guard pixelBuffer == nil else { return }
+        pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)
         semaphore.signal()
     }
 }

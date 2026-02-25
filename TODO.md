@@ -2,7 +2,7 @@
 
 - [ ] The app needs a new name. Both "LitKit" and "HAP Flashlight" are limiting. The app now provides multiple accessories (not just lights), and it can conceivably work on many different devices (not just phones).
 - [ ] Can the light support adaptive color temperature?
-- [ ] The app makes a camera shutter sound for the snapshots. Is this necessary?
+- [x] The app makes a camera shutter sound for the snapshots. Is this necessary?
 - [x] The motion sensor should degrade gracefully if none is available, like the cameras.
 - [ ] The camera feed is low quality. Maybe the resolution and bit rate should be configurable?
 - [x] The camera feed is rotated 90 degrees CCW from where it should be.
