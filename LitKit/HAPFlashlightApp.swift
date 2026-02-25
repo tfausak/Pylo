@@ -2,6 +2,25 @@ import Combine
 import CoreImage.CIFilterBuiltins
 import SwiftUI
 
+// MARK: - Video Quality
+
+enum VideoQuality: String, CaseIterable, Identifiable {
+    case low = "Low"
+    case medium = "Medium"
+    case high = "High"
+
+    var id: String { rawValue }
+
+    /// Minimum bitrate floor in kbps.
+    var minimumBitrate: Int {
+        switch self {
+        case .low: return 500
+        case .medium: return 2000
+        case .high: return 4000
+        }
+    }
+}
+
 // MARK: - App Entry Point
 // This is the main SwiftUI app. Create a new Xcode project (iOS App, SwiftUI)
 // and replace the generated ContentView / App with this.
@@ -49,6 +68,13 @@ final class HAPViewModel: ObservableObject {
             guard let selectedStreamCamera, oldValue?.id != selectedStreamCamera.id else { return }
             UserDefaults.standard.set(selectedStreamCamera.id, forKey: "selectedStreamCameraID")
             cameraAccessory?.selectedCameraID = selectedStreamCamera.id
+        }
+    }
+    @Published var videoQuality: VideoQuality = .medium {
+        didSet {
+            guard videoQuality != oldValue else { return }
+            UserDefaults.standard.set(videoQuality.rawValue, forKey: "videoQuality")
+            cameraAccessory?.minimumBitrate = videoQuality.minimumBitrate
         }
     }
 
@@ -177,6 +203,11 @@ final class HAPViewModel: ObservableObject {
             }
             self.cameraAccessory = camera
             camera.selectedCameraID = self.selectedStreamCamera?.id
+            if let savedQuality = UserDefaults.standard.string(forKey: "videoQuality"),
+               let quality = VideoQuality(rawValue: savedQuality) {
+                self.videoQuality = quality
+            }
+            camera.minimumBitrate = self.videoQuality.minimumBitrate
 
             // Set up ambient light monitor
             let monitor = AmbientLightMonitor()
@@ -449,6 +480,13 @@ struct ContentView: View {
                                         }
                                         .pickerStyle(.menu)
                                     }
+
+                                    Picker("Quality", selection: $viewModel.videoQuality) {
+                                        ForEach(VideoQuality.allCases) { quality in
+                                            Text(quality.rawValue).tag(quality)
+                                        }
+                                    }
+                                    .pickerStyle(.segmented)
 
                                     Text(viewModel.selectedStreamCamera?.name ?? "Camera via HomeKit")
                                         .font(.caption)

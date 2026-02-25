@@ -24,6 +24,9 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
     /// Which camera to use for streaming and snapshots (nil = default back wide-angle).
     var selectedCameraID: String?
 
+    /// Minimum bitrate (kbps) to use regardless of what the controller negotiates.
+    var minimumBitrate: Int = 0
+
     /// Active streaming session (nil when idle).
     private var streamSession: CameraStreamSession?
 
@@ -404,7 +407,9 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
             return
         }
 
-        session.startStreaming(width: width, height: height, fps: fps, bitrate: bitrate, payloadType: payloadType, camera: camera)
+        let effectiveBitrate = max(bitrate, minimumBitrate)
+        logger.info("Bitrate: negotiated=\(bitrate)kbps, minimum=\(self.minimumBitrate)kbps, effective=\(effectiveBitrate)kbps")
+        session.startStreaming(width: width, height: height, fps: fps, bitrate: effectiveBitrate, payloadType: payloadType, camera: camera)
         onStateChange?(aid, 14, streamingStatusTLV().base64EncodedString())
     }
 
