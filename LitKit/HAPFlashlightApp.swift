@@ -26,8 +26,10 @@ final class HAPViewModel: ObservableObject {
     @Published var isPaired = false
     @Published var statusMessage = "Tap Start to begin"
     @Published var setupCode = PairSetupHandler.setupCode
+    @Published var ambientLux: Float = 1.0
 
     private var server: HAPServer?
+    private var lightMonitor: AmbientLightMonitor?
 
     @MainActor
     func start() {
@@ -50,10 +52,19 @@ final class HAPViewModel: ObservableObject {
                     self.isLightOn = on
                 } else if iid == 10, let brightness = value as? Int {
                     self.brightness = brightness
+                } else if iid == 12, let lux = value as? Float {
+                    self.ambientLux = lux
                 }
                 self.server?.notifySubscribers(aid: aid, iid: iid, value: value)
             }
         }
+
+        // Set up ambient light monitor (front camera)
+        let monitor = AmbientLightMonitor()
+        monitor.onLuxUpdate = { [weak accessory] lux in
+            accessory?.updateAmbientLight(lux)
+        }
+        self.lightMonitor = monitor
 
         do {
             let hapServer = try HAPServer(
@@ -66,6 +77,9 @@ final class HAPViewModel: ObservableObject {
             self.isRunning = true
             self.statusMessage = "Advertising as '\(accessory.name)'\nDevice ID: \(identity.deviceID)"
 
+            // Start ambient light monitoring
+            monitor.start()
+
             // Prevent screen from sleeping
             UIApplication.shared.isIdleTimerDisabled = true
         } catch {
@@ -75,6 +89,8 @@ final class HAPViewModel: ObservableObject {
 
     @MainActor
     func stop() {
+        lightMonitor?.stop()
+        lightMonitor = nil
         server?.stop()
         server = nil
         isRunning = false
@@ -139,6 +155,20 @@ struct ContentView: View {
                                 .font(.subheadline)
                                 .foregroundColor(.secondary)
                         }
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+
+                GroupBox("Ambient Light") {
+                    VStack(spacing: 8) {
+                        Image(systemName: "sun.max")
+                            .font(.system(size: 32))
+                            .foregroundColor(.orange)
+                        Text(String(format: "%.1f lux", viewModel.ambientLux))
+                            .font(.system(.title2, design: .monospaced))
+                        Text("Front camera light estimate")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
                     .frame(maxWidth: .infinity)
                 }

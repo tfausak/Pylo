@@ -48,6 +48,15 @@ final class HAPAccessory {
         didSet { applyTorchState() }
     }
 
+    // MARK: - Light Sensor State
+
+    private(set) var ambientLightLevel: Float = 1.0
+
+    func updateAmbientLight(_ lux: Float) {
+        ambientLightLevel = lux
+        onStateChange?(aid, 12, lux)
+    }
+
     /// Callback for notifying the server of state changes (for EVENT notifications).
     var onStateChange: ((_ aid: Int, _ iid: Int, _ value: Any) -> Void)?
 
@@ -80,6 +89,9 @@ final class HAPAccessory {
     // Service: Lightbulb (iid 8)
     //   - On:                iid 9
     //   - Brightness:        iid 10
+    //
+    // Service: Light Sensor (iid 11)
+    //   - Current Ambient Light Level: iid 12
 
     // MARK: - HAP Service/Characteristic UUIDs (shortened form)
     // HAP uses Apple-defined UUIDs of the form 000000XX-0000-1000-8000-0026BB765291.
@@ -97,6 +109,9 @@ final class HAPAccessory {
     static let uuidOn                  = "25"
     static let uuidBrightness          = "8"
 
+    static let uuidLightSensor         = "84"
+    static let uuidAmbientLightLevel   = "6B"
+
     // MARK: - Read Characteristic
 
     func readCharacteristic(iid: Int) -> Any? {
@@ -108,6 +123,7 @@ final class HAPAccessory {
         case 7: return firmwareRevision
         case 9: return isOn
         case 10: return brightness
+        case 12: return ambientLightLevel
         default: return nil
         }
     }
@@ -231,6 +247,16 @@ final class HAPAccessory {
                                            minValue: 0, maxValue: 100, unit: "percentage"),
                     ]
                 ],
+                // Light Sensor Service
+                [
+                    "iid": 11,
+                    "type": Self.uuidLightSensor,
+                    "characteristics": [
+                        characteristicJSON(iid: 12, type: Self.uuidAmbientLightLevel, format: "float",
+                                           perms: ["pr", "ev"], value: ambientLightLevel,
+                                           minValue: Float(0.0001), maxValue: Float(100000), unit: "lux"),
+                    ]
+                ],
             ]
         ]
     }
@@ -241,8 +267,8 @@ final class HAPAccessory {
         format: String,
         perms: [String],
         value: Any?,
-        minValue: Int? = nil,
-        maxValue: Int? = nil,
+        minValue: Any? = nil,
+        maxValue: Any? = nil,
         unit: String? = nil
     ) -> [String: Any] {
         var json: [String: Any] = [
