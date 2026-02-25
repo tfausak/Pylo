@@ -35,6 +35,14 @@ final class HAPViewModel: ObservableObject {
     @Published var isMotionDetected = false
     @Published var isCameraStreaming = false
     @Published var hasPairings = false
+    @Published var availableCameras: [CameraOption] = []
+    @Published var selectedCamera: CameraOption? {
+        didSet {
+            guard let selectedCamera, oldValue?.id != selectedCamera.id else { return }
+            UserDefaults.standard.set(selectedCamera.id, forKey: "selectedCameraID")
+            lightMonitor?.restart(with: selectedCamera)
+        }
+    }
 
     private var server: HAPServer?
     private var lightMonitor: AmbientLightMonitor?
@@ -143,7 +151,17 @@ final class HAPViewModel: ObservableObject {
                 }
             }
 
-            // Set up ambient light monitor (front camera)
+            // Discover available cameras; restore previous selection or default to front
+            let cameras = CameraOption.availableCameras()
+            self.availableCameras = cameras
+            if self.selectedCamera == nil {
+                let savedID = UserDefaults.standard.string(forKey: "selectedCameraID")
+                self.selectedCamera = cameras.first(where: { $0.id == savedID })
+                    ?? cameras.first { $0.name.localizedCaseInsensitiveContains("front") }
+                    ?? cameras.first
+            }
+
+            // Set up ambient light monitor
             let monitor = AmbientLightMonitor()
             monitor.onLuxUpdate = { [weak lightSensor] lux in
                 lightSensor?.updateAmbientLight(lux)
@@ -177,8 +195,8 @@ final class HAPViewModel: ObservableObject {
                 self.isStarting = false
                 self.statusMessage = "Advertising as '\(bridge.name)'\nDevice ID: \(identity.deviceID)"
 
-                // Start ambient light monitoring
-                monitor.start()
+                // Start ambient light monitoring with selected camera
+                monitor.start(with: self.selectedCamera)
 
                 // Start motion monitoring
                 motion.start()
@@ -333,7 +351,17 @@ struct ContentView: View {
                                     .foregroundColor(.orange)
                                 Text(String(format: "%.1f lux", viewModel.ambientLux))
                                     .font(.system(.title2, design: .monospaced))
-                                Text("Front camera light estimate")
+
+                                if viewModel.availableCameras.count > 1 {
+                                    Picker("Camera", selection: $viewModel.selectedCamera) {
+                                        ForEach(viewModel.availableCameras) { camera in
+                                            Text(camera.name).tag(Optional(camera))
+                                        }
+                                    }
+                                    .pickerStyle(.menu)
+                                }
+
+                                Text(viewModel.selectedCamera?.name ?? "Camera light estimate")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }

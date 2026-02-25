@@ -1,7 +1,29 @@
 import AVFoundation
 import os
 
-/// Monitors ambient light using the front camera's auto-exposure metadata.
+/// A camera that can be used for ambient light sensing.
+struct CameraOption: Identifiable, Hashable {
+    let id: String // AVCaptureDevice.uniqueID
+    let name: String
+    let fNumber: Float
+
+    static func availableCameras() -> [CameraOption] {
+        let discovery = AVCaptureDevice.DiscoverySession(
+            deviceTypes: [.builtInWideAngleCamera, .builtInUltraWideCamera, .builtInTelephotoCamera],
+            mediaType: .video,
+            position: .unspecified
+        )
+        return discovery.devices.map { device in
+            CameraOption(
+                id: device.uniqueID,
+                name: device.localizedName,
+                fNumber: device.lensAperture
+            )
+        }
+    }
+}
+
+/// Monitors ambient light using a camera's auto-exposure metadata.
 /// Estimates lux from ISO and exposure duration: `lux = (K × f²) / (ISO × t)`
 final class AmbientLightMonitor {
 
@@ -10,30 +32,36 @@ final class AmbientLightMonitor {
     private let logger = Logger(subsystem: "com.example.hap", category: "AmbientLight")
     private var captureSession: AVCaptureSession?
     private var timer: Timer?
+    private var activeDevice: AVCaptureDevice?
 
-    // Front camera approximate f-number
-    private let fNumber: Float = 2.2
     // Calibration constant (incident-light meter constant)
     private let K: Float = 12.5
 
-    func start() {
+    func start(with camera: CameraOption? = nil) {
         guard captureSession == nil else { return }
 
-        guard let frontCamera = AVCaptureDevice.default(
-            .builtInWideAngleCamera,
-            for: .video,
-            position: .front
-        ) else {
-            logger.warning("No front camera available")
+        let device: AVCaptureDevice?
+        let fNumber: Float
+
+        if let camera, let selected = AVCaptureDevice(uniqueID: camera.id) {
+            device = selected
+            fNumber = camera.fNumber
+        } else {
+            device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front)
+            fNumber = device?.lensAperture ?? 2.2
+        }
+
+        guard let camera = device else {
+            logger.warning("No camera available")
             return
         }
 
         do {
-            try frontCamera.lockForConfiguration()
-            frontCamera.exposureMode = .continuousAutoExposure
-            frontCamera.unlockForConfiguration()
+            try camera.lockForConfiguration()
+            camera.exposureMode = .continuousAutoExposure
+            camera.unlockForConfiguration()
         } catch {
-            logger.error("Failed to configure front camera: \(error)")
+            logger.error("Failed to configure camera: \(error)")
             return
         }
 
@@ -41,7 +69,7 @@ final class AmbientLightMonitor {
         session.sessionPreset = .low
 
         do {
-            let input = try AVCaptureDeviceInput(device: frontCamera)
+            let input = try AVCaptureDeviceInput(device: camera)
             if session.canAddInput(input) {
                 session.addInput(input)
             }
@@ -58,6 +86,7 @@ final class AmbientLightMonitor {
         }
 
         captureSession = session
+        activeDevice = camera
 
         // Start on a background queue to avoid blocking the main thread
         DispatchQueue.global(qos: .background).async {
@@ -66,10 +95,15 @@ final class AmbientLightMonitor {
 
         // Sample every 2 seconds on the main run loop
         timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
-            self?.sampleLux(from: frontCamera)
+            self?.sampleLux(from: camera, fNumber: fNumber)
         }
 
-        logger.info("Ambient light monitor started")
+        logger.info("Ambient light monitor started (f/\(fNumber))")
+    }
+
+    func restart(with camera: CameraOption) {
+        stop()
+        start(with: camera)
     }
 
     func stop() {
@@ -86,7 +120,7 @@ final class AmbientLightMonitor {
         logger.info("Ambient light monitor stopped")
     }
 
-    private func sampleLux(from device: AVCaptureDevice) {
+    private func sampleLux(from device: AVCaptureDevice, fNumber: Float) {
         let iso = device.iso
         let duration = Float(CMTimeGetSeconds(device.exposureDuration))
 
