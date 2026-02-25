@@ -16,40 +16,40 @@
 			containerPortal = 34EA21DA2F4EA5FF00113A11 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = 34EA21E12F4EA5FF00113A11;
-			remoteInfo = BridgeKit;
+			remoteInfo = Pylo;
 		};
 		34EA21FA2F4EA60100113A11 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 34EA21DA2F4EA5FF00113A11 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = 34EA21E12F4EA5FF00113A11;
-			remoteInfo = BridgeKit;
+			remoteInfo = Pylo;
 		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		34EA21E22F4EA5FF00113A11 /* BridgeKit.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BridgeKit.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		34EA21EF2F4EA60100113A11 /* BridgeKitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BridgeKitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		34EA21F92F4EA60100113A11 /* BridgeKitUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BridgeKitUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		34EA21E22F4EA5FF00113A11 /* Pylo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Pylo.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		34EA21EF2F4EA60100113A11 /* PyloTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PyloTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		34EA21F92F4EA60100113A11 /* PyloUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PyloUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		34EA22282F4EAE8600113A11 /* Exceptions for "BridgeKit" folder in "BridgeKit" target */ = {
+		34EA22282F4EAE8600113A11 /* Exceptions for "Pylo" folder in "Pylo" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
 			);
-			target = 34EA21E12F4EA5FF00113A11 /* BridgeKit */;
+			target = 34EA21E12F4EA5FF00113A11 /* Pylo */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		34EA21E42F4EA5FF00113A11 /* BridgeKit */ = {
+		34EA21E42F4EA5FF00113A11 /* Pylo */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				34EA22282F4EAE8600113A11 /* Exceptions for "BridgeKit" folder in "BridgeKit" target */,
+				34EA22282F4EAE8600113A11 /* Exceptions for "Pylo" folder in "Pylo" target */,
 			);
-			path = BridgeKit;
+			path = Pylo;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -83,7 +83,7 @@
 		34EA21D92F4EA5FF00113A11 = {
 			isa = PBXGroup;
 			children = (
-				34EA21E42F4EA5FF00113A11 /* BridgeKit */,
+				34EA21E42F4EA5FF00113A11 /* Pylo */,
 				34EA21E32F4EA5FF00113A11 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -91,9 +91,9 @@
 		34EA21E32F4EA5FF00113A11 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				34EA21E22F4EA5FF00113A11 /* BridgeKit.app */,
-				34EA21EF2F4EA60100113A11 /* BridgeKitTests.xctest */,
-				34EA21F92F4EA60100113A11 /* BridgeKitUITests.xctest */,
+				34EA21E22F4EA5FF00113A11 /* Pylo.app */,
+				34EA21EF2F4EA60100113A11 /* PyloTests.xctest */,
+				34EA21F92F4EA60100113A11 /* PyloUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -101,9 +101,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		34EA21E12F4EA5FF00113A11 /* BridgeKit */ = {
+		34EA21E12F4EA5FF00113A11 /* Pylo */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 34EA22032F4EA60100113A11 /* Build configuration list for PBXNativeTarget "BridgeKit" */;
+			buildConfigurationList = 34EA22032F4EA60100113A11 /* Build configuration list for PBXNativeTarget "Pylo" */;
 			buildPhases = (
 				34EA21DE2F4EA5FF00113A11 /* Sources */,
 				34EA21DF2F4EA5FF00113A11 /* Frameworks */,
@@ -114,19 +114,19 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				34EA21E42F4EA5FF00113A11 /* BridgeKit */,
+				34EA21E42F4EA5FF00113A11 /* Pylo */,
 			);
-			name = BridgeKit;
+			name = Pylo;
 			packageProductDependencies = (
 				34EA22232F4EA91700113A11 /* BigInt */,
 			);
-			productName = BridgeKit;
-			productReference = 34EA21E22F4EA5FF00113A11 /* BridgeKit.app */;
+			productName = Pylo;
+			productReference = 34EA21E22F4EA5FF00113A11 /* Pylo.app */;
 			productType = "com.apple.product-type.application";
 		};
-		34EA21EE2F4EA60100113A11 /* BridgeKitTests */ = {
+		34EA21EE2F4EA60100113A11 /* PyloTests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 34EA22062F4EA60100113A11 /* Build configuration list for PBXNativeTarget "BridgeKitTests" */;
+			buildConfigurationList = 34EA22062F4EA60100113A11 /* Build configuration list for PBXNativeTarget "PyloTests" */;
 			buildPhases = (
 				34EA21EB2F4EA60100113A11 /* Sources */,
 				34EA21EC2F4EA60100113A11 /* Frameworks */,
@@ -137,16 +137,16 @@
 			dependencies = (
 				34EA21F12F4EA60100113A11 /* PBXTargetDependency */,
 			);
-			name = BridgeKitTests;
+			name = PyloTests;
 			packageProductDependencies = (
 			);
-			productName = BridgeKitTests;
-			productReference = 34EA21EF2F4EA60100113A11 /* BridgeKitTests.xctest */;
+			productName = PyloTests;
+			productReference = 34EA21EF2F4EA60100113A11 /* PyloTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		34EA21F82F4EA60100113A11 /* BridgeKitUITests */ = {
+		34EA21F82F4EA60100113A11 /* PyloUITests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 34EA22092F4EA60100113A11 /* Build configuration list for PBXNativeTarget "BridgeKitUITests" */;
+			buildConfigurationList = 34EA22092F4EA60100113A11 /* Build configuration list for PBXNativeTarget "PyloUITests" */;
 			buildPhases = (
 				34EA21F52F4EA60100113A11 /* Sources */,
 				34EA21F62F4EA60100113A11 /* Frameworks */,
@@ -157,11 +157,11 @@
 			dependencies = (
 				34EA21FB2F4EA60100113A11 /* PBXTargetDependency */,
 			);
-			name = BridgeKitUITests;
+			name = PyloUITests;
 			packageProductDependencies = (
 			);
-			productName = BridgeKitUITests;
-			productReference = 34EA21F92F4EA60100113A11 /* BridgeKitUITests.xctest */;
+			productName = PyloUITests;
+			productReference = 34EA21F92F4EA60100113A11 /* PyloUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 /* End PBXNativeTarget section */
@@ -188,7 +188,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 34EA21DD2F4EA5FF00113A11 /* Build configuration list for PBXProject "BridgeKit" */;
+			buildConfigurationList = 34EA21DD2F4EA5FF00113A11 /* Build configuration list for PBXProject "Pylo" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -205,9 +205,9 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				34EA21E12F4EA5FF00113A11 /* BridgeKit */,
-				34EA21EE2F4EA60100113A11 /* BridgeKitTests */,
-				34EA21F82F4EA60100113A11 /* BridgeKitUITests */,
+				34EA21E12F4EA5FF00113A11 /* Pylo */,
+				34EA21EE2F4EA60100113A11 /* PyloTests */,
+				34EA21F82F4EA60100113A11 /* PyloUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -263,12 +263,12 @@
 /* Begin PBXTargetDependency section */
 		34EA21F12F4EA60100113A11 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 34EA21E12F4EA5FF00113A11 /* BridgeKit */;
+			target = 34EA21E12F4EA5FF00113A11 /* Pylo */;
 			targetProxy = 34EA21F02F4EA60100113A11 /* PBXContainerItemProxy */;
 		};
 		34EA21FB2F4EA60100113A11 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 34EA21E12F4EA5FF00113A11 /* BridgeKit */;
+			target = 34EA21E12F4EA5FF00113A11 /* Pylo */;
 			targetProxy = 34EA21FA2F4EA60100113A11 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
@@ -406,7 +406,7 @@
 				DEVELOPMENT_TEAM = 6BNF6ECP6F;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = BridgeKit/Info.plist;
+				INFOPLIST_FILE = Pylo/Info.plist;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Used to control the flashlight.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Used to advertise as a HomeKit accessory.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -419,7 +419,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = me.fausak.taylor.BridgeKit;
+				PRODUCT_BUNDLE_IDENTIFIER = me.fausak.taylor.Pylo;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -443,7 +443,7 @@
 				DEVELOPMENT_TEAM = 6BNF6ECP6F;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = BridgeKit/Info.plist;
+				INFOPLIST_FILE = Pylo/Info.plist;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Used to control the flashlight.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Used to advertise as a HomeKit accessory.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -456,7 +456,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = me.fausak.taylor.BridgeKit;
+				PRODUCT_BUNDLE_IDENTIFIER = me.fausak.taylor.Pylo;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -478,7 +478,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = me.fausak.taylor.BridgeKitTests;
+				PRODUCT_BUNDLE_IDENTIFIER = me.fausak.taylor.PyloTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -486,7 +486,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BridgeKit.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/BridgeKit";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Pylo.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Pylo";
 			};
 			name = Debug;
 		};
@@ -500,7 +500,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = me.fausak.taylor.BridgeKitTests;
+				PRODUCT_BUNDLE_IDENTIFIER = me.fausak.taylor.PyloTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -508,7 +508,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BridgeKit.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/BridgeKit";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Pylo.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Pylo";
 			};
 			name = Release;
 		};
@@ -520,7 +520,7 @@
 				DEVELOPMENT_TEAM = 6BNF6ECP6F;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = me.fausak.taylor.BridgeKitUITests;
+				PRODUCT_BUNDLE_IDENTIFIER = me.fausak.taylor.PyloUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -528,7 +528,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = BridgeKit;
+				TEST_TARGET_NAME = Pylo;
 			};
 			name = Debug;
 		};
@@ -540,7 +540,7 @@
 				DEVELOPMENT_TEAM = 6BNF6ECP6F;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = me.fausak.taylor.BridgeKitUITests;
+				PRODUCT_BUNDLE_IDENTIFIER = me.fausak.taylor.PyloUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -548,14 +548,14 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = BridgeKit;
+				TEST_TARGET_NAME = Pylo;
 			};
 			name = Release;
 		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		34EA21DD2F4EA5FF00113A11 /* Build configuration list for PBXProject "BridgeKit" */ = {
+		34EA21DD2F4EA5FF00113A11 /* Build configuration list for PBXProject "Pylo" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				34EA22012F4EA60100113A11 /* Debug */,
@@ -564,7 +564,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		34EA22032F4EA60100113A11 /* Build configuration list for PBXNativeTarget "BridgeKit" */ = {
+		34EA22032F4EA60100113A11 /* Build configuration list for PBXNativeTarget "Pylo" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				34EA22042F4EA60100113A11 /* Debug */,
@@ -573,7 +573,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		34EA22062F4EA60100113A11 /* Build configuration list for PBXNativeTarget "BridgeKitTests" */ = {
+		34EA22062F4EA60100113A11 /* Build configuration list for PBXNativeTarget "PyloTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				34EA22072F4EA60100113A11 /* Debug */,
@@ -582,7 +582,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		34EA22092F4EA60100113A11 /* Build configuration list for PBXNativeTarget "BridgeKitUITests" */ = {
+		34EA22092F4EA60100113A11 /* Build configuration list for PBXNativeTarget "PyloUITests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				34EA220A2F4EA60100113A11 /* Debug */,

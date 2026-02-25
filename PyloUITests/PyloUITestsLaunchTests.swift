@@ -1,13 +1,13 @@
 //
-//  BridgeKitUITestsLaunchTests.swift
-//  BridgeKitUITests
+//  PyloUITestsLaunchTests.swift
+//  PyloUITests
 //
 //  Created by Taylor Fausak on 2/24/26.
 //
 
 import XCTest
 
-final class BridgeKitUITestsLaunchTests: XCTestCase {
+final class PyloUITestsLaunchTests: XCTestCase {
 
     override class var runsForEachTargetApplicationUIConfiguration: Bool {
         true

@@ -26,7 +26,7 @@ enum VideoQuality: String, CaseIterable, Identifiable {
 // and replace the generated ContentView / App with this.
 
 @main
-struct BridgeKitApp: App {
+struct PyloApp: App {
     @StateObject private var viewModel = HAPViewModel()
 
     init() {
@@ -335,7 +335,7 @@ struct ContentView: View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(spacing: 24) {
-                    Text("BridgeKit")
+                    Text("Pylo")
                         .font(.largeTitle)
                         .fontWeight(.bold)
 

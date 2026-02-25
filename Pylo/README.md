@@ -1,4 +1,4 @@
-# BridgeKit
+# Pylo
 
 Turn an old iPhone into a HomeKit bridge exposing its hardware as native accessories:
 
@@ -9,7 +9,7 @@ Turn an old iPhone into a HomeKit bridge exposing its hardware as native accesso
 
 ## How It Works
 
-BridgeKit implements the HomeKit Accessory Protocol (HAP) over IP directly on the device — no external server or HomeKit SDK required. It advertises as a HAP bridge via Bonjour (`_hap._tcp`) and handles pairing, encryption, and accessory communication natively using Apple frameworks (Network.framework, CryptoKit, AVFoundation, CoreMotion).
+Pylo implements the HomeKit Accessory Protocol (HAP) over IP directly on the device — no external server or HomeKit SDK required. It advertises as a HAP bridge via Bonjour (`_hap._tcp`) and handles pairing, encryption, and accessory communication natively using Apple frameworks (Network.framework, CryptoKit, AVFoundation, CoreMotion).
 
 ## Requirements
 
@@ -19,7 +19,7 @@ BridgeKit implements the HomeKit Accessory Protocol (HAP) over IP directly on th
 
 ## Setup
 
-1. Open `BridgeKit.xcodeproj` in Xcode
+1. Open `Pylo.xcodeproj` in Xcode
 2. Build and run on a physical device
 3. Tap **Start Server**
 4. In Home.app on another device: Add Accessory → "I Don't Have a Code or Cannot Scan"
