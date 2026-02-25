@@ -219,6 +219,31 @@ final class HAPConnection {
         }
     }
 
+    // MARK: - EVENT Notifications
+
+    /// Send an EVENT/1.0 200 OK notification to this connection for a characteristic change.
+    func sendEvent(aid: Int, iid: Int, value: Any) {
+        guard let ctx = encryptionContext else { return }
+
+        let characteristic: [String: Any] = ["aid": aid, "iid": iid, "value": value]
+        let body: [String: Any] = ["characteristics": [characteristic]]
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return }
+
+        var event = "EVENT/1.0 200 OK\r\n"
+        event += "Content-Type: application/hap+json\r\n"
+        event += "Content-Length: \(bodyData.count)\r\n"
+        event += "\r\n"
+        var data = Data(event.utf8)
+        data.append(bodyData)
+
+        let encrypted = ctx.encrypt(plaintext: data)
+        connection.send(content: encrypted, completion: .contentProcessed { [weak self] error in
+            if let error {
+                self?.logger.error("EVENT send error: \(error)")
+            }
+        })
+    }
+
     // MARK: - Endpoint Handlers (stubs — implemented in separate files)
 
     private func handlePairSetup(_ request: HTTPRequest, server: HAPServer) -> HTTPResponse {

@@ -55,30 +55,12 @@ flashlight (torch) as a HAP (HomeKit Accessory Protocol) lightbulb.
 - Pairings management
 - SwiftUI status UI
 
-## What You Need to Implement
+## Implemented
 
-### SRP-6a (in `SRP.swift`)
-
-This is the one missing piece. The file contains the complete algorithm
-description and the 3072-bit prime. You need to:
-
-1. `import BigInt`
-2. Implement the three methods: `init`, `setClientPublicKey`, `verifyClientProof`
-3. Remove the `fatalError` placeholder
-
-The algorithm is ~150 lines of code using BigUInt modular arithmetic.
-Refer to:
-- RFC 5054 (SRP group parameters)
-- RFC 2945 (SRP protocol)
-- Apple's HomeKitADK: `HAP/HAPSRP.c` for the exact HAP variant
-- Bouke/HAP: `Sources/HAP/Security/SRP.swift` for a Swift reference
-
-### Optional Improvements
-
-- **Persist DeviceIdentity** to Keychain (currently regenerates on each launch)
-- **Persist PairingStore** to disk (currently loses pairings on restart)
-- **EVENT notifications** for push-based state updates
-- **Multiple connections** handling (currently works but untested)
+- **SRP-6a** — Full implementation in `SRP.swift` using BigInt
+- **Persist DeviceIdentity** — Ed25519 key pair and device ID saved to Keychain
+- **Persist PairingStore** — Pairings saved to `Application Support/pairings.json`
+- **EVENT notifications** — Push-based state updates via `EVENT/1.0 200 OK` frames
 
 ## Testing
 

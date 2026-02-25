@@ -51,6 +51,7 @@ final class HAPViewModel: ObservableObject {
                 } else if iid == 10, let brightness = value as? Int {
                     self.brightness = brightness
                 }
+                self.server?.notifySubscribers(aid: aid, iid: iid, value: value)
             }
         }
 

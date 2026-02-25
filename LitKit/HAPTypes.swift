@@ -2,10 +2,64 @@ import Foundation
 import CryptoKit
 import os
 
+// MARK: - Keychain Helper
+
+private enum KeychainHelper {
+
+    private static let service = "com.example.hap"
+    private static let signingKeyAccount = "device-signing-key"
+    private static let deviceIDAccount = "device-id"
+
+    static func save(key: String, data: Data) {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: key,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
+            kSecValueData as String: data,
+        ]
+        SecItemDelete(query as CFDictionary)
+        SecItemAdd(query as CFDictionary, nil)
+    }
+
+    static func load(key: String) -> Data? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: key,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecReturnData as String: true,
+        ]
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess else { return nil }
+        return result as? Data
+    }
+
+    static func saveSigningKey(_ rawKey: Data) {
+        save(key: signingKeyAccount, data: rawKey)
+    }
+
+    static func loadSigningKey() -> Data? {
+        load(key: signingKeyAccount)
+    }
+
+    static func saveDeviceID(_ id: String) {
+        save(key: deviceIDAccount, data: Data(id.utf8))
+    }
+
+    static func loadDeviceID() -> String? {
+        guard let data = load(key: deviceIDAccount) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+}
+
 // MARK: - Device Identity
 // The accessory's long-term Ed25519 key pair and device ID.
 
 final class DeviceIdentity {
+
+    private static let logger = Logger(subsystem: "com.example.hap", category: "Identity")
 
     /// Persistent Ed25519 signing key.
     let signingKey: Curve25519.Signing.PrivateKey
@@ -19,15 +73,31 @@ final class DeviceIdentity {
     }
 
     init() {
-        // In a real app, load from Keychain. For PoC, generate fresh each launch
-        // (which means you'll need to re-pair after every restart).
-        // TODO: Persist to Keychain for stable identity across launches.
-        self.signingKey = Curve25519.Signing.PrivateKey()
+        // Try loading from Keychain first
+        if let keyData = KeychainHelper.loadSigningKey(),
+           let savedID = KeychainHelper.loadDeviceID() {
+            do {
+                self.signingKey = try Curve25519.Signing.PrivateKey(rawRepresentation: keyData)
+                self.deviceID = savedID
+                Self.logger.info("Loaded identity from Keychain: \(savedID)")
+                return
+            } catch {
+                Self.logger.warning("Failed to restore signing key: \(error)")
+            }
+        }
 
-        // Generate a random MAC-like device ID.
+        // Generate fresh identity and persist
+        let newKey = Curve25519.Signing.PrivateKey()
+        self.signingKey = newKey
+
         var bytes = [UInt8](repeating: 0, count: 6)
         _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
-        self.deviceID = bytes.map { String(format: "%02X", $0) }.joined(separator: ":")
+        let newID = bytes.map { String(format: "%02X", $0) }.joined(separator: ":")
+        self.deviceID = newID
+
+        KeychainHelper.saveSigningKey(newKey.rawRepresentation)
+        KeychainHelper.saveDeviceID(newID)
+        Self.logger.info("Generated new identity: \(newID)")
     }
 
     init(signingKey: Curve25519.Signing.PrivateKey, deviceID: String) {
@@ -45,25 +115,44 @@ final class DeviceIdentity {
 
 final class PairingStore {
 
-    struct Pairing {
+    struct Pairing: Codable {
         let identifier: String          // Controller's pairing ID (UUID string)
         let publicKey: Data             // Controller's Ed25519 LTPK (32 bytes)
         let isAdmin: Bool
     }
 
-    /// All known pairings. In a real app, persist to disk/Keychain.
+    private static let logger = Logger(subsystem: "com.example.hap", category: "PairingStore")
+
+    /// All known pairings, persisted to disk as JSON.
     private(set) var pairings: [String: Pairing] = [:]
+
+    private static var storageURL: URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        try? FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
+        return appSupport.appendingPathComponent("pairings.json")
+    }
 
     var isPaired: Bool {
         !pairings.isEmpty
     }
 
+    init() {
+        let url = Self.storageURL
+        if let data = try? Data(contentsOf: url),
+           let decoded = try? JSONDecoder().decode([String: Pairing].self, from: data) {
+            self.pairings = decoded
+            Self.logger.info("Loaded \(decoded.count) pairing(s) from disk")
+        }
+    }
+
     func addPairing(_ pairing: Pairing) {
         pairings[pairing.identifier] = pairing
+        save()
     }
 
     func removePairing(identifier: String) {
         pairings.removeValue(forKey: identifier)
+        save()
     }
 
     func getPairing(identifier: String) -> Pairing? {
@@ -72,6 +161,16 @@ final class PairingStore {
 
     func removeAll() {
         pairings.removeAll()
+        save()
+    }
+
+    private func save() {
+        do {
+            let data = try JSONEncoder().encode(pairings)
+            try data.write(to: Self.storageURL, options: .atomic)
+        } catch {
+            Self.logger.error("Failed to save pairings: \(error)")
+        }
     }
 }
 
