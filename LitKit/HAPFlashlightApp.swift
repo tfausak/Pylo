@@ -31,6 +31,7 @@ final class HAPViewModel: ObservableObject {
     @Published var ambientLux: Float = 1.0
     @Published var isMotionDetected = false
     @Published var isCameraStreaming = false
+    @Published var hasPairings = false
 
     private var server: HAPServer?
     private var lightMonitor: AmbientLightMonitor?
@@ -118,6 +119,12 @@ final class HAPViewModel: ObservableObject {
             }
             self.motionMonitor = motion
 
+            pairingStore.onChange = { [weak self] in
+                Task { @MainActor in
+                    self?.hasPairings = pairingStore.isPaired
+                }
+            }
+
             do {
                 let hapServer = try HAPServer(
                     bridge: bridge,
@@ -127,6 +134,7 @@ final class HAPViewModel: ObservableObject {
                 )
                 hapServer.start()
                 self.server = hapServer
+                self.hasPairings = pairingStore.isPaired
                 self.isRunning = true
                 self.isStarting = false
                 self.statusMessage = "Advertising as '\(bridge.name)'\nDevice ID: \(identity.deviceID)"
@@ -163,6 +171,7 @@ final class HAPViewModel: ObservableObject {
     func resetPairings() {
         server?.pairingStore.removeAll()
         server?.updateAdvertisement()
+        hasPairings = false
         statusMessage = "Pairings cleared — ready for new pairing"
     }
 }
@@ -327,7 +336,7 @@ struct ContentView: View {
 
             // Buttons (pinned to bottom)
             VStack(spacing: 8) {
-                if viewModel.isRunning {
+                if viewModel.isRunning && viewModel.hasPairings {
                     Button(action: { viewModel.resetPairings() }) {
                         Text("Reset Pairings")
                             .font(.subheadline)

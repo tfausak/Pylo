@@ -123,6 +123,9 @@ final class PairingStore {
 
     private static let logger = Logger(subsystem: "com.example.hap", category: "PairingStore")
 
+    /// Called whenever pairings are added or removed.
+    var onChange: (() -> Void)?
+
     /// All known pairings, persisted to disk as JSON.
     private(set) var pairings: [String: Pairing] = [:]
 
@@ -148,11 +151,13 @@ final class PairingStore {
     func addPairing(_ pairing: Pairing) {
         pairings[pairing.identifier] = pairing
         save()
+        onChange?()
     }
 
     func removePairing(identifier: String) {
         pairings.removeValue(forKey: identifier)
         save()
+        onChange?()
     }
 
     func getPairing(identifier: String) -> Pairing? {
@@ -162,6 +167,7 @@ final class PairingStore {
     func removeAll() {
         pairings.removeAll()
         save()
+        onChange?()
     }
 
     private func save() {
