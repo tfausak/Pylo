@@ -97,6 +97,8 @@ final class HAPViewModel: ObservableObject {
 
         // Defer heavy work so the UI can render the starting state first.
         Task { @MainActor in
+            await Task.yield()
+
             let serial = UIDevice.current.identifierForVendor?.uuidString ?? "000000"
 
             let bridge = HAPBridgeInfo(
