@@ -64,7 +64,7 @@ final class HAPAccessory: HAPAccessoryProtocol {
 
     init(
         aid: Int,
-        name: String = "HAP Flashlight",
+        name: String = "Flashlight",
         model: String = "iPhone Light",
         manufacturer: String = "HAP PoC",
         serialNumber: String = "000001",
