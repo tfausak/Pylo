@@ -57,6 +57,15 @@ final class HAPAccessory {
         onStateChange?(aid, 12, lux)
     }
 
+    // MARK: - Motion Sensor State
+
+    private(set) var isMotionDetected: Bool = false
+
+    func updateMotionDetected(_ detected: Bool) {
+        isMotionDetected = detected
+        onStateChange?(aid, 14, detected)
+    }
+
     /// Callback for notifying the server of state changes (for EVENT notifications).
     var onStateChange: ((_ aid: Int, _ iid: Int, _ value: Any) -> Void)?
 
@@ -92,6 +101,9 @@ final class HAPAccessory {
     //
     // Service: Light Sensor (iid 11)
     //   - Current Ambient Light Level: iid 12
+    //
+    // Service: Motion Sensor (iid 13)
+    //   - Motion Detected:  iid 14
 
     // MARK: - HAP Service/Characteristic UUIDs (shortened form)
     // HAP uses Apple-defined UUIDs of the form 000000XX-0000-1000-8000-0026BB765291.
@@ -112,6 +124,9 @@ final class HAPAccessory {
     static let uuidLightSensor         = "84"
     static let uuidAmbientLightLevel   = "6B"
 
+    static let uuidMotionSensor        = "85"
+    static let uuidMotionDetected      = "22"
+
     // MARK: - Read Characteristic
 
     func readCharacteristic(iid: Int) -> Any? {
@@ -124,6 +139,7 @@ final class HAPAccessory {
         case 9: return isOn
         case 10: return brightness
         case 12: return ambientLightLevel
+        case 14: return isMotionDetected
         default: return nil
         }
     }
@@ -255,6 +271,15 @@ final class HAPAccessory {
                         characteristicJSON(iid: 12, type: Self.uuidAmbientLightLevel, format: "float",
                                            perms: ["pr", "ev"], value: ambientLightLevel,
                                            minValue: Float(0.0001), maxValue: Float(100000), unit: "lux"),
+                    ]
+                ],
+                // Motion Sensor Service
+                [
+                    "iid": 13,
+                    "type": Self.uuidMotionSensor,
+                    "characteristics": [
+                        characteristicJSON(iid: 14, type: Self.uuidMotionDetected, format: "bool",
+                                           perms: ["pr", "ev"], value: isMotionDetected),
                     ]
                 ],
             ]

@@ -25,7 +25,7 @@ final class HAPServer {
     let deviceIdentity: DeviceIdentity
 
     /// Current configuration number. Increment when accessory DB changes.
-    var configurationNumber: Int = 1
+    var configurationNumber: Int = 2
 
     init(accessory: HAPAccessory, pairingStore: PairingStore, deviceIdentity: DeviceIdentity) throws {
         self.accessory = accessory

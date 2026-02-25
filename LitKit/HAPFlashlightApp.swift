@@ -28,9 +28,11 @@ final class HAPViewModel: ObservableObject {
     @Published var statusMessage = "Tap Start to begin"
     @Published var setupCode = PairSetupHandler.setupCode
     @Published var ambientLux: Float = 1.0
+    @Published var isMotionDetected = false
 
     private var server: HAPServer?
     private var lightMonitor: AmbientLightMonitor?
+    private var motionMonitor: MotionMonitor?
 
     @MainActor
     func start() {
@@ -55,6 +57,8 @@ final class HAPViewModel: ObservableObject {
                     self.brightness = brightness
                 } else if iid == 12, let lux = value as? Float {
                     self.ambientLux = lux
+                } else if iid == 14, let detected = value as? Bool {
+                    self.isMotionDetected = detected
                 }
                 self.server?.notifySubscribers(aid: aid, iid: iid, value: value)
             }
@@ -66,6 +70,13 @@ final class HAPViewModel: ObservableObject {
             accessory?.updateAmbientLight(lux)
         }
         self.lightMonitor = monitor
+
+        // Set up motion monitor (accelerometer)
+        let motion = MotionMonitor()
+        motion.onMotionChange = { [weak accessory] detected in
+            accessory?.updateMotionDetected(detected)
+        }
+        self.motionMonitor = motion
 
         do {
             let hapServer = try HAPServer(
@@ -81,6 +92,9 @@ final class HAPViewModel: ObservableObject {
             // Start ambient light monitoring
             monitor.start()
 
+            // Start motion monitoring
+            motion.start()
+
             // Prevent screen from sleeping
             UIApplication.shared.isIdleTimerDisabled = true
         } catch {
@@ -90,6 +104,8 @@ final class HAPViewModel: ObservableObject {
 
     @MainActor
     func stop() {
+        motionMonitor?.stop()
+        motionMonitor = nil
         lightMonitor?.stop()
         lightMonitor = nil
         server?.stop()
@@ -97,6 +113,13 @@ final class HAPViewModel: ObservableObject {
         isRunning = false
         UIApplication.shared.isIdleTimerDisabled = false
         statusMessage = "Stopped"
+    }
+
+    @MainActor
+    func resetPairings() {
+        server?.pairingStore.removeAll()
+        server?.updateAdvertisement()
+        statusMessage = "Pairings cleared — ready for new pairing"
     }
 }
 
@@ -220,26 +243,54 @@ struct ContentView: View {
                             }
                             .frame(maxWidth: .infinity)
                         }
+
+                        GroupBox("Motion Sensor") {
+                            VStack(spacing: 8) {
+                                Image(systemName: viewModel.isMotionDetected ? "figure.walk.motion" : "figure.stand")
+                                    .font(.system(size: 32))
+                                    .foregroundColor(viewModel.isMotionDetected ? .blue : .gray)
+                                Text(viewModel.isMotionDetected ? "Motion Detected" : "No Motion")
+                                    .font(.headline)
+                                Text("Accelerometer movement")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            .frame(maxWidth: .infinity)
+                        }
                     }
                 }
                 .padding()
             }
 
-            // Start/Stop Button (pinned to bottom)
-            Button(action: {
+            // Buttons (pinned to bottom)
+            VStack(spacing: 8) {
                 if viewModel.isRunning {
-                    viewModel.stop()
-                } else {
-                    viewModel.start()
+                    Button(action: { viewModel.resetPairings() }) {
+                        Text("Reset Pairings")
+                            .font(.subheadline)
+                            .frame(maxWidth: .infinity)
+                            .padding(10)
+                            .background(Color.orange)
+                            .foregroundColor(.white)
+                            .cornerRadius(10)
+                    }
                 }
-            }) {
-                Text(viewModel.isRunning ? "Stop Server" : "Start Server")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(viewModel.isRunning ? Color.red : Color.blue)
-                    .foregroundColor(.white)
-                    .cornerRadius(12)
+
+                Button(action: {
+                    if viewModel.isRunning {
+                        viewModel.stop()
+                    } else {
+                        viewModel.start()
+                    }
+                }) {
+                    Text(viewModel.isRunning ? "Stop Server" : "Start Server")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(viewModel.isRunning ? Color.red : Color.blue)
+                        .foregroundColor(.white)
+                        .cornerRadius(12)
+                }
             }
             .padding()
         }
