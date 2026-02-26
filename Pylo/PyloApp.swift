@@ -67,7 +67,7 @@ final class HAPViewModel {
   var availableCameras: [CameraOption] = []
   var selectedCamera: CameraOption? {
     didSet {
-      guard oldValue?.id != selectedCamera?.id else { return }
+      guard !isRestoring, oldValue?.id != selectedCamera?.id else { return }
       let wasNone = oldValue == nil
       let isNone = selectedCamera == nil
       if let selectedCamera {
@@ -82,7 +82,7 @@ final class HAPViewModel {
   }
   var selectedStreamCamera: CameraOption? {
     didSet {
-      guard oldValue?.id != selectedStreamCamera?.id else { return }
+      guard !isRestoring, oldValue?.id != selectedStreamCamera?.id else { return }
       let wasNone = oldValue == nil
       let isNone = selectedStreamCamera == nil
       if let selectedStreamCamera {
@@ -97,14 +97,14 @@ final class HAPViewModel {
   }
   var flashlightEnabled: Bool = true {
     didSet {
-      guard flashlightEnabled != oldValue else { return }
+      guard !isRestoring, flashlightEnabled != oldValue else { return }
       UserDefaults.standard.set(flashlightEnabled, forKey: "flashlightEnabled")
       if isRunning { needsRestart = true }
     }
   }
   var motionEnabled: Bool = true {
     didSet {
-      guard motionEnabled != oldValue else { return }
+      guard !isRestoring, motionEnabled != oldValue else { return }
       UserDefaults.standard.set(motionEnabled, forKey: "motionEnabled")
       if motionEnabled {
         motionMonitor?.start()
@@ -117,7 +117,7 @@ final class HAPViewModel {
   }
   var videoQuality: VideoQuality = .medium {
     didSet {
-      guard videoQuality != oldValue else { return }
+      guard !isRestoring, videoQuality != oldValue else { return }
       UserDefaults.standard.set(videoQuality.rawValue, forKey: "videoQuality")
       cameraAccessory?.minimumBitrate = videoQuality.minimumBitrate
     }
@@ -127,7 +127,7 @@ final class HAPViewModel {
   // awake (opt-in) is the best available workaround to stay reachable.
   var keepScreenAwake: Bool = false {
     didSet {
-      guard keepScreenAwake != oldValue else { return }
+      guard !isRestoring, keepScreenAwake != oldValue else { return }
       UserDefaults.standard.set(keepScreenAwake, forKey: "keepScreenAwake")
       UIApplication.shared.isIdleTimerDisabled = keepScreenAwake && isRunning
     }
@@ -135,6 +135,10 @@ final class HAPViewModel {
 
   /// Whether the accessory configuration has changed since the server started.
   var needsRestart = false
+
+  /// Suppresses didSet side effects (UserDefaults writes, monitor restarts)
+  /// while restoring persisted preferences during start().
+  @ObservationIgnored private var isRestoring = false
 
   @ObservationIgnored private var server: HAPServer?
   @ObservationIgnored private var lightMonitor: AmbientLightMonitor?
@@ -202,7 +206,10 @@ final class HAPViewModel {
       let pairingStore = PairingStore()
       let identity = DeviceIdentity()
 
-      // Restore accessory-enable preferences (default to true)
+      // Restore accessory-enable preferences (default to true).
+      // isRestoring suppresses didSet side effects (redundant UserDefaults
+      // writes and calls to nil monitors) during preference restoration.
+      self.isRestoring = true
       if UserDefaults.standard.object(forKey: "flashlightEnabled") != nil {
         self.flashlightEnabled = UserDefaults.standard.bool(forKey: "flashlightEnabled")
       }
@@ -398,8 +405,10 @@ final class HAPViewModel {
 
         // Restore keep-screen-awake preference
         self.keepScreenAwake = UserDefaults.standard.bool(forKey: "keepScreenAwake")
+        self.isRestoring = false
         UIApplication.shared.isIdleTimerDisabled = self.keepScreenAwake
       } catch {
+        self.isRestoring = false
         self.isStarting = false
         self.statusMessage = "Failed to start: \(error.localizedDescription)"
       }
