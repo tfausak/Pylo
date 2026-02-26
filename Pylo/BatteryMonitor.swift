@@ -43,6 +43,8 @@ final class BatteryMonitor {
   /// Low battery threshold (percentage).
   private let lowThreshold = 20
 
+  private var observers: [NSObjectProtocol] = []
+
   func start() {
     UIDevice.current.isBatteryMonitoringEnabled = true
     isAvailable = UIDevice.current.batteryLevel >= 0
@@ -52,18 +54,23 @@ final class BatteryMonitor {
       return
     }
 
-    NotificationCenter.default.addObserver(
-      self, selector: #selector(batteryDidChange),
-      name: UIDevice.batteryLevelDidChangeNotification, object: nil)
-    NotificationCenter.default.addObserver(
-      self, selector: #selector(batteryDidChange),
-      name: UIDevice.batteryStateDidChangeNotification, object: nil)
+    observers.append(
+      NotificationCenter.default.addObserver(
+        forName: UIDevice.batteryLevelDidChangeNotification, object: nil, queue: .main
+      ) { [weak self] _ in self?.batteryDidChange() })
+    observers.append(
+      NotificationCenter.default.addObserver(
+        forName: UIDevice.batteryStateDidChangeNotification, object: nil, queue: .main
+      ) { [weak self] _ in self?.batteryDidChange() })
 
     logger.info("Battery monitor started")
   }
 
   func stop() {
-    NotificationCenter.default.removeObserver(self)
+    for observer in observers {
+      NotificationCenter.default.removeObserver(observer)
+    }
+    observers.removeAll()
     UIDevice.current.isBatteryMonitoringEnabled = false
     isAvailable = false
     logger.info("Battery monitor stopped")
@@ -88,7 +95,7 @@ final class BatteryMonitor {
     return state
   }
 
-  @objc private func batteryDidChange() {
+  private func batteryDidChange() {
     let state = currentState()
     logger.debug(
       "Battery: \(state.level)%, charging=\(state.chargingState), low=\(state.statusLowBattery)")
