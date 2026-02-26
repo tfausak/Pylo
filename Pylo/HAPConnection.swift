@@ -126,8 +126,9 @@ final class HAPConnection {
     // Keep processing as long as we can extract complete requests
     while let request = HTTPRequest.parseAndConsume(&receiveBuffer) {
       logger.info("\(request.method) \(request.path)")
-      let response = routeRequest(request)
-      sendResponse(response)
+      if let response = routeRequest(request) {
+        sendResponse(response)
+      }
     }
   }
 
@@ -178,8 +179,9 @@ final class HAPConnection {
         if let request = HTTPRequest.parse(self.decryptedBuffer) {
           self.decryptedBuffer.removeAll()
           self.logger.info("\(request.method) \(request.path)")
-          let response = self.routeRequest(request)
-          self.sendResponse(response)
+          if let response = self.routeRequest(request) {
+            self.sendResponse(response)
+          }
         }
 
         if !isComplete {
@@ -191,7 +193,9 @@ final class HAPConnection {
 
   // MARK: - Routing
 
-  private func routeRequest(_ request: HTTPRequest) -> HTTPResponse {
+  /// Routes a request and returns the response, or nil if the response
+  /// will be sent asynchronously (e.g. snapshot capture).
+  private func routeRequest(_ request: HTTPRequest) -> HTTPResponse? {
     guard let server else {
       return HTTPResponse(status: 500, body: nil, contentType: "application/hap+json")
     }
@@ -219,7 +223,8 @@ final class HAPConnection {
       return handlePairings(request, server: server)
 
     case ("POST", "/resource"):
-      return handleResource(request, server: server)
+      handleResource(request, server: server)
+      return nil
 
     default:
       logger.warning("Unknown route: \(request.method) \(request.path)")
@@ -331,7 +336,9 @@ final class HAPConnection {
     return PairingsHandler.handle(request: request, connection: self, server: server)
   }
 
-  private func handleResource(_ request: HTTPRequest, server: HAPServer) -> HTTPResponse {
+  /// Handles POST /resource asynchronously — dispatches snapshot capture
+  /// to a background queue so it doesn't block the server's connection handling.
+  private func handleResource(_ request: HTTPRequest, server: HAPServer) {
     // POST /resource — Home.app requests JPEG snapshots for camera tiles.
     // Body: {"aid": 3, "image-width": 320, "image-height": 240, "resource-type": "image"}
     guard let body = request.body,
@@ -341,18 +348,22 @@ final class HAPConnection {
       resourceType == "image",
       let camera = server.accessory(aid: aid) as? HAPCameraAccessory
     else {
-      return HTTPResponse(status: 404, body: nil, contentType: "application/hap+json")
+      sendResponse(HTTPResponse(status: 404, body: nil, contentType: "application/hap+json"))
+      return
     }
 
     let width = json["image-width"] as? Int ?? 320
     let height = json["image-height"] as? Int ?? 240
     logger.info("Snapshot requested: \(width)x\(height) from aid \(aid)")
 
-    if let jpeg = camera.captureSnapshot(width: width, height: height) {
-      return HTTPResponse(status: 200, body: jpeg, contentType: "image/jpeg")
-    } else {
-      logger.warning("Snapshot capture failed")
-      return HTTPResponse(status: 500, body: nil, contentType: "application/hap+json")
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      if let jpeg = camera.captureSnapshot(width: width, height: height) {
+        self?.sendResponse(HTTPResponse(status: 200, body: jpeg, contentType: "image/jpeg"))
+      } else {
+        self?.logger.warning("Snapshot capture failed")
+        self?.sendResponse(
+          HTTPResponse(status: 500, body: nil, contentType: "application/hap+json"))
+      }
     }
   }
 }
