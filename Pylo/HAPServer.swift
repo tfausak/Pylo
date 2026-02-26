@@ -101,12 +101,19 @@ final class HAPServer {
   }
 
   func stop() {
-    queue.sync {
-      listener.cancel()
-      for conn in connections.values {
-        conn.cancel()
-      }
+    // Remove connections from the dictionary first, then cancel them.
+    // This avoids a deadlock: NWConnection.cancel() fires
+    // stateUpdateHandler(.cancelled) on this same serial queue, which
+    // calls removeConnection() — a re-entrant dispatch that deadlocks
+    // if we're inside queue.sync.
+    let snapshot = queue.sync { () -> [HAPConnection] in
+      let conns = Array(connections.values)
       connections.removeAll()
+      return conns
+    }
+    listener.cancel()
+    for conn in snapshot {
+      conn.cancel()
     }
   }
 
