@@ -34,4 +34,4 @@
 
 ## Other
 
-- [ ] Allow turning accessories off entirely. For example selecting "None" as the camera for the light sensor should disable the light sensor completely.
+- [x] Allow turning accessories off entirely. For example selecting "None" as the camera for the light sensor should disable the light sensor completely.

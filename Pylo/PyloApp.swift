@@ -64,9 +64,14 @@ final class HAPViewModel {
   var availableCameras: [CameraOption] = []
   var selectedCamera: CameraOption? {
     didSet {
-      guard let selectedCamera, oldValue?.id != selectedCamera.id else { return }
-      UserDefaults.standard.set(selectedCamera.id, forKey: "selectedCameraID")
-      lightMonitor?.restart(with: selectedCamera)
+      guard oldValue?.id != selectedCamera?.id else { return }
+      if let selectedCamera {
+        UserDefaults.standard.set(selectedCamera.id, forKey: "selectedCameraID")
+        lightMonitor?.restart(with: selectedCamera)
+      } else {
+        UserDefaults.standard.set("none", forKey: "selectedCameraID")
+        lightMonitor?.stop()
+      }
     }
   }
   var selectedStreamCamera: CameraOption? {
@@ -210,10 +215,14 @@ final class HAPViewModel {
       self.availableCameras = cameras
       if self.selectedCamera == nil {
         let savedID = UserDefaults.standard.string(forKey: "selectedCameraID")
-        self.selectedCamera =
-          cameras.first(where: { $0.id == savedID })
-          ?? cameras.first { $0.name.localizedCaseInsensitiveContains("front") }
-          ?? cameras.first
+        if savedID == "none" {
+          // User explicitly chose "None" — leave selectedCamera nil
+        } else {
+          self.selectedCamera =
+            cameras.first(where: { $0.id == savedID })
+            ?? cameras.first { $0.name.localizedCaseInsensitiveContains("front") }
+            ?? cameras.first
+        }
       }
       if self.selectedStreamCamera == nil {
         let savedID = UserDefaults.standard.string(forKey: "selectedStreamCameraID")
@@ -275,8 +284,10 @@ final class HAPViewModel {
         self.isStarting = false
         self.statusMessage = "Advertising as '\(bridge.name)'\nDevice ID: \(identity.deviceID)"
 
-        // Start ambient light monitoring with selected camera
-        monitor.start(with: self.selectedCamera)
+        // Start ambient light monitoring with selected camera (if any)
+        if self.selectedCamera != nil {
+          monitor.start(with: self.selectedCamera)
+        }
 
         // Start motion monitoring
         motion.start()
@@ -476,35 +487,27 @@ struct ContentView: View {
 
             GroupBox("Ambient Light") {
               VStack(spacing: 8) {
-                if viewModel.availableCameras.isEmpty {
-                  Image(systemName: "camera.metering.unknown")
+                if viewModel.selectedCamera == nil {
+                  Image(systemName: "sun.max")
                     .font(.system(size: 32))
                     .foregroundColor(.secondary)
-                  Text("No cameras found")
+                  Text("Disabled")
                     .font(.headline)
-                  Text("A camera is required for light sensing")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
                 } else {
                   Image(systemName: "sun.max")
                     .font(.system(size: 32))
                     .foregroundColor(.orange)
                   Text(String(format: "%.1f lux", viewModel.ambientLux))
                     .font(.system(.title2, design: .monospaced))
-
-                  if viewModel.availableCameras.count > 1 {
-                    Picker("Camera", selection: $viewModel.selectedCamera) {
-                      ForEach(viewModel.availableCameras) { camera in
-                        Text(camera.name).tag(Optional(camera))
-                      }
-                    }
-                    .pickerStyle(.menu)
-                  }
-
-                  Text(viewModel.selectedCamera?.name ?? "Camera light estimate")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
                 }
+
+                Picker("Camera", selection: $viewModel.selectedCamera) {
+                  Text("None").tag(CameraOption?.none)
+                  ForEach(viewModel.availableCameras) { camera in
+                    Text(camera.name).tag(Optional(camera))
+                  }
+                }
+                .pickerStyle(.menu)
               }
               .frame(maxWidth: .infinity)
             }
