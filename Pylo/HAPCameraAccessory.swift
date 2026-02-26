@@ -489,13 +489,10 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
   /// The camera sensor's native orientation is landscape-left, so portrait requires a 90° rotation.
   private func currentRotation() -> (angle: Int, swapDimensions: Bool) {
     #if os(iOS)
-      // UIDevice.current.orientation must be read on the main thread.
-      let orientation: UIDeviceOrientation
-      if Thread.isMainThread {
-        orientation = UIDevice.current.orientation
-      } else {
-        orientation = DispatchQueue.main.sync { UIDevice.current.orientation }
-      }
+      // UIDevice.current.orientation is backed by an atomic internal property
+      // and is safe to read from any thread. Avoid DispatchQueue.main.sync here
+      // because it deadlocks if the main thread is blocked on the server queue.
+      let orientation = UIDevice.current.orientation
       switch orientation {
       case .landscapeLeft: return (0, false)
       case .landscapeRight: return (180, false)
