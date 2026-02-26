@@ -7,7 +7,7 @@ import os
 
 enum PairingsHandler {
 
-  private static let logger = Logger(subsystem: "com.example.hap", category: "Pairings")
+  private static let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "Pairings")
 
   // Pairing methods
   private static let methodAddPairing: UInt8 = 3

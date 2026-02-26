@@ -26,7 +26,7 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
   var onSnapshotWillCapture: (() -> Void)?
   var onSnapshotDidCapture: (() -> Void)?
 
-  private let logger = Logger(subsystem: "com.example.hap", category: "Camera")
+  private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "Camera")
 
   /// Which camera to use for streaming and snapshots (nil = default back wide-angle).
   var selectedCameraID: String?
@@ -644,7 +644,7 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
     // Skip early frames so auto-exposure has time to converge; the very
     // first frames from a cold-started session are often black/dark.
     let grabber = FrameGrabber(framesToSkip: 10)
-    let queue = DispatchQueue(label: "com.example.hap.snapshot", qos: .userInteractive)
+    let queue = DispatchQueue(label: "me.fausak.taylor.Pylo.snapshot", qos: .userInteractive)
     videoOutput.setSampleBufferDelegate(grabber, queue: queue)
 
     session.startRunning()
@@ -817,14 +817,14 @@ final class CameraStreamSession {
   let videoSSRC: UInt32
   let audioSSRC: UInt32
 
-  private let logger = Logger(subsystem: "com.example.hap", category: "CameraStream")
+  private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "CameraStream")
 
   // Video pipeline
   private var captureSession: AVCaptureSession?
   private var videoOutput: AVCaptureVideoDataOutput?
   private var compressionSession: VTCompressionSession?
-  private let captureQueue = DispatchQueue(label: "com.example.hap.camera.capture")
-  private let rtpQueue = DispatchQueue(label: "com.example.hap.camera.rtp")
+  private let captureQueue = DispatchQueue(label: "me.fausak.taylor.Pylo.camera.capture")
+  private let rtpQueue = DispatchQueue(label: "me.fausak.taylor.Pylo.camera.rtp")
 
   // Video UDP — BSD socket (immune to ICMP route-poisoning that kills NWConnection)
   private var videoSocketFD: Int32 = -1
@@ -2224,7 +2224,7 @@ final class SRTPContext {
   private let srtcpSalt: Data
   private let srtcpAuthKey: Data
 
-  private let logger = Logger(subsystem: "com.example.hap", category: "SRTP")
+  private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "SRTP")
   private var rolloverCounter: UInt32 = 0
   private var lastSequenceNumber: UInt16 = 0
   private var packetCount: Int = 0
@@ -2264,7 +2264,7 @@ final class SRTPContext {
 
   /// Verify key derivation against RFC 3711 Appendix B.3 test vectors.
   private static func runSelfTest() {
-    let logger = Logger(subsystem: "com.example.hap", category: "SRTP")
+    let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "SRTP")
     let testKey = Data([
       0xE1, 0xF9, 0x7A, 0x0D, 0x3E, 0x01, 0x8B, 0xE0,
       0xD6, 0x4F, 0xA3, 0x2C, 0x06, 0xDE, 0x41, 0x39,

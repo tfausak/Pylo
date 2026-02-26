@@ -6,7 +6,7 @@ import os
 
 enum KeychainHelper {
 
-  private static let service = "com.example.hap"
+  private static let service = "me.fausak.taylor.Pylo"
   private static let signingKeyAccount = "device-signing-key"
   private static let deviceIDAccount = "device-id"
 
@@ -59,7 +59,7 @@ enum KeychainHelper {
 
 final class DeviceIdentity {
 
-  private static let logger = Logger(subsystem: "com.example.hap", category: "Identity")
+  private static let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "Identity")
 
   /// Persistent Ed25519 signing key.
   let signingKey: Curve25519.Signing.PrivateKey
@@ -122,7 +122,7 @@ final class PairingStore {
     let isAdmin: Bool
   }
 
-  private static let logger = Logger(subsystem: "com.example.hap", category: "PairingStore")
+  private static let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "PairingStore")
 
   /// Called whenever pairings are added or removed.
   var onChange: (() -> Void)?
@@ -194,7 +194,7 @@ final class EncryptionContext {
   private let writeKey: SymmetricKey  // Accessory-to-Controller
   private var readCounter: UInt64 = 0
   private var writeCounter: UInt64 = 0
-  private let logger = Logger(subsystem: "com.example.hap", category: "Crypto")
+  private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "Crypto")
 
   init(readKey: SymmetricKey, writeKey: SymmetricKey) {
     self.readKey = readKey

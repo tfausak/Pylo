@@ -9,8 +9,8 @@ import os
 final class HAPServer {
 
   private let listener: NWListener
-  private let logger = Logger(subsystem: "com.example.hap", category: "Server")
-  private let queue = DispatchQueue(label: "com.example.hap.server")
+  private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "Server")
+  private let queue = DispatchQueue(label: "me.fausak.taylor.Pylo.server")
 
   /// Active connections keyed by a unique ID.
   private var connections: [String: HAPConnection] = [:]

@@ -9,7 +9,7 @@ import os
 
 enum PairVerifyHandler {
 
-  private static let logger = Logger(subsystem: "com.example.hap", category: "PairVerify")
+  private static let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "PairVerify")
 
   static func handle(request: HTTPRequest, connection: HAPConnection, server: HAPServer)
     -> HTTPResponse

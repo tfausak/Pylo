@@ -29,7 +29,7 @@ final class AmbientLightMonitor {
 
   var onLuxUpdate: ((Float) -> Void)?
 
-  private let logger = Logger(subsystem: "com.example.hap", category: "AmbientLight")
+  private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "AmbientLight")
   private var captureSession: AVCaptureSession?
   private var timer: Timer?
   private var activeDevice: AVCaptureDevice?

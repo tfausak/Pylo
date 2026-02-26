@@ -13,7 +13,7 @@ final class HAPConnection {
   private let connection: NWConnection
   private weak var server: HAPServer?
   private let queue: DispatchQueue
-  private let logger = Logger(subsystem: "com.example.hap", category: "Connection")
+  private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "Connection")
 
   /// After pair-verify, this holds the session encryption context.
   var encryptionContext: EncryptionContext?

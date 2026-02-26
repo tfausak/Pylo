@@ -47,7 +47,7 @@ final class HAPAccessory: HAPAccessoryProtocol {
   let category: HAPAccessoryCategory
   let aid: Int
 
-  private let logger = Logger(subsystem: "com.example.hap", category: "Accessory")
+  private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "Accessory")
 
   // MARK: - Lightbulb State
 

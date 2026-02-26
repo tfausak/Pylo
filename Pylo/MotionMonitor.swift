@@ -10,7 +10,7 @@ final class MotionMonitor {
   /// Whether the device has an accelerometer.
   var isAvailable: Bool { motionManager.isAccelerometerAvailable }
 
-  private let logger = Logger(subsystem: "com.example.hap", category: "Motion")
+  private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "Motion")
   private let motionManager = CMMotionManager()
 
   /// Acceleration delta from gravity (in g) required to trigger motion detected.
@@ -32,7 +32,7 @@ final class MotionMonitor {
     motionManager.accelerometerUpdateInterval = 0.1  // 10 Hz
 
     let queue = OperationQueue()
-    queue.name = "com.example.hap.motion"
+    queue.name = "me.fausak.taylor.Pylo.motion"
     queue.maxConcurrentOperationCount = 1
 
     motionManager.startAccelerometerUpdates(to: queue) { [weak self] data, error in

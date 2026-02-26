@@ -12,7 +12,7 @@ import os
 
 enum PairSetupHandler {
 
-  private static let logger = Logger(subsystem: "com.example.hap", category: "PairSetup")
+  private static let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "PairSetup")
 
   /// Codes excluded by HAP spec Table 5-8.
   static let invalidSetupCodes: Set<String> = {
