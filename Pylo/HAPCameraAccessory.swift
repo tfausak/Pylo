@@ -18,6 +18,9 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
   let firmwareRevision: String
   var onStateChange: ((_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
 
+  /// Shared battery state — nil means no battery, omit battery service.
+  var batteryState: BatteryState?
+
   /// Called before/after snapshot capture so the host can pause other capture sessions
   /// (e.g. the ambient light monitor) that would conflict with the snapshot session.
   var onSnapshotWillCapture: (() -> Void)?
@@ -117,6 +120,9 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
     case Self.iidMicrophoneMute: return .bool(isMuted)
     case Self.iidSpeakerMute: return .bool(speakerMuted)
     case Self.iidSpeakerVolume: return .int(speakerVolume)
+    case BatteryIID.batteryLevel: return batteryState.map { .int($0.level) }
+    case BatteryIID.chargingState: return batteryState.map { .int($0.chargingState) }
+    case BatteryIID.statusLowBattery: return batteryState.map { .int($0.statusLowBattery) }
     default: return nil
     }
   }
@@ -668,87 +674,88 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
   // MARK: - JSON Serialization
 
   func toJSON() -> [String: Any] {
-    [
-      "aid": aid,
-      "services": [
-        accessoryInformationServiceJSON(),
-        // Camera RTP Stream Management Service
-        [
-          "iid": Self.iidCameraService,
-          "type": Self.uuidCameraRTPStreamManagement,
-          "characteristics": [
-            [
-              "iid": Self.iidSupportedVideoConfig,
-              "type": Self.uuidSupportedVideoStreamConfig,
-              "format": "tlv8",
-              "perms": ["pr"],
-              "value": Self.supportedVideoConfig().base64(),
-            ],
-            [
-              "iid": Self.iidSupportedAudioConfig,
-              "type": Self.uuidSupportedAudioStreamConfig,
-              "format": "tlv8",
-              "perms": ["pr"],
-              "value": Self.supportedAudioConfig().base64(),
-            ],
-            [
-              "iid": Self.iidSupportedRTPConfig,
-              "type": Self.uuidSupportedRTPConfig,
-              "format": "tlv8",
-              "perms": ["pr"],
-              "value": Self.supportedRTPConfig().base64(),
-            ],
-            [
-              "iid": Self.iidSetupEndpoints,
-              "type": Self.uuidSetupEndpoints, "format": "tlv8",
-              "perms": ["pr", "pw"], "value": "",
-            ],
-            [
-              "iid": Self.iidSelectedRTPStreamConfig,
-              "type": Self.uuidSelectedRTPStreamConfig,
-              "format": "tlv8",
-              "perms": ["pr", "pw"], "value": "",
-            ],
-            [
-              "iid": Self.iidStreamingStatus,
-              "type": Self.uuidStreamingStatus, "format": "tlv8",
-              "perms": ["pr", "ev"],
-              "value": streamingStatusTLV().base64EncodedString(),
-            ],
+    var services: [[String: Any]] = [
+      accessoryInformationServiceJSON(),
+      // Camera RTP Stream Management Service
+      [
+        "iid": Self.iidCameraService,
+        "type": Self.uuidCameraRTPStreamManagement,
+        "characteristics": [
+          [
+            "iid": Self.iidSupportedVideoConfig,
+            "type": Self.uuidSupportedVideoStreamConfig,
+            "format": "tlv8",
+            "perms": ["pr"],
+            "value": Self.supportedVideoConfig().base64(),
+          ],
+          [
+            "iid": Self.iidSupportedAudioConfig,
+            "type": Self.uuidSupportedAudioStreamConfig,
+            "format": "tlv8",
+            "perms": ["pr"],
+            "value": Self.supportedAudioConfig().base64(),
+          ],
+          [
+            "iid": Self.iidSupportedRTPConfig,
+            "type": Self.uuidSupportedRTPConfig,
+            "format": "tlv8",
+            "perms": ["pr"],
+            "value": Self.supportedRTPConfig().base64(),
+          ],
+          [
+            "iid": Self.iidSetupEndpoints,
+            "type": Self.uuidSetupEndpoints, "format": "tlv8",
+            "perms": ["pr", "pw"], "value": "",
+          ],
+          [
+            "iid": Self.iidSelectedRTPStreamConfig,
+            "type": Self.uuidSelectedRTPStreamConfig,
+            "format": "tlv8",
+            "perms": ["pr", "pw"], "value": "",
+          ],
+          [
+            "iid": Self.iidStreamingStatus,
+            "type": Self.uuidStreamingStatus, "format": "tlv8",
+            "perms": ["pr", "ev"],
+            "value": streamingStatusTLV().base64EncodedString(),
           ],
         ],
-        // Microphone Service
-        [
-          "iid": Self.iidMicrophoneService,
-          "type": Self.uuidMicrophone,
-          "characteristics": [
-            [
-              "iid": Self.iidMicrophoneMute,
-              "type": Self.uuidMute, "format": "bool",
-              "perms": ["pr", "pw", "ev"], "value": isMuted,
-            ]
-          ],
+      ],
+      // Microphone Service
+      [
+        "iid": Self.iidMicrophoneService,
+        "type": Self.uuidMicrophone,
+        "characteristics": [
+          [
+            "iid": Self.iidMicrophoneMute,
+            "type": Self.uuidMute, "format": "bool",
+            "perms": ["pr", "pw", "ev"], "value": isMuted,
+          ]
         ],
-        // Speaker Service
-        [
-          "iid": Self.iidSpeakerService,
-          "type": Self.uuidSpeaker,
-          "characteristics": [
-            [
-              "iid": Self.iidSpeakerMute,
-              "type": Self.uuidMute, "format": "bool",
-              "perms": ["pr", "pw", "ev"], "value": speakerMuted,
-            ],
-            [
-              "iid": Self.iidSpeakerVolume,
-              "type": Self.uuidVolume, "format": "uint8",
-              "perms": ["pr", "pw", "ev"], "value": speakerVolume,
-              "minValue": 0, "maxValue": 100, "minStep": 1,
-            ],
+      ],
+      // Speaker Service
+      [
+        "iid": Self.iidSpeakerService,
+        "type": Self.uuidSpeaker,
+        "characteristics": [
+          [
+            "iid": Self.iidSpeakerMute,
+            "type": Self.uuidMute, "format": "bool",
+            "perms": ["pr", "pw", "ev"], "value": speakerMuted,
+          ],
+          [
+            "iid": Self.iidSpeakerVolume,
+            "type": Self.uuidVolume, "format": "uint8",
+            "perms": ["pr", "pw", "ev"], "value": speakerVolume,
+            "minValue": 0, "maxValue": 100, "minStep": 1,
           ],
         ],
       ],
     ]
+    if let battery = batteryServiceJSON(state: batteryState) {
+      services.append(battery)
+    }
+    return ["aid": aid, "services": services]
   }
 }
 

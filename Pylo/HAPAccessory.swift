@@ -90,6 +90,25 @@ enum AccessoryInfoIID {
   static let firmwareRevision = 7
 }
 
+// MARK: - Shared Battery Service IIDs & UUIDs
+
+/// Instance IDs for the Battery Service, shared by all accessories.
+/// IIDs 100-103 are safely above all current accessory IIDs.
+enum BatteryIID {
+  static let service = 100
+  static let batteryLevel = 101
+  static let chargingState = 102
+  static let statusLowBattery = 103
+}
+
+/// HAP short-form UUIDs for the Battery Service and its characteristics.
+enum BatteryUUID {
+  static let service = "96"
+  static let level = "68"
+  static let chargingState = "8F"
+  static let lowBattery = "79"
+}
+
 extension HAPAccessoryProtocol {
   /// Builds the Accessory Information service JSON (iid 1, characteristics 2-7).
   /// Shared by all accessories to avoid duplicating this boilerplate.
@@ -131,6 +150,37 @@ extension HAPAccessoryProtocol {
       ],
     ]
   }
+
+  /// Builds the Battery Service JSON (iid 100, characteristics 101-103).
+  /// Returns nil if the given `BatteryState` is nil (no battery on this device).
+  func batteryServiceJSON(state: BatteryState?) -> [String: Any]? {
+    guard let state else { return nil }
+    return [
+      "iid": BatteryIID.service,
+      "type": BatteryUUID.service,
+      "characteristics": [
+        [
+          "iid": BatteryIID.batteryLevel,
+          "type": BatteryUUID.level, "format": "uint8",
+          "perms": ["pr", "ev"], "value": state.level,
+          "minValue": 0, "maxValue": 100, "minStep": 1,
+          "unit": "percentage",
+        ],
+        [
+          "iid": BatteryIID.chargingState,
+          "type": BatteryUUID.chargingState, "format": "uint8",
+          "perms": ["pr", "ev"], "value": state.chargingState,
+          "minValue": 0, "maxValue": 2,
+        ],
+        [
+          "iid": BatteryIID.statusLowBattery,
+          "type": BatteryUUID.lowBattery, "format": "uint8",
+          "perms": ["pr", "ev"], "value": state.statusLowBattery,
+          "minValue": 0, "maxValue": 1,
+        ],
+      ],
+    ]
+  }
 }
 
 // MARK: - HAP Accessory
@@ -156,6 +206,9 @@ final class HAPAccessory: HAPAccessoryProtocol {
   private(set) var brightness: Int = 100 {
     didSet { applyTorchState() }
   }
+
+  /// Shared battery state — nil means no battery, omit battery service.
+  var batteryState: BatteryState?
 
   /// Callback for notifying the server of state changes (for EVENT notifications).
   var onStateChange: ((_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
@@ -211,6 +264,9 @@ final class HAPAccessory: HAPAccessoryProtocol {
     case AccessoryInfoIID.firmwareRevision: return .string(firmwareRevision)
     case Self.iidOn: return .bool(isOn)
     case Self.iidBrightness: return .int(brightness)
+    case BatteryIID.batteryLevel: return batteryState.map { .int($0.level) }
+    case BatteryIID.chargingState: return batteryState.map { .int($0.chargingState) }
+    case BatteryIID.statusLowBattery: return batteryState.map { .int($0.statusLowBattery) }
     default: return nil
     }
   }
@@ -300,26 +356,27 @@ final class HAPAccessory: HAPAccessoryProtocol {
   // MARK: - JSON Serialization (for GET /accessories)
 
   func toJSON() -> [String: Any] {
-    [
-      "aid": aid,
-      "services": [
-        accessoryInformationServiceJSON(),
-        // Lightbulb Service
-        [
-          "iid": Self.iidLightbulbService,
-          "type": Self.uuidLightbulb,
-          "characteristics": [
-            characteristicJSON(
-              iid: Self.iidOn, type: Self.uuidOn, format: "bool",
-              perms: ["pr", "pw", "ev"], value: isOn),
-            characteristicJSON(
-              iid: Self.iidBrightness, type: Self.uuidBrightness,
-              format: "int", perms: ["pr", "pw", "ev"], value: brightness,
-              minValue: 0, maxValue: 100, unit: "percentage"),
-          ],
+    var services: [[String: Any]] = [
+      accessoryInformationServiceJSON(),
+      // Lightbulb Service
+      [
+        "iid": Self.iidLightbulbService,
+        "type": Self.uuidLightbulb,
+        "characteristics": [
+          characteristicJSON(
+            iid: Self.iidOn, type: Self.uuidOn, format: "bool",
+            perms: ["pr", "pw", "ev"], value: isOn),
+          characteristicJSON(
+            iid: Self.iidBrightness, type: Self.uuidBrightness,
+            format: "int", perms: ["pr", "pw", "ev"], value: brightness,
+            minValue: 0, maxValue: 100, unit: "percentage"),
         ],
       ],
     ]
+    if let battery = batteryServiceJSON(state: batteryState) {
+      services.append(battery)
+    }
+    return ["aid": aid, "services": services]
   }
 
   private func characteristicJSON(
@@ -421,6 +478,9 @@ final class HAPLightSensorAccessory: HAPAccessoryProtocol {
   let firmwareRevision: String
   var onStateChange: ((_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
 
+  /// Shared battery state — nil means no battery, omit battery service.
+  var batteryState: BatteryState?
+
   private(set) var ambientLightLevel: Float = 1.0
 
   static let iidLightSensorService = 8
@@ -458,6 +518,9 @@ final class HAPLightSensorAccessory: HAPAccessoryProtocol {
     case AccessoryInfoIID.serialNumber: return .string(serialNumber)
     case AccessoryInfoIID.firmwareRevision: return .string(firmwareRevision)
     case Self.iidAmbientLightLevel: return .float(ambientLightLevel)
+    case BatteryIID.batteryLevel: return batteryState.map { .int($0.level) }
+    case BatteryIID.chargingState: return batteryState.map { .int($0.chargingState) }
+    case BatteryIID.statusLowBattery: return batteryState.map { .int($0.statusLowBattery) }
     default: return nil
     }
   }
@@ -474,25 +537,26 @@ final class HAPLightSensorAccessory: HAPAccessoryProtocol {
   func identify() {}
 
   func toJSON() -> [String: Any] {
-    [
-      "aid": aid,
-      "services": [
-        accessoryInformationServiceJSON(),
-        [
-          "iid": Self.iidLightSensorService,
-          "type": Self.uuidLightSensor,
-          "characteristics": [
-            [
-              "iid": Self.iidAmbientLightLevel,
-              "type": Self.uuidAmbientLightLevel, "format": "float",
-              "perms": ["pr", "ev"], "value": ambientLightLevel,
-              "minValue": Float(0.0001), "maxValue": Float(100000),
-              "unit": "lux",
-            ]
-          ],
+    var services: [[String: Any]] = [
+      accessoryInformationServiceJSON(),
+      [
+        "iid": Self.iidLightSensorService,
+        "type": Self.uuidLightSensor,
+        "characteristics": [
+          [
+            "iid": Self.iidAmbientLightLevel,
+            "type": Self.uuidAmbientLightLevel, "format": "float",
+            "perms": ["pr", "ev"], "value": ambientLightLevel,
+            "minValue": Float(0.0001), "maxValue": Float(100000),
+            "unit": "lux",
+          ]
         ],
       ],
     ]
+    if let battery = batteryServiceJSON(state: batteryState) {
+      services.append(battery)
+    }
+    return ["aid": aid, "services": services]
   }
 }
 
@@ -508,6 +572,9 @@ final class HAPMotionSensorAccessory: HAPAccessoryProtocol {
   let serialNumber: String
   let firmwareRevision: String
   var onStateChange: ((_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
+
+  /// Shared battery state — nil means no battery, omit battery service.
+  var batteryState: BatteryState?
 
   private(set) var isMotionDetected: Bool = false
 
@@ -546,6 +613,9 @@ final class HAPMotionSensorAccessory: HAPAccessoryProtocol {
     case AccessoryInfoIID.serialNumber: return .string(serialNumber)
     case AccessoryInfoIID.firmwareRevision: return .string(firmwareRevision)
     case Self.iidMotionDetected: return .bool(isMotionDetected)
+    case BatteryIID.batteryLevel: return batteryState.map { .int($0.level) }
+    case BatteryIID.chargingState: return batteryState.map { .int($0.chargingState) }
+    case BatteryIID.statusLowBattery: return batteryState.map { .int($0.statusLowBattery) }
     default: return nil
     }
   }
@@ -562,22 +632,23 @@ final class HAPMotionSensorAccessory: HAPAccessoryProtocol {
   func identify() {}
 
   func toJSON() -> [String: Any] {
-    [
-      "aid": aid,
-      "services": [
-        accessoryInformationServiceJSON(),
-        [
-          "iid": Self.iidMotionSensorService,
-          "type": Self.uuidMotionSensor,
-          "characteristics": [
-            [
-              "iid": Self.iidMotionDetected,
-              "type": Self.uuidMotionDetected, "format": "bool",
-              "perms": ["pr", "ev"], "value": isMotionDetected,
-            ]
-          ],
+    var services: [[String: Any]] = [
+      accessoryInformationServiceJSON(),
+      [
+        "iid": Self.iidMotionSensorService,
+        "type": Self.uuidMotionSensor,
+        "characteristics": [
+          [
+            "iid": Self.iidMotionDetected,
+            "type": Self.uuidMotionDetected, "format": "bool",
+            "perms": ["pr", "ev"], "value": isMotionDetected,
+          ]
         ],
       ],
     ]
+    if let battery = batteryServiceJSON(state: batteryState) {
+      services.append(battery)
+    }
+    return ["aid": aid, "services": services]
   }
 }

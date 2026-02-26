@@ -136,6 +136,7 @@ final class HAPViewModel {
   @ObservationIgnored private var server: HAPServer?
   @ObservationIgnored private var lightMonitor: AmbientLightMonitor?
   @ObservationIgnored private var motionMonitor: MotionMonitor?
+  @ObservationIgnored private var batteryMonitor: BatteryMonitor?
   @ObservationIgnored private var cameraAccessory: HAPCameraAccessory?
 
   @MainActor
@@ -328,6 +329,40 @@ final class HAPViewModel {
       }
       self.motionMonitor = motion
 
+      // Set up battery monitor — share a single BatteryState across all accessories
+      let battery = BatteryMonitor()
+      battery.start()
+      if battery.isAvailable {
+        let sharedBatteryState = battery.currentState()
+        lightbulb.batteryState = sharedBatteryState
+        camera.batteryState = sharedBatteryState
+        lightSensor.batteryState = sharedBatteryState
+        motionSensor.batteryState = sharedBatteryState
+
+        battery.onBatteryChange = { [weak self] state in
+          Task { @MainActor in
+            guard let self, let server = self.server else { return }
+            // Update shared state in-place
+            sharedBatteryState.level = state.level
+            sharedBatteryState.chargingState = state.chargingState
+            sharedBatteryState.statusLowBattery = state.statusLowBattery
+            // Notify subscribers for each enabled accessory
+            for accessory in enabledAccessories {
+              server.notifySubscribers(
+                aid: accessory.aid, iid: BatteryIID.batteryLevel,
+                value: .int(state.level))
+              server.notifySubscribers(
+                aid: accessory.aid, iid: BatteryIID.chargingState,
+                value: .int(state.chargingState))
+              server.notifySubscribers(
+                aid: accessory.aid, iid: BatteryIID.statusLowBattery,
+                value: .int(state.statusLowBattery))
+            }
+          }
+        }
+      }
+      self.batteryMonitor = battery
+
       pairingStore.onChange = { [weak self] in
         Task { @MainActor in
           self?.hasPairings = pairingStore.isPaired
@@ -370,6 +405,8 @@ final class HAPViewModel {
 
   @MainActor
   func stop() {
+    batteryMonitor?.stop()
+    batteryMonitor = nil
     motionMonitor?.stop()
     motionMonitor = nil
     lightMonitor?.stop()

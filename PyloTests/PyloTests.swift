@@ -1721,3 +1721,175 @@ struct ThreadSafetyTests {
     #expect(store.isPaired == false)
   }
 }
+
+// MARK: - Battery Service Tests
+
+@Suite("Battery Service")
+struct BatteryServiceTests {
+
+  @Test("Lightbulb toJSON includes battery service when batteryState is set")
+  func lightbulbWithBattery() {
+    let light = HAPAccessory(aid: 2)
+    let state = BatteryState()
+    state.level = 75
+    state.chargingState = 1
+    state.statusLowBattery = 0
+    light.batteryState = state
+
+    let json = light.toJSON()
+    let services = json["services"] as! [[String: Any]]
+    // Accessory Info + Lightbulb + Battery = 3 services
+    #expect(services.count == 3)
+    #expect(services[2]["type"] as? String == BatteryUUID.service)
+    #expect(services[2]["iid"] as? Int == BatteryIID.service)
+
+    let chars = services[2]["characteristics"] as! [[String: Any]]
+    #expect(chars.count == 3)
+    #expect(chars[0]["iid"] as? Int == BatteryIID.batteryLevel)
+    #expect(chars[0]["value"] as? Int == 75)
+    #expect(chars[1]["iid"] as? Int == BatteryIID.chargingState)
+    #expect(chars[1]["value"] as? Int == 1)
+    #expect(chars[2]["iid"] as? Int == BatteryIID.statusLowBattery)
+    #expect(chars[2]["value"] as? Int == 0)
+  }
+
+  @Test("Lightbulb toJSON omits battery service when batteryState is nil")
+  func lightbulbWithoutBattery() {
+    let light = HAPAccessory(aid: 2)
+    let json = light.toJSON()
+    let services = json["services"] as! [[String: Any]]
+    // Only Accessory Info + Lightbulb = 2 services
+    #expect(services.count == 2)
+  }
+
+  @Test("Light sensor toJSON includes battery service when batteryState is set")
+  func lightSensorWithBattery() {
+    let sensor = HAPLightSensorAccessory(aid: 4)
+    let state = BatteryState()
+    state.level = 15
+    state.chargingState = 0
+    state.statusLowBattery = 1
+    sensor.batteryState = state
+
+    let json = sensor.toJSON()
+    let services = json["services"] as! [[String: Any]]
+    #expect(services.count == 3)
+    #expect(services[2]["type"] as? String == BatteryUUID.service)
+
+    let chars = services[2]["characteristics"] as! [[String: Any]]
+    #expect(chars[0]["value"] as? Int == 15)
+    #expect(chars[2]["value"] as? Int == 1)  // low battery
+  }
+
+  @Test("Light sensor toJSON omits battery service when batteryState is nil")
+  func lightSensorWithoutBattery() {
+    let sensor = HAPLightSensorAccessory(aid: 4)
+    let json = sensor.toJSON()
+    let services = json["services"] as! [[String: Any]]
+    #expect(services.count == 2)
+  }
+
+  @Test("Motion sensor toJSON includes battery service when batteryState is set")
+  func motionSensorWithBattery() {
+    let sensor = HAPMotionSensorAccessory(aid: 5)
+    let state = BatteryState()
+    state.level = 50
+    state.chargingState = 0
+    state.statusLowBattery = 0
+    sensor.batteryState = state
+
+    let json = sensor.toJSON()
+    let services = json["services"] as! [[String: Any]]
+    #expect(services.count == 3)
+    #expect(services[2]["type"] as? String == BatteryUUID.service)
+  }
+
+  @Test("Motion sensor toJSON omits battery service when batteryState is nil")
+  func motionSensorWithoutBattery() {
+    let sensor = HAPMotionSensorAccessory(aid: 5)
+    let json = sensor.toJSON()
+    let services = json["services"] as! [[String: Any]]
+    #expect(services.count == 2)
+  }
+
+  @Test("Camera toJSON includes battery service when batteryState is set")
+  func cameraWithBattery() {
+    let camera = HAPCameraAccessory(aid: 3)
+    let state = BatteryState()
+    state.level = 90
+    state.chargingState = 1
+    state.statusLowBattery = 0
+    camera.batteryState = state
+
+    let json = camera.toJSON()
+    let services = json["services"] as! [[String: Any]]
+    // Accessory Info + Camera RTP + Microphone + Speaker + Battery = 5 services
+    #expect(services.count == 5)
+    #expect(services[4]["type"] as? String == BatteryUUID.service)
+  }
+
+  @Test("Camera toJSON omits battery service when batteryState is nil")
+  func cameraWithoutBattery() {
+    let camera = HAPCameraAccessory(aid: 3)
+    let json = camera.toJSON()
+    let services = json["services"] as! [[String: Any]]
+    // Accessory Info + Camera RTP + Microphone + Speaker = 4 services
+    #expect(services.count == 4)
+  }
+
+  @Test("readCharacteristic returns battery values when state is set")
+  func readBatteryCharacteristics() {
+    let light = HAPAccessory(aid: 2)
+    let state = BatteryState()
+    state.level = 42
+    state.chargingState = 1
+    state.statusLowBattery = 0
+    light.batteryState = state
+
+    #expect(light.readCharacteristic(iid: BatteryIID.batteryLevel) == .int(42))
+    #expect(light.readCharacteristic(iid: BatteryIID.chargingState) == .int(1))
+    #expect(light.readCharacteristic(iid: BatteryIID.statusLowBattery) == .int(0))
+  }
+
+  @Test("readCharacteristic returns nil for battery IIDs when state is nil")
+  func readBatteryNilState() {
+    let light = HAPAccessory(aid: 2)
+    #expect(light.readCharacteristic(iid: BatteryIID.batteryLevel) == nil)
+    #expect(light.readCharacteristic(iid: BatteryIID.chargingState) == nil)
+    #expect(light.readCharacteristic(iid: BatteryIID.statusLowBattery) == nil)
+  }
+
+  @Test("Shared BatteryState reflects updates across all accessories")
+  func sharedBatteryState() {
+    let state = BatteryState()
+    state.level = 80
+
+    let light = HAPAccessory(aid: 2)
+    let sensor = HAPLightSensorAccessory(aid: 4)
+    light.batteryState = state
+    sensor.batteryState = state
+
+    // Both read the same level
+    #expect(light.readCharacteristic(iid: BatteryIID.batteryLevel) == .int(80))
+    #expect(sensor.readCharacteristic(iid: BatteryIID.batteryLevel) == .int(80))
+
+    // Update the shared state
+    state.level = 30
+    state.statusLowBattery = 1
+
+    // Both see the new values
+    #expect(light.readCharacteristic(iid: BatteryIID.batteryLevel) == .int(30))
+    #expect(sensor.readCharacteristic(iid: BatteryIID.batteryLevel) == .int(30))
+    #expect(light.readCharacteristic(iid: BatteryIID.statusLowBattery) == .int(1))
+    #expect(sensor.readCharacteristic(iid: BatteryIID.statusLowBattery) == .int(1))
+  }
+
+  @Test("Battery IIDs do not collide with existing accessory IIDs")
+  func batteryIIDsNoCollision() {
+    // Highest existing IID is 19 (camera speaker volume)
+    #expect(BatteryIID.service == 100)
+    #expect(BatteryIID.batteryLevel == 101)
+    #expect(BatteryIID.chargingState == 102)
+    #expect(BatteryIID.statusLowBattery == 103)
+  }
+}
