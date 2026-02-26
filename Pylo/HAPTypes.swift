@@ -143,11 +143,13 @@ final class PairingStore {
   }
 
   private static var storageURL: URL {
-    let appSupport = FileManager.default.urls(
-      for: .applicationSupportDirectory, in: .userDomainMask
-    ).first!
-    try? FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
-    return appSupport.appendingPathComponent("pairings.json")
+    get throws {
+      let appSupport = try FileManager.default.url(
+        for: .applicationSupportDirectory, in: .userDomainMask,
+        appropriateFor: nil, create: true
+      )
+      return appSupport.appendingPathComponent("pairings.json")
+    }
   }
 
   var isPaired: Bool {
@@ -155,8 +157,8 @@ final class PairingStore {
   }
 
   init() {
-    let url = Self.storageURL
-    if let data = try? Data(contentsOf: url),
+    if let url = try? Self.storageURL,
+      let data = try? Data(contentsOf: url),
       let decoded = try? JSONDecoder().decode([String: Pairing].self, from: data)
     {
       lock.withLock { $0 = decoded }
