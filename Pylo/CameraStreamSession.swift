@@ -272,9 +272,11 @@ final class CameraStreamSession {
     rtcpTimer?.cancel()
     rtcpTimer = nil
 
-    if let session = captureSession {
-      DispatchQueue.global(qos: .background).async { session.stopRunning() }
-    }
+    // stopRunning() is synchronous — it blocks until the session fully
+    // stops delivering frames. Calling it directly (rather than async)
+    // ensures the VTCompressionSession won't receive new frames after
+    // we invalidate it below.
+    captureSession?.stopRunning()
     captureSession = nil
 
     if let cs = compressionSession {
@@ -300,30 +302,37 @@ final class CameraStreamSession {
     audioConverter = nil
     pcmAccumulator = Data()
 
-    // Audio socket cleanup
-    audioReadSource?.cancel()
+    // Audio socket cleanup — dispatch to rtpQueue synchronously so all
+    // in-flight readAudioSocket / handleIncomingAudioPacket calls drain
+    // before we close the socket and dispose the decoder.
+    let readSource = audioReadSource
+    let socketFD = audioSocketFD
+    let decoder = audioDecoder
+    let player = audioPlayerNode
+    let engine = audioEngine
+    let incomingSRTP = incomingSRTPContext
+
     audioReadSource = nil
-    if audioSocketFD >= 0 {
-      close(audioSocketFD)
-      audioSocketFD = -1
-    }
+    audioSocketFD = -1
     controllerAudioAddr = nil
     audioSRTPContext = nil
     audioSampleCount = 0
     incomingAudioPacketCount = 0
-
-    // Audio speaker cleanup
-    audioPlayerNode?.stop()
     audioPlayerNode = nil
     audioPlayerStarted = false
-    audioEngine?.stop()
     audioEngine = nil
-
-    if let dec = audioDecoder {
-      AudioConverterDispose(dec)
-    }
     audioDecoder = nil
     incomingSRTPContext = nil
+
+    readSource?.cancel()
+    rtpQueue.sync {
+      // By the time this executes, the cancelled read source has drained.
+      if socketFD >= 0 { close(socketFD) }
+      player?.stop()
+      engine?.stop()
+      if let dec = decoder { AudioConverterDispose(dec) }
+      _ = incomingSRTP  // prevent premature dealloc until after queue drains
+    }
   }
 
   // MARK: - Video Capture
