@@ -1,4 +1,3 @@
-import CommonCrypto
 import CryptoKit
 import Foundation
 import os
@@ -141,11 +140,8 @@ enum PairSetupHandler {
   /// Testable overload that accepts an explicit setupID.
   static func setupHash(setupID: String, deviceID: String) -> String {
     let input = Data((setupID + deviceID).utf8)
-    var digest = [UInt8](repeating: 0, count: Int(CC_SHA512_DIGEST_LENGTH))
-    input.withUnsafeBytes { ptr in
-      _ = CC_SHA512(ptr.baseAddress, CC_LONG(input.count), &digest)
-    }
-    return Data(digest[0..<4]).base64EncodedString()
+    let digest = SHA512.hash(data: input)
+    return Data(digest.prefix(4)).base64EncodedString()
   }
 
   static func handle(request: HTTPRequest, connection: HAPConnection, server: HAPServer)
