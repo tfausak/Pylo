@@ -55,9 +55,12 @@ final class SRTPContext {
     logger.debug(
       "SRTP keys derived (master=\(masterKey.count)B, session=\(self.sessionKey.count)B)")
 
-    // Self-test key derivation against RFC 3711 Appendix B.3
-    Self.runSelfTest()
+    // Self-test key derivation against RFC 3711 Appendix B.3 (once)
+    _ = Self.selfTestResult
   }
+
+  /// Run the self-test exactly once across all SRTPContext instances.
+  private static let selfTestResult: Void = { runSelfTest() }()
 
   /// Verify key derivation against RFC 3711 Appendix B.3 test vectors.
   private static func runSelfTest() {
