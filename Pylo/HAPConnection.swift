@@ -60,6 +60,11 @@ final class HAPConnection {
 
   // MARK: - Receive Loop
 
+  /// Maximum receive buffer size (1 MB). If a client sends data that never
+  /// forms a complete HTTP request and exceeds this limit, we disconnect to
+  /// prevent unbounded memory growth.
+  static let maxBufferSize = 1_048_576
+
   /// Buffer for accumulating incoming data
   private var receiveBuffer = Data()
 
@@ -96,6 +101,15 @@ final class HAPConnection {
       if let data, !data.isEmpty {
         // Append to buffer and try to parse complete requests
         self.receiveBuffer.append(data)
+
+        if self.receiveBuffer.count > HAPConnection.maxBufferSize {
+          self.logger.warning(
+            "Receive buffer exceeded \(HAPConnection.maxBufferSize) bytes, disconnecting"
+          )
+          self.cancel()
+          return
+        }
+
         self.processHTTPBuffer()
       }
 
@@ -152,6 +166,14 @@ final class HAPConnection {
 
         // Accumulate decrypted data and try to parse a complete HTTP request
         self.decryptedBuffer.append(decrypted)
+
+        if self.decryptedBuffer.count > HAPConnection.maxBufferSize {
+          self.logger.warning(
+            "Decrypted buffer exceeded \(HAPConnection.maxBufferSize) bytes, disconnecting"
+          )
+          self.cancel()
+          return
+        }
 
         if let request = HTTPRequest.parse(self.decryptedBuffer) {
           self.decryptedBuffer.removeAll()

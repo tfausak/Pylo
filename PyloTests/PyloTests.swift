@@ -192,6 +192,17 @@ struct TLV8Tests {
   }
 }
 
+// MARK: - Connection Buffer Limit Tests
+
+@Suite("Connection Buffer Limits")
+struct ConnectionBufferLimitTests {
+
+  @Test("Max buffer size is 1 MB")
+  func maxBufferSize() {
+    #expect(HAPConnection.maxBufferSize == 1_048_576)
+  }
+}
+
 // MARK: - HTTP Request Parser Tests
 
 @Suite("HTTP Request Parser")
