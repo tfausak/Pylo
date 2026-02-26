@@ -216,11 +216,10 @@ final class EncryptionContext {
   ///   - lengthBytes: The 2-byte little-endian length prefix (used as AAD).
   ///   - ciphertext: The encrypted payload + 16-byte Poly1305 tag.
   func decrypt(lengthBytes: Data, ciphertext: Data) -> Data? {
-    let nonce = counters.withLock { state -> ChaChaPoly.Nonce in
-      let n = Self.makeNonce(counter: state.read)
-      state.read += 1
-      return n
-    }
+    // Read the current counter without advancing — only increment on success
+    // to avoid permanent session desync from a single corrupted frame.
+    let counterValue = counters.withLock { $0.read }
+    let nonce = Self.makeNonce(counter: counterValue)
 
     // Split ciphertext from tag
     guard ciphertext.count >= 16 else { return nil }
@@ -233,7 +232,9 @@ final class EncryptionContext {
         ciphertext: encrypted,
         tag: tag
       )
-      return try ChaChaPoly.open(sealedBox, using: readKey, authenticating: lengthBytes)
+      let plaintext = try ChaChaPoly.open(sealedBox, using: readKey, authenticating: lengthBytes)
+      counters.withLock { $0.read += 1 }
+      return plaintext
     } catch {
       logger.error("Decrypt failed: \(error)")
       return nil
