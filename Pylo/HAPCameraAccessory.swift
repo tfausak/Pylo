@@ -38,7 +38,14 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
   private var streamSession: CameraStreamSession?
 
   /// Most recent JPEG snapshot captured during streaming (used as fallback for snapshot requests).
-  private var cachedSnapshot: Data?
+  /// Protected by a lock because it is written from captureQueue (via onSnapshotFrame) and from
+  /// a global queue (captureSnapshot), and read from the server queue.
+  private let snapshotLock = NSLock()
+  private var _cachedSnapshot: Data?
+  private var cachedSnapshot: Data? {
+    get { snapshotLock.withLock { _cachedSnapshot } }
+    set { snapshotLock.withLock { _cachedSnapshot = newValue } }
+  }
 
   /// Whether the microphone is muted.
   private var isMuted: Bool = false
