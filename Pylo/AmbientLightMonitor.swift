@@ -30,7 +30,12 @@ final class AmbientLightMonitor {
   var onLuxUpdate: ((Float) -> Void)?
 
   private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "AmbientLight")
-  private var captureSession: AVCaptureSession?
+  private let sessionLock = NSLock()
+  private var _captureSession: AVCaptureSession?
+  private var captureSession: AVCaptureSession? {
+    get { sessionLock.withLock { _captureSession } }
+    set { sessionLock.withLock { _captureSession = newValue } }
+  }
   private var timer: Timer?
   private var activeDevice: AVCaptureDevice?
 
