@@ -314,19 +314,10 @@ enum PairSetupHandler {
         return errorResponse(state: 0x06, error: .authentication)
       }
 
-      // Store the pairing
       let iosID = String(data: iosIdentifier, encoding: .utf8) ?? ""
-      server.pairingStore.addPairing(
-        PairingStore.Pairing(
-          identifier: iosID,
-          publicKey: iosLTPK,
-          isAdmin: true  // First pairing is always admin
-        ))
 
-      logger.info("Pairing stored for controller: \(iosID)")
-      throttle.reset()
-
-      // Now build the accessory's response (M6)
+      // Build the accessory's response (M6) BEFORE persisting the pairing.
+      // If any crypto step throws, we must not leave a stranded pairing on disk.
       // Derive AccessoryX
       let accessoryX = HKDF<SHA512>.deriveKey(
         inputKeyMaterial: sessionKey,
@@ -358,16 +349,27 @@ enum PairSetupHandler {
       var responseEncrypted = Data(sealed.ciphertext)
       responseEncrypted.append(sealed.tag)
 
+      let responseTLV = TLV8.encode([
+        (.state, Data([0x06])),
+        (.encryptedData, responseEncrypted),
+      ])
+
+      // M6 crypto succeeded — now it's safe to persist the pairing
+      server.pairingStore.addPairing(
+        PairingStore.Pairing(
+          identifier: iosID,
+          publicKey: iosLTPK,
+          isAdmin: true  // First pairing is always admin
+        ))
+
+      logger.info("Pairing stored for controller: \(iosID)")
+      throttle.reset()
+
       // Clean up
       connection.pairSetupState = nil
 
       // Update Bonjour to indicate we're now paired
       server.updateAdvertisement()
-
-      let responseTLV = TLV8.encode([
-        (.state, Data([0x06])),
-        (.encryptedData, responseEncrypted),
-      ])
 
       logger.info("Pair-Setup M6 sent — pairing complete!")
       return HTTPResponse(status: 200, body: responseTLV, contentType: "application/pairing+tlv8")
