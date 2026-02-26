@@ -1333,3 +1333,67 @@ struct SRTPTests {
     #expect(result == nil)
   }
 }
+
+// MARK: - Pair Setup Throttle Tests
+
+@Suite("PairSetupThrottle")
+struct PairSetupThrottleTests {
+
+  @Test("Not throttled initially")
+  func notThrottledInitially() {
+    let throttle = PairSetupThrottle()
+    #expect(!throttle.isThrottled())
+    #expect(throttle.failedAttempts == 0)
+  }
+
+  @Test("Not throttled below max attempts")
+  func notThrottledBelowMax() {
+    let throttle = PairSetupThrottle()
+    let now = Date()
+    for _ in 0..<(PairSetupThrottle.maxAttempts - 1) {
+      throttle.recordFailure(now: now)
+    }
+    #expect(throttle.failedAttempts == PairSetupThrottle.maxAttempts - 1)
+    #expect(!throttle.isThrottled(now: now))
+  }
+
+  @Test("Throttled after max attempts")
+  func throttledAfterMax() {
+    let throttle = PairSetupThrottle()
+    let now = Date()
+    for _ in 0..<PairSetupThrottle.maxAttempts {
+      throttle.recordFailure(now: now)
+    }
+    #expect(throttle.failedAttempts == PairSetupThrottle.maxAttempts)
+    #expect(throttle.isThrottled(now: now))
+  }
+
+  @Test("Not throttled after throttle duration passes")
+  func notThrottledAfterDuration() {
+    let throttle = PairSetupThrottle()
+    let failTime = Date()
+    for _ in 0..<PairSetupThrottle.maxAttempts {
+      throttle.recordFailure(now: failTime)
+    }
+    #expect(throttle.isThrottled(now: failTime))
+
+    let later = failTime.addingTimeInterval(
+      PairSetupThrottle.throttleDuration + 1
+    )
+    #expect(!throttle.isThrottled(now: later))
+  }
+
+  @Test("Reset clears state")
+  func resetClearsState() {
+    let throttle = PairSetupThrottle()
+    let now = Date()
+    for _ in 0..<PairSetupThrottle.maxAttempts {
+      throttle.recordFailure(now: now)
+    }
+    #expect(throttle.isThrottled(now: now))
+
+    throttle.reset()
+    #expect(throttle.failedAttempts == 0)
+    #expect(!throttle.isThrottled(now: now))
+  }
+}

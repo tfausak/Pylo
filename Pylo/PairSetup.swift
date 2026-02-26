@@ -10,9 +10,47 @@ import os
 // The SRP math is delegated to an SRP implementation (see SRP.swift).
 // This file handles the TLV framing, state machine, and key derivation.
 
+// MARK: - Pair Setup Rate Limiting
+// HAP spec §5.6.1: After 100 failed attempts, only process attempts every 30 seconds.
+
+final class PairSetupThrottle {
+
+  /// Number of failed attempts before throttling kicks in.
+  static let maxAttempts = 100
+
+  /// Minimum seconds between attempts once throttled.
+  static let throttleDuration: TimeInterval = 30
+
+  private(set) var failedAttempts = 0
+  private var lastFailureDate: Date?
+
+  /// Returns true if the next attempt should be rejected due to rate limiting.
+  func isThrottled(now: Date = Date()) -> Bool {
+    guard failedAttempts >= Self.maxAttempts, let lastFailure = lastFailureDate else {
+      return false
+    }
+    return now.timeIntervalSince(lastFailure) < Self.throttleDuration
+  }
+
+  /// Record a failed authentication attempt.
+  func recordFailure(now: Date = Date()) {
+    failedAttempts += 1
+    lastFailureDate = now
+  }
+
+  /// Reset the counter after a successful pairing.
+  func reset() {
+    failedAttempts = 0
+    lastFailureDate = nil
+  }
+}
+
 enum PairSetupHandler {
 
   private static let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "PairSetup")
+
+  /// Rate limiter for pair-setup attempts (shared across all connections).
+  static let throttle = PairSetupThrottle()
 
   /// Codes excluded by HAP spec Table 5-8.
   static let invalidSetupCodes: Set<String> = {
@@ -121,6 +159,12 @@ enum PairSetupHandler {
   private static func handleM1(tlv: [TLV8.Tag: Data], connection: HAPConnection, server: HAPServer)
     -> HTTPResponse
   {
+    // Reject if rate-limited (HAP spec §5.6.1)
+    if throttle.isThrottled() {
+      logger.warning("Pair-setup throttled after \(throttle.failedAttempts) failed attempts")
+      return errorResponse(state: 0x02, error: .maxTries)
+    }
+
     // Reject if already paired
     if server.pairingStore.isPaired {
       logger.warning("Already paired, rejecting pair-setup")
@@ -177,6 +221,7 @@ enum PairSetupHandler {
 
     guard let serverProof = srpSession.verifyClientProof(clientProof) else {
       logger.error("Client proof verification failed (wrong setup code?)")
+      throttle.recordFailure()
       return errorResponse(state: 0x04, error: .authentication)
     }
 
@@ -265,6 +310,7 @@ enum PairSetupHandler {
         ))
 
       logger.info("Pairing stored for controller: \(iosID)")
+      throttle.reset()
 
       // Now build the accessory's response (M6)
       // Derive AccessoryX
