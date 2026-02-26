@@ -175,6 +175,22 @@ final class PairingStore {
     onChange?()
   }
 
+  /// Atomically adds the first admin pairing only if no pairings exist yet.
+  /// Returns true if the pairing was added, false if the store was already paired.
+  @discardableResult
+  func addPairingIfUnpaired(_ pairing: Pairing) -> Bool {
+    let added = lock.withLock { state -> Bool in
+      guard state.isEmpty else { return false }
+      state[pairing.identifier] = pairing
+      return true
+    }
+    if added {
+      save()
+      onChange?()
+    }
+    return added
+  }
+
   func removePairing(identifier: String) {
     lock.withLock { _ = $0.removeValue(forKey: identifier) }
     save()

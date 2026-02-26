@@ -1188,6 +1188,40 @@ struct PairingStoreTests {
       _ = try Curve25519.Signing.PublicKey(rawRepresentation: validKey)
     }
   }
+
+  @Test("addPairingIfUnpaired succeeds when store is empty")
+  func addIfUnpairedSucceeds() {
+    let store = PairingStore(testPairings: [:])
+    let pairing = PairingStore.Pairing(
+      identifier: "first",
+      publicKey: Data(repeating: 0xAA, count: 32),
+      isAdmin: true
+    )
+    #expect(store.addPairingIfUnpaired(pairing) == true)
+    #expect(store.isPaired == true)
+    #expect(store.getPairing(identifier: "first") != nil)
+  }
+
+  @Test("addPairingIfUnpaired fails when store already has a pairing")
+  func addIfUnpairedRejectsSecond() {
+    let store = PairingStore(testPairings: [:])
+    let first = PairingStore.Pairing(
+      identifier: "first",
+      publicKey: Data(repeating: 0xAA, count: 32),
+      isAdmin: true
+    )
+    store.addPairing(first)
+
+    let second = PairingStore.Pairing(
+      identifier: "second",
+      publicKey: Data(repeating: 0xBB, count: 32),
+      isAdmin: true
+    )
+    #expect(store.addPairingIfUnpaired(second) == false)
+    #expect(store.getPairing(identifier: "second") == nil)
+    // First pairing is untouched
+    #expect(store.getPairing(identifier: "first")?.publicKey == Data(repeating: 0xAA, count: 32))
+  }
 }
 
 // MARK: - Setup Hash Tests

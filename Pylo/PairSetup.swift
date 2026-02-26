@@ -366,13 +366,20 @@ enum PairSetupHandler {
         (.encryptedData, responseEncrypted),
       ])
 
-      // M6 crypto succeeded — now it's safe to persist the pairing
-      server.pairingStore.addPairing(
-        PairingStore.Pairing(
-          identifier: iosID,
-          publicKey: iosLTPK,
-          isAdmin: true  // First pairing is always admin
-        ))
+      // M6 crypto succeeded — now it's safe to persist the pairing.
+      // Use addPairingIfUnpaired to atomically check that no other connection
+      // completed pair-setup between our M1 check and now (TOCTOU).
+      guard
+        server.pairingStore.addPairingIfUnpaired(
+          PairingStore.Pairing(
+            identifier: iosID,
+            publicKey: iosLTPK,
+            isAdmin: true  // First pairing is always admin
+          ))
+      else {
+        logger.warning("Pair-Setup M5 rejected — already paired (concurrent pair-setup race)")
+        return errorResponse(state: 0x06, error: .unavailable)
+      }
 
       logger.info("Pairing stored for controller: \(iosID)")
       throttle.reset()
