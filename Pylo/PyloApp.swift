@@ -340,12 +340,59 @@ private func generateQRCode(from string: String) -> UIImage? {
   return UIImage(cgImage: cgImage)
 }
 
-// MARK: - Content View
+// MARK: - Burn-in Prevention
+
+/// Seconds of inactivity before the screen dims to black.
+private let screenDimDelay: TimeInterval = 120
 
 struct ContentView: View {
   @ObservedObject var viewModel: HAPViewModel
+  @State private var isScreenDimmed = false
+  @State private var savedBrightness: CGFloat = 0.5
+  @State private var dimTask: Task<Void, Never>?
+
+  private func resetDimTimer() {
+    dimTask?.cancel()
+    if isScreenDimmed {
+      UIScreen.main.brightness = savedBrightness
+      isScreenDimmed = false
+    }
+    guard viewModel.isRunning else { return }
+    dimTask = Task {
+      try? await Task.sleep(for: .seconds(screenDimDelay))
+      guard !Task.isCancelled else { return }
+      savedBrightness = UIScreen.main.brightness
+      UIScreen.main.brightness = 0
+      isScreenDimmed = true
+    }
+  }
 
   var body: some View {
+    ZStack {
+      mainContent
+        .allowsHitTesting(!isScreenDimmed)
+
+      if isScreenDimmed {
+        Color.black
+          .ignoresSafeArea()
+          .onTapGesture { resetDimTimer() }
+      }
+    }
+    .onChange(of: viewModel.isRunning) {
+      if viewModel.isRunning {
+        resetDimTimer()
+      } else {
+        dimTask?.cancel()
+        dimTask = nil
+        if isScreenDimmed {
+          UIScreen.main.brightness = savedBrightness
+          isScreenDimmed = false
+        }
+      }
+    }
+  }
+
+  private var mainContent: some View {
     VStack(spacing: 0) {
       ScrollView {
         VStack(spacing: 24) {
@@ -570,5 +617,6 @@ struct ContentView: View {
       }
       .padding()
     }
+    .onTapGesture { resetDimTimer() }
   }
 }
