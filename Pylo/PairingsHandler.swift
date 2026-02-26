@@ -61,7 +61,7 @@ enum PairingsHandler {
 
   private static func handleAdd(tlv: [TLV8.Tag: Data], server: HAPServer) -> HTTPResponse {
     guard let identifier = tlv[.identifier],
-      let publicKey = tlv[.publicKey],
+      let publicKey = tlv[.publicKey], publicKey.count == 32,
       let permissions = tlv[.permissions]
     else {
       return errorResponse(error: .unknown)

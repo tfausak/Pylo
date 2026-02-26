@@ -1169,6 +1169,25 @@ struct PairingStoreTests {
     #expect(decoded.publicKey == original.publicKey)
     #expect(decoded.isAdmin == original.isAdmin)
   }
+
+  @Test("Non-32-byte public key is rejected by CryptoKit")
+  func invalidPublicKeyRejectedByCryptoKit() {
+    // Validates why PairingsHandler.handleAdd must check publicKey.count == 32:
+    // a stored key with the wrong length permanently breaks pair-verify for that identifier.
+    let shortKey = Data(repeating: 0xAA, count: 16)
+    #expect(throws: CryptoKitError.self) {
+      _ = try Curve25519.Signing.PublicKey(rawRepresentation: shortKey)
+    }
+    let longKey = Data(repeating: 0xBB, count: 64)
+    #expect(throws: CryptoKitError.self) {
+      _ = try Curve25519.Signing.PublicKey(rawRepresentation: longKey)
+    }
+    // 32 bytes is accepted
+    let validKey = Data(repeating: 0xCC, count: 32)
+    #expect(throws: Never.self) {
+      _ = try Curve25519.Signing.PublicKey(rawRepresentation: validKey)
+    }
+  }
 }
 
 // MARK: - Setup Hash Tests
