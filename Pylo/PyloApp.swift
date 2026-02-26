@@ -30,6 +30,9 @@ struct PyloApp: App {
 
   init() {
     #if os(iOS)
+      // Intentionally never balanced with endGeneratingDeviceOrientationNotifications()
+      // because the App struct lives for the entire process lifetime and orientation
+      // data is needed continuously for camera stream rotation.
       UIDevice.current.beginGeneratingDeviceOrientationNotifications()
     #endif
   }
