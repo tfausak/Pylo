@@ -2195,7 +2195,7 @@ struct SetupURITests {
     let category = (payload >> 27) & 0xF  // bits 27-30 (4 bits)
     let flags = (payload >> 31) & 0xF  // bits 31-34 (4 bits)
 
-    #expect(code == 11122333)
+    #expect(code == 11_122_333)
     #expect(category == 2)
     #expect(flags == 2)
   }
@@ -2241,7 +2241,8 @@ struct SRTPThreadSafetyTests {
     let ctx = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
 
     // Protect a sequence of packets so ctx has valid outgoing state
-    let rtp1 = Self.makeRTPPacket(seq: 1, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0x11, count: 20))
+    let rtp1 = Self.makeRTPPacket(
+      seq: 1, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0x11, count: 20))
     let srtp1 = ctx.protect(rtp1)
 
     // Create a second context with the same keys to act as receiver
@@ -2260,7 +2261,10 @@ struct SRTPThreadSafetyTests {
     forged[2] = 0x00  // seq = 1 (low, would trigger ROC increment)
     forged[3] = 0x01
     // SSRC
-    forged[8] = 0xDE; forged[9] = 0xAD; forged[10] = 0xBE; forged[11] = 0xEF
+    forged[8] = 0xDE
+    forged[9] = 0xAD
+    forged[10] = 0xBE
+    forged[11] = 0xEF
     // Garbage payload and auth tag
     for i in 12..<forged.count { forged[i] = UInt8(i & 0xFF) }
 
@@ -2270,7 +2274,8 @@ struct SRTPThreadSafetyTests {
 
     // Now send a legitimate packet with seq=2 — this must still decrypt
     // successfully, proving the forged packet did NOT desync the ROC
-    let rtp2 = Self.makeRTPPacket(seq: 2, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0x22, count: 20))
+    let rtp2 = Self.makeRTPPacket(
+      seq: 2, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0x22, count: 20))
     let srtp2 = ctx.protect(rtp2)
     let result2 = receiver.unprotect(srtp2)
     #expect(result2 != nil)
