@@ -24,8 +24,8 @@
 
 ## App Store Review Risks
 
-- [ ] **Unauthorized HAP implementation** — App advertises `_hap._tcp` and implements HomeKit Accessory Protocol. Apple's MFi Program requires licensing for HAP accessories. Risk of rejection under Guidelines 5.2.1 (proprietary protocols) and 2.5.1 (public APIs).
-  - I'm aware of this. Worst case, this is only available via sideloading. However if there's anything that can be done to improve the *chances* of App Store approval, that would be great.
+- [x] **Unauthorized HAP implementation** — App advertises `_hap._tcp` and implements HomeKit Accessory Protocol. Apple's MFi Program requires licensing for HAP accessories. Risk of rejection under Guidelines 5.2.1 (proprietary protocols) and 2.5.1 (public APIs).
+  - Acknowledged in `HAPServer.swift`. Sideloading is the fallback. No code change can fix a licensing issue.
 - [ ] **No background mode declarations** — No `UIBackgroundModes`. Server, camera, and streaming all stop when backgrounded. Limits utility for an always-available HomeKit accessory.
   - I think this is unavoidable. The app currently prevents sleep when it's active, which is about as good as we can do.
 - [x] **No privacy manifest (`PrivacyInfo.xcprivacy`)** — iOS 17+ requires privacy manifests for apps using `UserDefaults`, file system APIs, `identifierForVendor`. App Store Connect will warn/reject without one.

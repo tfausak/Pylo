@@ -5,6 +5,12 @@ import os
 // MARK: - HAP Server
 // Listens on TCP, advertises via Bonjour as _hap._tcp, and dispatches
 // incoming HTTP requests to the appropriate handler.
+//
+// NOTE: This is an unauthorized implementation of the HomeKit Accessory
+// Protocol (HAP). Apple's MFi Program requires licensing for HAP accessories.
+// This app may be rejected from the App Store under Guidelines 5.2.1
+// (proprietary protocols) and 2.5.1 (public APIs). Sideloading is the
+// fallback distribution method.
 
 final class HAPServer {
 
