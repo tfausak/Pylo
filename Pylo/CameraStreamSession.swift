@@ -125,10 +125,13 @@ final class CameraStreamSession {
   }
 
   deinit {
-    // Safety net: ensure resources are cleaned up if the session is deallocated
-    // without an explicit stopStreaming() call.
+    // Log a warning if resources are still live — stopStreaming() should
+    // always be called explicitly before the session is released.
+    // We cannot call stopStreaming() from deinit because it uses
+    // rtpQueue.sync, which deadlocks if deinit runs on rtpQueue itself
+    // (e.g., when the last strong ref drops inside a weak-self callback).
     if captureSession != nil || videoSocketFD >= 0 || audioSocketFD >= 0 {
-      stopStreaming()
+      logger.error("CameraStreamSession deallocated without stopStreaming() — resource leak")
     }
   }
 
