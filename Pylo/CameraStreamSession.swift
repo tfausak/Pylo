@@ -67,7 +67,26 @@ final class CameraStreamSession {
   private var audioPacketsSent: Int = 0
   private var audioOctetsSent: Int = 0
   private var audioRTCPTimer: DispatchSourceTimer?
-  var isMuted: Bool = false
+  // Audio flags — written from the server queue, read from captureQueue/rtpQueue.
+  private struct AudioFlags {
+    var isMuted: Bool = false
+    var speakerMuted: Bool = false
+    var speakerVolume: Int = 100
+  }
+  private let audioFlags = OSAllocatedUnfairLock(initialState: AudioFlags())
+
+  var isMuted: Bool {
+    get { audioFlags.withLock { $0.isMuted } }
+    set { audioFlags.withLock { $0.isMuted = newValue } }
+  }
+  var speakerMuted: Bool {
+    get { audioFlags.withLock { $0.speakerMuted } }
+    set { audioFlags.withLock { $0.speakerMuted = newValue } }
+  }
+  var speakerVolume: Int {
+    get { audioFlags.withLock { $0.speakerVolume } }
+    set { audioFlags.withLock { $0.speakerVolume = newValue } }
+  }
 
   // Audio UDP — single BSD socket for both send and receive.
   // Using a raw BSD socket avoids two NWConnection/NWListener issues:
@@ -84,8 +103,6 @@ final class CameraStreamSession {
   private var audioPlayerNode: AVAudioPlayerNode?
   private var audioPlayerStarted: Bool = false
   private var incomingSRTPContext: SRTPContext?
-  var speakerMuted: Bool = false
-  var speakerVolume: Int = 100
 
   // Delegate retention — stored as properties instead of ObjC associated objects
   private var videoCaptureDelegate: VideoCaptureDelegate?
