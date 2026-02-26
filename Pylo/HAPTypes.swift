@@ -9,8 +9,10 @@ enum KeychainHelper {
   private static let service = "me.fausak.taylor.Pylo"
   private static let signingKeyAccount = "device-signing-key"
   private static let deviceIDAccount = "device-id"
+  private static let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "Keychain")
 
-  static func save(key: String, data: Data) {
+  @discardableResult
+  static func save(key: String, data: Data) -> Bool {
     let query: [String: Any] = [
       kSecClass as String: kSecClassGenericPassword,
       kSecAttrService as String: service,
@@ -19,7 +21,12 @@ enum KeychainHelper {
       kSecValueData as String: data,
     ]
     SecItemDelete(query as CFDictionary)
-    SecItemAdd(query as CFDictionary, nil)
+    let status = SecItemAdd(query as CFDictionary, nil)
+    if status != errSecSuccess {
+      logger.error("Keychain save failed for '\(key)': OSStatus \(status)")
+      return false
+    }
+    return true
   }
 
   static func load(key: String) -> Data? {
@@ -188,7 +195,7 @@ final class PairingStore {
     let snapshot = lock.withLock { $0 }
     do {
       let data = try JSONEncoder().encode(snapshot)
-      try data.write(to: Self.storageURL, options: .atomic)
+      try data.write(to: Self.storageURL, options: [.atomic, .completeFileProtection])
     } catch {
       Self.logger.error("Failed to save pairings: \(error)")
     }
@@ -283,13 +290,17 @@ final class EncryptionContext {
   }
 
   /// HAP nonces are 12 bytes: 4 zero bytes + 8-byte little-endian counter.
+  /// The 12-byte construction is always valid; this cannot fail in practice.
   private nonisolated static func makeNonce(counter: UInt64) -> ChaChaPoly.Nonce {
     var nonceData = Data(repeating: 0, count: 4)  // 4 zero bytes
     var le = counter.littleEndian
     nonceData.append(Data(bytes: &le, count: 8))
-    precondition(nonceData.count == 12, "HAP nonce must be exactly 12 bytes")
-    // Safe: precondition guarantees the 12-byte invariant ChaChaPoly.Nonce requires.
-    return try! ChaChaPoly.Nonce(data: nonceData)
+    // The construction is statically 12 bytes; if ChaChaPoly ever rejects it,
+    // crash with a clear message rather than silently corrupting data.
+    guard let nonce = try? ChaChaPoly.Nonce(data: nonceData) else {
+      preconditionFailure("HAP nonce construction failed — 12-byte invariant violated")
+    }
+    return nonce
   }
 }
 
