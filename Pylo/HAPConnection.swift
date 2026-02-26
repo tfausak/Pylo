@@ -403,17 +403,8 @@ final class HAPConnection {
 // MARK: - Characteristic ID (for event subscriptions)
 
 struct CharacteristicID: Hashable, Sendable {
-  nonisolated let aid: Int
-  nonisolated let iid: Int
-
-  nonisolated static func == (lhs: CharacteristicID, rhs: CharacteristicID) -> Bool {
-    lhs.aid == rhs.aid && lhs.iid == rhs.iid
-  }
-
-  nonisolated func hash(into hasher: inout Hasher) {
-    hasher.combine(aid)
-    hasher.combine(iid)
-  }
+  let aid: Int
+  let iid: Int
 }
 
 // MARK: - Minimal HTTP Request/Response
