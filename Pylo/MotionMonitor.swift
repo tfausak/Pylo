@@ -27,6 +27,13 @@ final class MotionMonitor {
 
   private let state = OSAllocatedUnfairLock(initialState: State())
 
+  private let motionQueue: OperationQueue = {
+    let q = OperationQueue()
+    q.name = "me.fausak.taylor.Pylo.motion"
+    q.maxConcurrentOperationCount = 1
+    return q
+  }()
+
   func start() {
     guard motionManager.isAccelerometerAvailable else {
       logger.warning("Accelerometer not available")
@@ -36,11 +43,7 @@ final class MotionMonitor {
 
     motionManager.accelerometerUpdateInterval = 0.1  // 10 Hz
 
-    let queue = OperationQueue()
-    queue.name = "me.fausak.taylor.Pylo.motion"
-    queue.maxConcurrentOperationCount = 1
-
-    motionManager.startAccelerometerUpdates(to: queue) { [weak self] data, error in
+    motionManager.startAccelerometerUpdates(to: motionQueue) { [weak self] data, error in
       guard let self, let data else {
         if let error { self?.logger.error("Accelerometer error: \(error)") }
         return
