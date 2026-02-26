@@ -83,6 +83,13 @@ final class HAPViewModel {
       cameraAccessory?.minimumBitrate = videoQuality.minimumBitrate
     }
   }
+  var keepScreenAwake: Bool = false {
+    didSet {
+      guard keepScreenAwake != oldValue else { return }
+      UserDefaults.standard.set(keepScreenAwake, forKey: "keepScreenAwake")
+      UIApplication.shared.isIdleTimerDisabled = keepScreenAwake && isRunning
+    }
+  }
 
   @ObservationIgnored private var server: HAPServer?
   @ObservationIgnored private var lightMonitor: AmbientLightMonitor?
@@ -276,8 +283,9 @@ final class HAPViewModel {
         // Start motion monitoring
         motion.start()
 
-        // Prevent screen from sleeping
-        UIApplication.shared.isIdleTimerDisabled = true
+        // Restore keep-screen-awake preference
+        self.keepScreenAwake = UserDefaults.standard.bool(forKey: "keepScreenAwake")
+        UIApplication.shared.isIdleTimerDisabled = self.keepScreenAwake
       } catch {
         self.isStarting = false
         self.statusMessage = "Failed to start: \(error.localizedDescription)"
@@ -417,6 +425,13 @@ struct ContentView: View {
                 .foregroundColor(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+          }
+
+          // Settings
+          if viewModel.isRunning {
+            GroupBox("Settings") {
+              Toggle("Keep Screen Awake", isOn: $viewModel.keepScreenAwake)
+            }
           }
 
           // Setup Code + QR
