@@ -150,12 +150,12 @@ final class HAPConnection {
         return
       }
 
-      guard let data, data.count == 2 else {
+      if isComplete {
         self.cancel()
         return
       }
 
-      if isComplete {
+      guard let data, data.count == 2 else {
         self.cancel()
         return
       }
@@ -170,6 +170,11 @@ final class HAPConnection {
 
         if let error {
           self.logger.error("Encrypted receive error (payload): \(error)")
+          self.cancel()
+          return
+        }
+
+        if isComplete {
           self.cancel()
           return
         }
@@ -190,7 +195,7 @@ final class HAPConnection {
           return
         }
 
-        // Accumulate decrypted data and try to parse a complete HTTP request
+        // Accumulate decrypted data and try to parse complete HTTP requests
         self.decryptedBuffer.append(decrypted)
 
         if self.decryptedBuffer.count > HAPConnection.maxBufferSize {
@@ -201,17 +206,14 @@ final class HAPConnection {
           return
         }
 
-        if let request = HTTPRequest.parse(self.decryptedBuffer) {
-          self.decryptedBuffer.removeAll()
+        while let request = HTTPRequest.parseAndConsume(&self.decryptedBuffer) {
           self.logger.info("\(request.method) \(request.path)")
           if let response = self.routeRequest(request) {
             self.sendResponse(response)
           }
         }
 
-        if !isComplete {
-          self.receiveNextRequest()
-        }
+        self.receiveNextRequest()
       }
     }
   }
