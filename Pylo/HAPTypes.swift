@@ -74,11 +74,6 @@ final class DeviceIdentity {
   /// Device ID in AA:BB:CC:DD:EE:FF format (derived from key or randomly generated once).
   let deviceID: String
 
-  /// Accessory's pairing identifier (matches the device ID but without colons for HAP).
-  var pairingIdentifier: String {
-    deviceID
-  }
-
   init() {
     // Try loading from Keychain first
     if let keyData = KeychainHelper.loadSigningKey(),

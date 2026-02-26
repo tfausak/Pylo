@@ -72,7 +72,7 @@ enum PairVerifyHandler {
       )
 
       // Build the info to sign: accessory ephemeral public key + accessory ID + controller ephemeral public key
-      let accessoryID = Data(server.deviceIdentity.pairingIdentifier.utf8)
+      let accessoryID = Data(server.deviceIdentity.deviceID.utf8)
       var accessoryInfo = Data()
       accessoryInfo.append(accessoryPublicKey.rawRepresentation)
       accessoryInfo.append(accessoryID)

@@ -334,7 +334,7 @@ enum PairSetupHandler {
         outputByteCount: 32
       )
 
-      let accessoryID = Data(server.deviceIdentity.pairingIdentifier.utf8)
+      let accessoryID = Data(server.deviceIdentity.deviceID.utf8)
       let accessoryLTPK = Data(server.deviceIdentity.publicKey.rawRepresentation)
 
       // Sign: AccessoryX + AccessoryPairingID + AccessoryLTPK
