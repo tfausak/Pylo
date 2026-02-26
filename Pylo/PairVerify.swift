@@ -15,7 +15,7 @@ enum PairVerifyHandler {
     -> HTTPResponse
   {
     guard let body = request.body else {
-      return errorResponse(.unknown)
+      return errorResponse(state: 0x02, .unknown)
     }
 
     let tlv: [TLV8.Tag: Data] = TLV8.decode(body)
@@ -23,7 +23,7 @@ enum PairVerifyHandler {
     guard let stateData = tlv[.state],
       let state = stateData.first
     else {
-      return errorResponse(.unknown)
+      return errorResponse(state: 0x02, .unknown)
     }
 
     switch state {
@@ -33,7 +33,7 @@ enum PairVerifyHandler {
       return handleM3(tlv: tlv, connection: connection, server: server)
     default:
       logger.error("Unknown pair-verify state: \(state)")
-      return errorResponse(.unknown)
+      return errorResponse(state: 0x02, .unknown)
     }
   }
 
@@ -48,7 +48,7 @@ enum PairVerifyHandler {
     guard let controllerPublicKeyData = tlv[.publicKey],
       controllerPublicKeyData.count == 32
     else {
-      return errorResponse(.unknown)
+      return errorResponse(state: 0x02, .unknown)
     }
 
     do {
@@ -113,7 +113,7 @@ enum PairVerifyHandler {
 
     } catch {
       logger.error("Pair-Verify M1 error: \(error)")
-      return errorResponse(.unknown)
+      return errorResponse(state: 0x02, .unknown)
     }
   }
 
@@ -132,7 +132,7 @@ enum PairVerifyHandler {
       let controllerPublicKey = session.controllerEphemeralPublicKey,
       let accessoryPrivateKey = session.accessoryEphemeralPrivateKey
     else {
-      return errorResponse(.authentication)
+      return errorResponse(state: 0x04, .authentication)
     }
 
     do {
@@ -140,7 +140,7 @@ enum PairVerifyHandler {
 
       // Decrypt the sub-TLV
       guard encryptedData.count > 16 else {
-        return errorResponse(.authentication)
+        return errorResponse(state: 0x04, .authentication)
       }
       let ciphertext = encryptedData[encryptedData.startIndex..<encryptedData.endIndex - 16]
       let tag = encryptedData[encryptedData.endIndex - 16..<encryptedData.endIndex]
@@ -153,7 +153,7 @@ enum PairVerifyHandler {
       guard let controllerIdentifier = subTLV[.identifier],
         let controllerSignature = subTLV[.signature]
       else {
-        return errorResponse(.authentication)
+        return errorResponse(state: 0x04, .authentication)
       }
 
       let controllerID = String(data: controllerIdentifier, encoding: .utf8) ?? ""
@@ -161,7 +161,7 @@ enum PairVerifyHandler {
       // Look up the controller's long-term public key from our pairing store
       guard let pairing = server.pairingStore.getPairing(identifier: controllerID) else {
         logger.error("Unknown controller: \(controllerID)")
-        return errorResponse(.authentication)
+        return errorResponse(state: 0x04, .authentication)
       }
 
       // Verify the signature
@@ -173,7 +173,7 @@ enum PairVerifyHandler {
 
       guard controllerLTPK.isValidSignature(Data(controllerSignature), for: controllerInfo) else {
         logger.error("Controller signature verification failed")
-        return errorResponse(.authentication)
+        return errorResponse(state: 0x04, .authentication)
       }
 
       // SUCCESS — derive the transport encryption keys
@@ -211,15 +211,15 @@ enum PairVerifyHandler {
 
     } catch {
       logger.error("Pair-Verify M3 error: \(error)")
-      return errorResponse(.authentication)
+      return errorResponse(state: 0x04, .authentication)
     }
   }
 
   // MARK: - Helpers
 
-  private static func errorResponse(_ error: TLV8.ErrorCode) -> HTTPResponse {
+  private static func errorResponse(state: UInt8, _ error: TLV8.ErrorCode) -> HTTPResponse {
     let tlv = TLV8.encode([
-      (.state, Data([0x04])),  // Error always sent as the "next" state
+      (.state, Data([state])),
       (.error, Data([error.rawValue])),
     ])
     return HTTPResponse(status: 200, body: tlv, contentType: "application/pairing+tlv8")
