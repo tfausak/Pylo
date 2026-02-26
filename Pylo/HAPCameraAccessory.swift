@@ -674,37 +674,7 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
     [
       "aid": aid,
       "services": [
-        // Accessory Information Service
-        [
-          "iid": 1,
-          "type": HAPAccessory.uuidAccessoryInformation,
-          "characteristics": [
-            [
-              "iid": 2, "type": HAPAccessory.uuidIdentify, "format": "bool",
-              "perms": ["pw"],
-            ],
-            [
-              "iid": 3, "type": HAPAccessory.uuidManufacturer, "format": "string",
-              "perms": ["pr"], "value": manufacturer,
-            ],
-            [
-              "iid": 4, "type": HAPAccessory.uuidModel, "format": "string",
-              "perms": ["pr"], "value": model,
-            ],
-            [
-              "iid": 5, "type": HAPAccessory.uuidName, "format": "string",
-              "perms": ["pr"], "value": name,
-            ],
-            [
-              "iid": 6, "type": HAPAccessory.uuidSerialNumber, "format": "string",
-              "perms": ["pr"], "value": serialNumber,
-            ],
-            [
-              "iid": 7, "type": HAPAccessory.uuidFirmwareRevision, "format": "string",
-              "perms": ["pr"], "value": firmwareRevision,
-            ],
-          ],
-        ],
+        accessoryInformationServiceJSON(),
         // Camera RTP Stream Management Service
         [
           "iid": 8,

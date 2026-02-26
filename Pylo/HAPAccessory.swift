@@ -28,11 +28,53 @@ enum HAPAccessoryCategory: Int {
 /// Common interface for all accessories served by the HAP server.
 protocol HAPAccessoryProtocol: AnyObject {
   var aid: Int { get }
+  var name: String { get }
+  var model: String { get }
+  var manufacturer: String { get }
+  var serialNumber: String { get }
+  var firmwareRevision: String { get }
   var onStateChange: ((_ aid: Int, _ iid: Int, _ value: Any) -> Void)? { get set }
   func readCharacteristic(iid: Int) -> Any?
   @discardableResult func writeCharacteristic(iid: Int, value: Any) -> Bool
   func identify()
   func toJSON() -> [String: Any]
+}
+
+extension HAPAccessoryProtocol {
+  /// Builds the Accessory Information service JSON (iid 1, characteristics 2-7).
+  /// Shared by all accessories to avoid duplicating this boilerplate.
+  func accessoryInformationServiceJSON() -> [String: Any] {
+    [
+      "iid": 1,
+      "type": HAPAccessory.uuidAccessoryInformation,
+      "characteristics": [
+        [
+          "iid": 2, "type": HAPAccessory.uuidIdentify, "format": "bool",
+          "perms": ["pw"],
+        ],
+        [
+          "iid": 3, "type": HAPAccessory.uuidManufacturer, "format": "string",
+          "perms": ["pr"], "value": manufacturer,
+        ],
+        [
+          "iid": 4, "type": HAPAccessory.uuidModel, "format": "string",
+          "perms": ["pr"], "value": model,
+        ],
+        [
+          "iid": 5, "type": HAPAccessory.uuidName, "format": "string",
+          "perms": ["pr"], "value": name,
+        ],
+        [
+          "iid": 6, "type": HAPAccessory.uuidSerialNumber, "format": "string",
+          "perms": ["pr"], "value": serialNumber,
+        ],
+        [
+          "iid": 7, "type": HAPAccessory.uuidFirmwareRevision, "format": "string",
+          "perms": ["pr"], "value": firmwareRevision,
+        ],
+      ],
+    ]
+  }
 }
 
 // MARK: - HAP Accessory
@@ -215,31 +257,7 @@ final class HAPAccessory: HAPAccessoryProtocol {
     [
       "aid": aid,
       "services": [
-        // Accessory Information Service
-        [
-          "iid": 1,
-          "type": Self.uuidAccessoryInformation,
-          "characteristics": [
-            characteristicJSON(
-              iid: 2, type: Self.uuidIdentify, format: "bool",
-              perms: ["pw"], value: nil),
-            characteristicJSON(
-              iid: 3, type: Self.uuidManufacturer, format: "string",
-              perms: ["pr"], value: manufacturer),
-            characteristicJSON(
-              iid: 4, type: Self.uuidModel, format: "string",
-              perms: ["pr"], value: model),
-            characteristicJSON(
-              iid: 5, type: Self.uuidName, format: "string",
-              perms: ["pr"], value: name),
-            characteristicJSON(
-              iid: 6, type: Self.uuidSerialNumber, format: "string",
-              perms: ["pr"], value: serialNumber),
-            characteristicJSON(
-              iid: 7, type: Self.uuidFirmwareRevision, format: "string",
-              perms: ["pr"], value: firmwareRevision),
-          ],
-        ],
+        accessoryInformationServiceJSON(),
         // Lightbulb Service
         [
           "iid": 8,
@@ -338,36 +356,7 @@ final class HAPBridgeInfo: HAPAccessoryProtocol {
     [
       "aid": aid,
       "services": [
-        [
-          "iid": 1,
-          "type": HAPAccessory.uuidAccessoryInformation,
-          "characteristics": [
-            [
-              "iid": 2, "type": HAPAccessory.uuidIdentify, "format": "bool",
-              "perms": ["pw"],
-            ],
-            [
-              "iid": 3, "type": HAPAccessory.uuidManufacturer, "format": "string",
-              "perms": ["pr"], "value": manufacturer,
-            ],
-            [
-              "iid": 4, "type": HAPAccessory.uuidModel, "format": "string",
-              "perms": ["pr"], "value": model,
-            ],
-            [
-              "iid": 5, "type": HAPAccessory.uuidName, "format": "string",
-              "perms": ["pr"], "value": name,
-            ],
-            [
-              "iid": 6, "type": HAPAccessory.uuidSerialNumber, "format": "string",
-              "perms": ["pr"], "value": serialNumber,
-            ],
-            [
-              "iid": 7, "type": HAPAccessory.uuidFirmwareRevision, "format": "string",
-              "perms": ["pr"], "value": firmwareRevision,
-            ],
-          ],
-        ]
+        accessoryInformationServiceJSON()
       ],
     ]
   }
@@ -440,36 +429,7 @@ final class HAPLightSensorAccessory: HAPAccessoryProtocol {
     [
       "aid": aid,
       "services": [
-        [
-          "iid": 1,
-          "type": HAPAccessory.uuidAccessoryInformation,
-          "characteristics": [
-            [
-              "iid": 2, "type": HAPAccessory.uuidIdentify, "format": "bool",
-              "perms": ["pw"],
-            ],
-            [
-              "iid": 3, "type": HAPAccessory.uuidManufacturer, "format": "string",
-              "perms": ["pr"], "value": manufacturer,
-            ],
-            [
-              "iid": 4, "type": HAPAccessory.uuidModel, "format": "string",
-              "perms": ["pr"], "value": model,
-            ],
-            [
-              "iid": 5, "type": HAPAccessory.uuidName, "format": "string",
-              "perms": ["pr"], "value": name,
-            ],
-            [
-              "iid": 6, "type": HAPAccessory.uuidSerialNumber, "format": "string",
-              "perms": ["pr"], "value": serialNumber,
-            ],
-            [
-              "iid": 7, "type": HAPAccessory.uuidFirmwareRevision, "format": "string",
-              "perms": ["pr"], "value": firmwareRevision,
-            ],
-          ],
-        ],
+        accessoryInformationServiceJSON(),
         [
           "iid": 8,
           "type": Self.uuidLightSensor,
@@ -553,36 +513,7 @@ final class HAPMotionSensorAccessory: HAPAccessoryProtocol {
     [
       "aid": aid,
       "services": [
-        [
-          "iid": 1,
-          "type": HAPAccessory.uuidAccessoryInformation,
-          "characteristics": [
-            [
-              "iid": 2, "type": HAPAccessory.uuidIdentify, "format": "bool",
-              "perms": ["pw"],
-            ],
-            [
-              "iid": 3, "type": HAPAccessory.uuidManufacturer, "format": "string",
-              "perms": ["pr"], "value": manufacturer,
-            ],
-            [
-              "iid": 4, "type": HAPAccessory.uuidModel, "format": "string",
-              "perms": ["pr"], "value": model,
-            ],
-            [
-              "iid": 5, "type": HAPAccessory.uuidName, "format": "string",
-              "perms": ["pr"], "value": name,
-            ],
-            [
-              "iid": 6, "type": HAPAccessory.uuidSerialNumber, "format": "string",
-              "perms": ["pr"], "value": serialNumber,
-            ],
-            [
-              "iid": 7, "type": HAPAccessory.uuidFirmwareRevision, "format": "string",
-              "perms": ["pr"], "value": firmwareRevision,
-            ],
-          ],
-        ],
+        accessoryInformationServiceJSON(),
         [
           "iid": 8,
           "type": Self.uuidMotionSensor,

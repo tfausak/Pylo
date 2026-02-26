@@ -514,6 +514,45 @@ struct HAPAccessoryTests {
   }
 }
 
+// MARK: - Accessory Information Service Tests
+
+@Suite("Accessory Information Service JSON")
+struct AccessoryInfoServiceTests {
+
+  @Test("All accessory types produce identical info service structure")
+  func identicalStructure() {
+    let light = HAPAccessory(
+      aid: 2, name: "L", model: "M", manufacturer: "MF",
+      serialNumber: "SN", firmwareRevision: "1.0")
+    let bridge = HAPBridgeInfo(
+      name: "L", model: "M", manufacturer: "MF",
+      serialNumber: "SN", firmwareRevision: "1.0")
+    let sensor = HAPLightSensorAccessory(
+      aid: 4, name: "L", model: "M", manufacturer: "MF",
+      serialNumber: "SN", firmwareRevision: "1.0")
+    let motion = HAPMotionSensorAccessory(
+      aid: 5, name: "L", model: "M", manufacturer: "MF",
+      serialNumber: "SN", firmwareRevision: "1.0")
+
+    let accessories: [any HAPAccessoryProtocol] = [light, bridge, sensor, motion]
+    let jsons = accessories.map { $0.accessoryInformationServiceJSON() }
+
+    // All should have same structure
+    for json in jsons {
+      #expect(json["iid"] as? Int == 1)
+      #expect(json["type"] as? String == "3E")
+      let chars = json["characteristics"] as! [[String: Any]]
+      #expect(chars.count == 6)
+      #expect(chars[0]["iid"] as? Int == 2)
+      #expect(chars[1]["value"] as? String == "MF")
+      #expect(chars[2]["value"] as? String == "M")
+      #expect(chars[3]["value"] as? String == "L")
+      #expect(chars[4]["value"] as? String == "SN")
+      #expect(chars[5]["value"] as? String == "1.0")
+    }
+  }
+}
+
 // MARK: - HAP Bridge Info Tests
 
 @Suite("HAP Bridge Info")
