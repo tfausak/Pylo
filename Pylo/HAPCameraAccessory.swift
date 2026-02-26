@@ -665,7 +665,7 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
     defer { session.stopRunning() }
 
     // Wait up to 3 seconds for a usable frame
-    _ = grabber.semaphore.wait(timeout: .now() + 3)
+    _ = grabber.waitForCapture(timeout: .now() + 3)
 
     guard let ciImage = grabber.capturedImage else {
       logger.warning("Frame grab timed out — returning cached snapshot")
@@ -772,7 +772,7 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
 // MARK: - Frame Grabber (for silent snapshots)
 
 private final class FrameGrabber: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
-  let semaphore = DispatchSemaphore(value: 0)
+  private let semaphore = DispatchSemaphore(value: 0)
   /// CIImage created inside the callback to avoid holding a CVPixelBuffer
   /// beyond the delegate callback lifetime (AVFoundation may recycle the backing memory).
   /// Protected by a lock to prevent data races between the capture queue
@@ -787,6 +787,11 @@ private final class FrameGrabber: NSObject, AVCaptureVideoDataOutputSampleBuffer
     self.framesToSkip = framesToSkip
   }
 
+  /// Block until a usable frame is captured, or the timeout expires.
+  func waitForCapture(timeout: DispatchTime) -> DispatchTimeoutResult {
+    semaphore.wait(timeout: timeout)
+  }
+
   func captureOutput(
     _ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
     from connection: AVCaptureConnection
@@ -795,9 +800,8 @@ private final class FrameGrabber: NSObject, AVCaptureVideoDataOutputSampleBuffer
     framesReceived += 1
     // Skip early frames so auto-exposure can settle.
     guard framesReceived > framesToSkip else { return }
-    if let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) {
-      lock.withLock { _capturedImage = CIImage(cvPixelBuffer: pixelBuffer) }
-    }
+    guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+    lock.withLock { _capturedImage = CIImage(cvPixelBuffer: pixelBuffer) }
     semaphore.signal()
   }
 }
