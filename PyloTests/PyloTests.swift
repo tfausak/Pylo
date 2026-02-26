@@ -2144,6 +2144,40 @@ struct PairSetupThrottleWindowTests {
   }
 }
 
+// MARK: - SRP Client Public Key Validation Tests
+
+@Suite("SRP Client Public Key Validation")
+struct SRPClientPublicKeyTests {
+
+  @Test("Rejects client public key shorter than 384 bytes")
+  func rejectsShortKey() {
+    let server = SRPServer(username: "Pair-Setup", password: "111-22-333")!
+    let shortKey = Data(repeating: 0x05, count: 1)
+    #expect(server.setClientPublicKey(shortKey) == false)
+  }
+
+  @Test("Rejects client public key longer than 384 bytes")
+  func rejectsLongKey() {
+    let server = SRPServer(username: "Pair-Setup", password: "111-22-333")!
+    let longKey = Data(repeating: 0x05, count: 385)
+    #expect(server.setClientPublicKey(longKey) == false)
+  }
+
+  @Test("Accepts valid 384-byte client public key")
+  func acceptsCorrectLength() {
+    let server = SRPServer(username: "Pair-Setup", password: "111-22-333")!
+    var validKey = Data(repeating: 0, count: 384)
+    validKey[383] = 0x05  // non-zero so A % N != 0
+    #expect(server.setClientPublicKey(validKey) == true)
+  }
+
+  @Test("Rejects empty client public key")
+  func rejectsEmpty() {
+    let server = SRPServer(username: "Pair-Setup", password: "111-22-333")!
+    #expect(server.setClientPublicKey(Data()) == false)
+  }
+}
+
 // MARK: - Setup URI Tests
 
 @Suite("HAP Setup URI")

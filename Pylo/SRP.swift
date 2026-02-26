@@ -114,12 +114,18 @@ final class SRPServer {
 
   // MARK: - Step 2: Receive Client Public Key
 
-  /// Sets the client's public key A. Returns false if A is invalid (A mod N == 0).
+  /// Sets the client's public key A. Returns false if A is invalid.
+  /// HAP spec requires A to be exactly 384 bytes (3072-bit group).
   func setClientPublicKey(_ clientPublicKey: Data) -> Bool {
-    // 1. Convert A from Data to BigUInt
+    // 1. Validate length — must match the SRP group size
+    guard clientPublicKey.count == Self.nLength else {
+      return false
+    }
+
+    // 2. Convert A from Data to BigUInt
     let clientA = BigUInt(clientPublicKey)
 
-    // 2. Verify A % N != 0 (security check to prevent invalid keys)
+    // 3. Verify A % N != 0 (security check to prevent invalid keys)
     guard clientA % Self.prime != 0 else {
       return false
     }
