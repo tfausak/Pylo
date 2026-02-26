@@ -263,7 +263,9 @@ final class EncryptionContext {
 
   /// Encrypt an outgoing HAP message, splitting into frames of max 1024 bytes.
   /// Each frame: [2-byte LE length][encrypted data][16-byte tag]
-  func encrypt(plaintext: Data) -> Data {
+  /// Returns nil on failure — the caller should close the connection since
+  /// the write counter has been consumed and the session is desynced.
+  func encrypt(plaintext: Data) -> Data? {
     var result = Data()
     var offset = plaintext.startIndex
 
@@ -293,7 +295,7 @@ final class EncryptionContext {
         result.append(sealed.tag)
       } catch {
         logger.error("Encrypt failed: \(error)")
-        return Data()
+        return nil
       }
 
       offset = chunkEnd

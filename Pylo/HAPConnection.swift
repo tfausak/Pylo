@@ -265,8 +265,13 @@ final class HAPConnection {
     let httpData = response.serialize()
 
     if let ctx = encryptionContext {
-      // Encrypt the response
-      let encrypted = ctx.encrypt(plaintext: httpData)
+      // Encrypt the response — close on failure since the write counter
+      // is consumed and the session would be permanently desynced.
+      guard let encrypted = ctx.encrypt(plaintext: httpData) else {
+        logger.error("Encrypt failed, closing connection")
+        cancel()
+        return
+      }
       connection.send(
         content: encrypted,
         completion: .contentProcessed { [weak self] error in
@@ -302,7 +307,11 @@ final class HAPConnection {
     var data = Data(event.utf8)
     data.append(bodyData)
 
-    let encrypted = ctx.encrypt(plaintext: data)
+    guard let encrypted = ctx.encrypt(plaintext: data) else {
+      logger.error("EVENT encrypt failed, closing connection")
+      cancel()
+      return
+    }
     connection.send(
       content: encrypted,
       completion: .contentProcessed { [weak self] error in

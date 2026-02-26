@@ -866,12 +866,12 @@ struct HAPMotionSensorTests {
 struct EncryptionContextTests {
 
   @Test("Encrypt-decrypt roundtrip")
-  func encryptDecryptRoundtrip() {
+  func encryptDecryptRoundtrip() throws {
     let key = SymmetricKey(size: .bits256)
     let ctx = EncryptionContext(readKey: key, writeKey: key)
 
     let plaintext = Data("Hello, HomeKit!".utf8)
-    let encrypted = ctx.encrypt(plaintext: plaintext)
+    let encrypted = try #require(ctx.encrypt(plaintext: plaintext))
 
     // Encrypted format: [2-byte length][ciphertext][16-byte tag]
     #expect(encrypted.count == 2 + plaintext.count + 16)
@@ -884,14 +884,14 @@ struct EncryptionContextTests {
   }
 
   @Test("Encrypt-decrypt large message splits into frames")
-  func largeMessageFrames() {
+  func largeMessageFrames() throws {
     let writeKey = SymmetricKey(size: .bits256)
     let readKey = SymmetricKey(size: .bits256)
     let encryptor = EncryptionContext(readKey: readKey, writeKey: writeKey)
     let decryptor = EncryptionContext(readKey: writeKey, writeKey: readKey)
 
     let plaintext = Data(repeating: 0x42, count: 2500)
-    let encrypted = encryptor.encrypt(plaintext: plaintext)
+    let encrypted = try #require(encryptor.encrypt(plaintext: plaintext))
 
     // 2500 bytes = 1024 + 1024 + 452 = 3 frames
     // Each frame: 2 + chunk + 16
@@ -920,13 +920,13 @@ struct EncryptionContextTests {
   }
 
   @Test("Decrypt with wrong key fails")
-  func decryptWrongKey() {
+  func decryptWrongKey() throws {
     let key1 = SymmetricKey(size: .bits256)
     let key2 = SymmetricKey(size: .bits256)
     let encryptor = EncryptionContext(readKey: key1, writeKey: key1)
     let decryptor = EncryptionContext(readKey: key2, writeKey: key2)
 
-    let encrypted = encryptor.encrypt(plaintext: Data("secret".utf8))
+    let encrypted = try #require(encryptor.encrypt(plaintext: Data("secret".utf8)))
     let lengthBytes = encrypted.prefix(2)
     let cipherAndTag = encrypted.dropFirst(2)
     let decrypted = decryptor.decrypt(
@@ -944,19 +944,19 @@ struct EncryptionContextTests {
   }
 
   @Test("Nonce increments prevent replay")
-  func nonceIncrements() {
+  func nonceIncrements() throws {
     let key = SymmetricKey(size: .bits256)
     let encryptor = EncryptionContext(readKey: key, writeKey: key)
 
-    let msg1 = encryptor.encrypt(plaintext: Data("msg1".utf8))
-    let msg2 = encryptor.encrypt(plaintext: Data("msg1".utf8))
+    let msg1 = try #require(encryptor.encrypt(plaintext: Data("msg1".utf8)))
+    let msg2 = try #require(encryptor.encrypt(plaintext: Data("msg1".utf8)))
 
     // Same plaintext, different nonces → different ciphertext
     #expect(msg1 != msg2)
   }
 
   @Test("Failed decrypt does not desync subsequent frames")
-  func failedDecryptDoesNotDesync() {
+  func failedDecryptDoesNotDesync() throws {
     let readKey = SymmetricKey(size: .bits256)
     let writeKey = SymmetricKey(size: .bits256)
 
@@ -964,8 +964,8 @@ struct EncryptionContextTests {
     let decryptor = EncryptionContext(readKey: writeKey, writeKey: readKey)
 
     // Encrypt two messages
-    let frame1 = encryptor.encrypt(plaintext: Data("hello".utf8))
-    let frame2 = encryptor.encrypt(plaintext: Data("world".utf8))
+    let frame1 = try #require(encryptor.encrypt(plaintext: Data("hello".utf8)))
+    let frame2 = try #require(encryptor.encrypt(plaintext: Data("world".utf8)))
 
     // Feed garbage to the decryptor — should fail but NOT advance the counter
     let garbage = Data(repeating: 0xAA, count: 32)
@@ -1739,7 +1739,7 @@ struct ThreadSafetyTests {
     let ctx = EncryptionContext(readKey: key, writeKey: key)
     let plaintext = Data("same message".utf8)
 
-    let results = await withTaskGroup(of: Data.self, returning: [Data].self) { group in
+    let results = await withTaskGroup(of: Data?.self, returning: [Data].self) { group in
       for _ in 0..<50 {
         group.addTask {
           ctx.encrypt(plaintext: plaintext)
@@ -1747,12 +1747,13 @@ struct ThreadSafetyTests {
       }
       var collected: [Data] = []
       for await result in group {
-        collected.append(result)
+        if let result { collected.append(result) }
       }
       return collected
     }
 
     // Each encryption uses a different nonce → all ciphertexts must be unique
+    #expect(results.count == 50)
     let uniqueCount = Set(results).count
     #expect(uniqueCount == results.count)
   }
