@@ -475,6 +475,7 @@ struct ContentView: View {
   @Bindable var viewModel: HAPViewModel
   @State private var isScreenDimmed = false
   @State private var dimTask: Task<Void, Never>?
+  @State private var qrImage: UIImage?
 
   private func resetDimTimer() {
     dimTask?.cancel()
@@ -501,6 +502,7 @@ struct ContentView: View {
     .onChange(of: viewModel.isRunning) {
       if viewModel.isRunning {
         resetDimTimer()
+        qrImage = generateQRCode(from: hapSetupURI(setupCode: viewModel.setupCode))
       } else {
         dimTask?.cancel()
         dimTask = nil
@@ -555,7 +557,7 @@ struct ContentView: View {
           if viewModel.isRunning {
             GroupBox("Setup Code") {
               VStack(spacing: 12) {
-                if let qr = generateQRCode(from: hapSetupURI(setupCode: viewModel.setupCode)) {
+                if let qr = qrImage {
                   Image(uiImage: qr)
                     .interpolation(.none)
                     .resizable()
@@ -735,7 +737,7 @@ struct ContentView: View {
               .padding(10)
               .background(Color.orange)
               .foregroundColor(.white)
-              .cornerRadius(10)
+              .clipShape(.rect(cornerRadius: 10))
           }
         }
 
@@ -764,7 +766,7 @@ struct ContentView: View {
             viewModel.isStarting ? Color.gray : viewModel.isRunning ? Color.red : Color.blue
           )
           .foregroundColor(.white)
-          .cornerRadius(12)
+          .clipShape(.rect(cornerRadius: 12))
         }
         .disabled(viewModel.isStarting)
       }

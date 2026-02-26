@@ -64,7 +64,8 @@ final class HAPServer {
     {
       var hash: UInt32 = 5381
       for byte in str.utf8 { hash = hash &* 33 &+ UInt32(byte) }
-      self.configurationNumber = Int(hash & 0x7FFF_FFFF) | 1  // ensure ≥ 1
+      let n = Int(hash & 0x7FFF_FFFF)
+      self.configurationNumber = n == 0 ? 1 : n  // ensure ≥ 1 (HAP spec §6.6.1)
     }
   }
 

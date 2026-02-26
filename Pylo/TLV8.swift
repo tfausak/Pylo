@@ -54,9 +54,9 @@ enum TLV8 {
       let length = Int(data[offset + 1])
       offset += 2
 
-      let end = min(offset + length, data.endIndex)
-      let value = data[offset..<end]
-      offset = end
+      guard offset + length <= data.endIndex else { break }
+      let value = data[offset..<offset + length]
+      offset += length
 
       // Coalesce consecutive fragments with the same type
       if let last = results.last, last.0 == type {

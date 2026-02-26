@@ -48,7 +48,9 @@ enum CharacteristicsHandler {
       return errorResponse(status: 500)
     }
 
-    return HTTPResponse(status: 207, body: data, contentType: "application/hap+json")
+    // HAP spec §6.7.2.1: return 200 when all reads succeed, 207 only for mixed results
+    let hasErrors = characteristics.contains { ($0["status"] as? Int) != 0 }
+    return HTTPResponse(status: hasErrors ? 207 : 200, body: data, contentType: "application/hap+json")
   }
 
   static func handlePut(request: HTTPRequest, connection: HAPConnection, server: HAPServer)
@@ -67,7 +69,11 @@ enum CharacteristicsHandler {
     for char in characteristics {
       guard let aid = char["aid"] as? Int,
         let iid = char["iid"] as? Int
-      else { continue }
+      else {
+        results.append(["aid": 0, "iid": 0, "status": -70410])
+        allOK = false
+        continue
+      }
 
       // Handle event subscription
       if let ev = char["ev"] as? Bool {
