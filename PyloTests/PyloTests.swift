@@ -1089,17 +1089,13 @@ struct PairingStoreTests {
 
   @Test("New store is not paired")
   func newStoreEmpty() {
-    let store = PairingStore()
-    // Note: may have pairings from disk, but isPaired reflects current state
-    // For a clean test, we remove all first
-    store.removeAll()
+    let store = PairingStore(testPairings: [:])
     #expect(store.isPaired == false)
   }
 
   @Test("Add and retrieve pairing")
   func addAndGet() {
-    let store = PairingStore()
-    store.removeAll()
+    let store = PairingStore(testPairings: [:])
 
     let pairing = PairingStore.Pairing(
       identifier: "test-controller",
@@ -1113,14 +1109,11 @@ struct PairingStoreTests {
     #expect(retrieved != nil)
     #expect(retrieved?.publicKey == Data(repeating: 0xAA, count: 32))
     #expect(retrieved?.isAdmin == true)
-
-    store.removeAll()
   }
 
   @Test("Remove pairing")
   func removePairing() {
-    let store = PairingStore()
-    store.removeAll()
+    let store = PairingStore(testPairings: [:])
 
     let pairing = PairingStore.Pairing(
       identifier: "to-remove",
@@ -1137,14 +1130,13 @@ struct PairingStoreTests {
 
   @Test("Get nonexistent pairing returns nil")
   func getNonexistent() {
-    let store = PairingStore()
+    let store = PairingStore(testPairings: [:])
     #expect(store.getPairing(identifier: "does-not-exist") == nil)
   }
 
   @Test("onChange callback fires on add and remove")
   func onChangeCallback() {
-    let store = PairingStore()
-    store.removeAll()
+    let store = PairingStore(testPairings: [:])
 
     var callCount = 0
     store.onChange = { callCount += 1 }
