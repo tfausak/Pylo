@@ -357,12 +357,17 @@ final class HAPConnection {
     logger.info("Snapshot requested: \(width)x\(height) from aid \(aid)")
 
     DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-      if let jpeg = camera.captureSnapshot(width: width, height: height) {
-        self?.sendResponse(HTTPResponse(status: 200, body: jpeg, contentType: "image/jpeg"))
-      } else {
-        self?.logger.warning("Snapshot capture failed")
-        self?.sendResponse(
-          HTTPResponse(status: 500, body: nil, contentType: "application/hap+json"))
+      let jpeg = camera.captureSnapshot(width: width, height: height)
+      // Dispatch back to the server queue so sendResponse (which uses
+      // the encryption context) doesn't race with other I/O.
+      self?.queue.async {
+        if let jpeg {
+          self?.sendResponse(HTTPResponse(status: 200, body: jpeg, contentType: "image/jpeg"))
+        } else {
+          self?.logger.warning("Snapshot capture failed")
+          self?.sendResponse(
+            HTTPResponse(status: 500, body: nil, contentType: "application/hap+json"))
+        }
       }
     }
   }
@@ -370,9 +375,18 @@ final class HAPConnection {
 
 // MARK: - Characteristic ID (for event subscriptions)
 
-struct CharacteristicID: Hashable {
-  let aid: Int
-  let iid: Int
+struct CharacteristicID: Hashable, Sendable {
+  nonisolated let aid: Int
+  nonisolated let iid: Int
+
+  nonisolated static func == (lhs: CharacteristicID, rhs: CharacteristicID) -> Bool {
+    lhs.aid == rhs.aid && lhs.iid == rhs.iid
+  }
+
+  nonisolated func hash(into hasher: inout Hasher) {
+    hasher.combine(aid)
+    hasher.combine(iid)
+  }
 }
 
 // MARK: - Minimal HTTP Request/Response

@@ -1618,3 +1618,106 @@ struct RTCPSenderReportTests {
     #expect(ntpSec == 3_913_056_000)
   }
 }
+
+// MARK: - Thread Safety Tests
+
+@Suite("Thread Safety")
+struct ThreadSafetyTests {
+
+  @Test("EncryptionContext concurrent encrypt does not crash")
+  func concurrentEncrypt() async {
+    let key = SymmetricKey(size: .bits256)
+    let ctx = EncryptionContext(readKey: key, writeKey: key)
+    let plaintext = Data(repeating: 0x42, count: 100)
+
+    await withTaskGroup(of: Void.self) { group in
+      for _ in 0..<100 {
+        group.addTask {
+          _ = ctx.encrypt(plaintext: plaintext)
+        }
+      }
+    }
+  }
+
+  @Test("EncryptionContext concurrent encrypt produces unique ciphertexts")
+  func concurrentEncryptUnique() async {
+    let key = SymmetricKey(size: .bits256)
+    let ctx = EncryptionContext(readKey: key, writeKey: key)
+    let plaintext = Data("same message".utf8)
+
+    let results = await withTaskGroup(of: Data.self, returning: [Data].self) { group in
+      for _ in 0..<50 {
+        group.addTask {
+          ctx.encrypt(plaintext: plaintext)
+        }
+      }
+      var collected: [Data] = []
+      for await result in group {
+        collected.append(result)
+      }
+      return collected
+    }
+
+    // Each encryption uses a different nonce → all ciphertexts must be unique
+    let uniqueCount = Set(results).count
+    #expect(uniqueCount == results.count)
+  }
+
+  @Test("PairingStore concurrent add/get does not crash")
+  func concurrentPairingStore() async {
+    let store = PairingStore(testPairings: [:])
+
+    await withTaskGroup(of: Void.self) { group in
+      // Concurrent writers
+      for i in 0..<50 {
+        group.addTask {
+          let pairing = PairingStore.Pairing(
+            identifier: "controller-\(i)",
+            publicKey: Data(repeating: UInt8(i), count: 32),
+            isAdmin: i % 2 == 0
+          )
+          store.addPairing(pairing)
+        }
+      }
+      // Concurrent readers
+      for i in 0..<50 {
+        group.addTask {
+          _ = store.getPairing(identifier: "controller-\(i)")
+          _ = store.isPaired
+        }
+      }
+    }
+
+    // All 50 pairings should be present
+    #expect(store.pairings.count == 50)
+    #expect(store.isPaired == true)
+  }
+
+  @Test("PairingStore concurrent remove does not crash")
+  func concurrentPairingStoreRemove() async {
+    let store = PairingStore(testPairings: [:])
+
+    // Add pairings first
+    for i in 0..<50 {
+      store.addPairing(
+        PairingStore.Pairing(
+          identifier: "rm-\(i)",
+          publicKey: Data(repeating: UInt8(i), count: 32),
+          isAdmin: false
+        ))
+    }
+    #expect(store.pairings.count == 50)
+
+    // Concurrently remove them all
+    await withTaskGroup(of: Void.self) { group in
+      for i in 0..<50 {
+        group.addTask {
+          store.removePairing(identifier: "rm-\(i)")
+        }
+      }
+    }
+
+    #expect(store.pairings.isEmpty)
+    #expect(store.isPaired == false)
+  }
+}

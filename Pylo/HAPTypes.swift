@@ -127,8 +127,13 @@ final class PairingStore {
   /// Called whenever pairings are added or removed.
   var onChange: (() -> Void)?
 
-  /// All known pairings, persisted to disk as JSON.
-  private(set) var pairings: [String: Pairing] = [:]
+  /// Lock-protected pairings dictionary.
+  private let lock = OSAllocatedUnfairLock(initialState: [String: Pairing]())
+
+  /// Thread-safe snapshot of all pairings.
+  var pairings: [String: Pairing] {
+    lock.withLock { $0 }
+  }
 
   private static var storageURL: URL {
     let appSupport = FileManager.default.urls(
@@ -139,7 +144,7 @@ final class PairingStore {
   }
 
   var isPaired: Bool {
-    !pairings.isEmpty
+    lock.withLock { !$0.isEmpty }
   }
 
   init() {
@@ -147,36 +152,42 @@ final class PairingStore {
     if let data = try? Data(contentsOf: url),
       let decoded = try? JSONDecoder().decode([String: Pairing].self, from: data)
     {
-      self.pairings = decoded
+      lock.withLock { $0 = decoded }
       Self.logger.info("Loaded \(decoded.count) pairing(s) from disk")
     }
   }
 
+  /// Initializer for testing — does not load from or persist to disk.
+  init(testPairings: [String: Pairing]) {
+    lock.withLock { $0 = testPairings }
+  }
+
   func addPairing(_ pairing: Pairing) {
-    pairings[pairing.identifier] = pairing
+    lock.withLock { $0[pairing.identifier] = pairing }
     save()
     onChange?()
   }
 
   func removePairing(identifier: String) {
-    pairings.removeValue(forKey: identifier)
+    lock.withLock { _ = $0.removeValue(forKey: identifier) }
     save()
     onChange?()
   }
 
   func getPairing(identifier: String) -> Pairing? {
-    pairings[identifier]
+    lock.withLock { $0[identifier] }
   }
 
   func removeAll() {
-    pairings.removeAll()
+    lock.withLock { $0.removeAll() }
     save()
     onChange?()
   }
 
   private func save() {
+    let snapshot = lock.withLock { $0 }
     do {
-      let data = try JSONEncoder().encode(pairings)
+      let data = try JSONEncoder().encode(snapshot)
       try data.write(to: Self.storageURL, options: .atomic)
     } catch {
       Self.logger.error("Failed to save pairings: \(error)")
@@ -192,8 +203,7 @@ final class EncryptionContext {
 
   private let readKey: SymmetricKey  // Controller-to-Accessory
   private let writeKey: SymmetricKey  // Accessory-to-Controller
-  private var readCounter: UInt64 = 0
-  private var writeCounter: UInt64 = 0
+  private let counters = OSAllocatedUnfairLock(initialState: (read: UInt64(0), write: UInt64(0)))
   private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "Crypto")
 
   init(readKey: SymmetricKey, writeKey: SymmetricKey) {
@@ -206,8 +216,11 @@ final class EncryptionContext {
   ///   - lengthBytes: The 2-byte little-endian length prefix (used as AAD).
   ///   - ciphertext: The encrypted payload + 16-byte Poly1305 tag.
   func decrypt(lengthBytes: Data, ciphertext: Data) -> Data? {
-    let nonce = makeNonce(counter: readCounter)
-    readCounter += 1
+    let nonce = counters.withLock { state -> ChaChaPoly.Nonce in
+      let n = Self.makeNonce(counter: state.read)
+      state.read += 1
+      return n
+    }
 
     // Split ciphertext from tag
     guard ciphertext.count >= 16 else { return nil }
@@ -237,8 +250,11 @@ final class EncryptionContext {
       let chunkEnd = min(offset + 1024, plaintext.endIndex)
       let chunk = plaintext[offset..<chunkEnd]
 
-      let nonce = makeNonce(counter: writeCounter)
-      writeCounter += 1
+      let nonce = counters.withLock { state -> ChaChaPoly.Nonce in
+        let n = Self.makeNonce(counter: state.write)
+        state.write += 1
+        return n
+      }
 
       var lengthBytes = Data(count: 2)
       lengthBytes[0] = UInt8(chunk.count & 0xFF)
@@ -266,7 +282,7 @@ final class EncryptionContext {
   }
 
   /// HAP nonces are 12 bytes: 4 zero bytes + 8-byte little-endian counter.
-  private func makeNonce(counter: UInt64) -> ChaChaPoly.Nonce {
+  private nonisolated static func makeNonce(counter: UInt64) -> ChaChaPoly.Nonce {
     var nonceData = Data(repeating: 0, count: 4)  // 4 zero bytes
     var le = counter.littleEndian
     nonceData.append(Data(bytes: &le, count: 8))

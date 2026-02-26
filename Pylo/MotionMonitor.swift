@@ -19,8 +19,13 @@ final class MotionMonitor {
   /// Seconds of calm required before reporting no motion.
   private let cooldown: TimeInterval = 3.0
 
-  private var isMotionDetected = false
-  private var lastMotionDate = Date.distantPast
+  /// Thread-safe mutable state, protected by an unfair lock.
+  private struct State {
+    var isMotionDetected = false
+    var lastMotionDate = Date.distantPast
+  }
+
+  private let state = OSAllocatedUnfairLock(initialState: State())
 
   func start() {
     guard motionManager.isAccelerometerAvailable else {
@@ -47,16 +52,29 @@ final class MotionMonitor {
       let delta = abs(magnitude - 1.0)
 
       if delta > self.threshold {
-        self.lastMotionDate = Date()
-        if !self.isMotionDetected {
-          self.isMotionDetected = true
+        let shouldNotify = self.state.withLock { state in
+          state.lastMotionDate = Date()
+          if !state.isMotionDetected {
+            state.isMotionDetected = true
+            return true
+          }
+          return false
+        }
+        if shouldNotify {
           self.logger.debug("Motion detected (delta=\(delta, format: .fixed(precision: 3))g)")
           self.onMotionChange?(true)
         }
-      } else if self.isMotionDetected {
-        let elapsed = Date().timeIntervalSince(self.lastMotionDate)
-        if elapsed >= self.cooldown {
-          self.isMotionDetected = false
+      } else {
+        let elapsed: TimeInterval? = self.state.withLock { state in
+          guard state.isMotionDetected else { return nil }
+          let elapsed = Date().timeIntervalSince(state.lastMotionDate)
+          if elapsed >= self.cooldown {
+            state.isMotionDetected = false
+            return elapsed
+          }
+          return nil
+        }
+        if let elapsed {
           self.logger.debug(
             "Motion cleared after \(elapsed, format: .fixed(precision: 1))s cooldown")
           self.onMotionChange?(false)
@@ -69,7 +87,7 @@ final class MotionMonitor {
 
   func stop() {
     motionManager.stopAccelerometerUpdates()
-    isMotionDetected = false
+    state.withLock { $0.isMotionDetected = false }
     logger.info("Motion monitor stopped")
   }
 }

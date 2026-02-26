@@ -95,11 +95,13 @@ final class HAPServer {
   }
 
   func stop() {
-    listener.cancel()
-    for conn in connections.values {
-      conn.cancel()
+    queue.sync {
+      listener.cancel()
+      for conn in connections.values {
+        conn.cancel()
+      }
+      connections.removeAll()
     }
-    connections.removeAll()
   }
 
   /// Update the Bonjour TXT record (e.g., after pairing state changes).
@@ -165,11 +167,15 @@ final class HAPServer {
   }
 
   /// Notify all subscribed connections of a characteristic change.
+  /// Dispatches to the server queue so `connections` is accessed thread-safely.
   func notifySubscribers(aid: Int, iid: Int, value: HAPValue) {
-    let charID = CharacteristicID(aid: aid, iid: iid)
-    for conn in connections.values {
-      guard conn.eventSubscriptions.contains(charID) else { continue }
-      conn.sendEvent(aid: aid, iid: iid, value: value)
+    queue.async { [weak self] in
+      guard let self else { return }
+      let charID = CharacteristicID(aid: aid, iid: iid)
+      for conn in self.connections.values {
+        guard conn.eventSubscriptions.contains(charID) else { continue }
+        conn.sendEvent(aid: aid, iid: iid, value: value)
+      }
     }
   }
 }
