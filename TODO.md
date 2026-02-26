@@ -8,7 +8,7 @@
 - [x] **Setup code doesn't exclude invalid codes** (`PairSetup.swift:25-28`) — HAP spec Table 5-8 requires excluding `000-00-000`, `111-11-111` through `999-99-999`, `123-45-678`, `876-54-321`.
 - [x] **No pair-setup rate limiting** (`PairSetup.swift:93-100`) — HAP spec section 5.6.1 requires a 30-second throttle after 100 failed attempts to prevent brute-force attacks on the 8-digit code.
 - [x] **Unbounded buffer growth** (`HAPConnection.swift:64-67`) — `receiveBuffer` and `decryptedBuffer` grow without limit if a client sends data that never forms a complete HTTP request. Cap at a reasonable size (e.g. 1MB) and disconnect.
-- [ ] **Camera usage description conflict** — `Info.plist` says "estimate ambient light levels" but `INFOPLIST_KEY_NSCameraUsageDescription` build setting says "Used to control the flashlight." The build setting wins; user sees the wrong description.
+- [x] **Camera usage description conflict** — `Info.plist` says "estimate ambient light levels" but `INFOPLIST_KEY_NSCameraUsageDescription` build setting says "Used to control the flashlight." The build setting wins; user sees the wrong description.
 
 ## Idiomatic Swift Issues
 

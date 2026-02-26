@@ -6,8 +6,6 @@
 	<array>
 		<string>_hap._tcp</string>
 	</array>
-	<key>NSCameraUsageDescription</key>
-	<string>The front camera is used to estimate ambient light levels for the HomeKit Light Sensor.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>The microphone is used to stream audio to HomeKit controllers.</string>
 </dict>
