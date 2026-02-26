@@ -142,8 +142,21 @@ final class HAPConnection {
     // First read the 2-byte length prefix
     connection.receive(minimumIncompleteLength: 2, maximumLength: 2) {
       [weak self] data, _, isComplete, error in
-      guard let self, let data, data.count == 2 else {
-        self?.cancel()
+      guard let self else { return }
+
+      if let error {
+        self.logger.error("Encrypted receive error (length): \(error)")
+        self.cancel()
+        return
+      }
+
+      guard let data, data.count == 2 else {
+        self.cancel()
+        return
+      }
+
+      if isComplete {
+        self.cancel()
         return
       }
 
@@ -153,8 +166,16 @@ final class HAPConnection {
       // Now read the encrypted payload + tag
       self.connection.receive(minimumIncompleteLength: totalLength, maximumLength: totalLength) {
         [weak self] payload, _, isComplete, error in
-        guard let self, let payload, payload.count == totalLength else {
-          self?.cancel()
+        guard let self else { return }
+
+        if let error {
+          self.logger.error("Encrypted receive error (payload): \(error)")
+          self.cancel()
+          return
+        }
+
+        guard let payload, payload.count == totalLength else {
+          self.cancel()
           return
         }
 
