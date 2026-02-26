@@ -124,6 +124,14 @@ final class CameraStreamSession {
     self.audioSSRC = audioSSRC
   }
 
+  deinit {
+    // Safety net: ensure resources are cleaned up if the session is deallocated
+    // without an explicit stopStreaming() call.
+    if captureSession != nil || videoSocketFD >= 0 || audioSocketFD >= 0 {
+      stopStreaming()
+    }
+  }
+
   func startStreaming(
     width: Int, height: Int, fps: Int, bitrate: Int, payloadType: UInt8,
     audioPayloadType: UInt8 = 110, camera: AVCaptureDevice, rotationAngle: Int = 90,
@@ -280,16 +288,11 @@ final class CameraStreamSession {
     captureSession = nil
 
     if let cs = compressionSession {
+      // Flush in-flight async encodes before invalidating (undefined behavior otherwise)
+      VTCompressionSessionCompleteFrames(cs, untilPresentationTimeStamp: .positiveInfinity)
       VTCompressionSessionInvalidate(cs)
     }
     compressionSession = nil
-
-    if videoSocketFD >= 0 {
-      close(videoSocketFD)
-      videoSocketFD = -1
-    }
-    controllerVideoAddr = nil
-    srtpContext = nil
 
     // Audio mic cleanup
     audioRTCPTimer?.cancel()
@@ -302,17 +305,34 @@ final class CameraStreamSession {
     audioConverter = nil
     pcmAccumulator = Data()
 
-    // Audio socket cleanup — dispatch to rtpQueue synchronously so all
-    // in-flight readAudioSocket / handleIncomingAudioPacket calls drain
-    // before we close the socket and dispose the decoder.
+    // Capture references to resources before nil-ing, then clean up
+    // on rtpQueue to avoid data races with in-flight send/receive handlers.
     let readSource = audioReadSource
-    let socketFD = audioSocketFD
+    let audioFD = audioSocketFD
+    let videoFD = videoSocketFD
     let decoder = audioDecoder
     let player = audioPlayerNode
     let engine = audioEngine
     let incomingSRTP = incomingSRTPContext
 
     audioReadSource = nil
+    readSource?.cancel()
+
+    rtpQueue.sync {
+      // By the time this executes, the cancelled read source and any
+      // in-flight sendVideoUDP/sendAudioUDP/readAudioSocket calls have drained.
+      if videoFD >= 0 { close(videoFD) }
+      if audioFD >= 0 { close(audioFD) }
+      player?.stop()
+      engine?.stop()
+      if let dec = decoder { AudioConverterDispose(dec) }
+      _ = incomingSRTP  // prevent premature dealloc until after queue drains
+    }
+
+    // Now safe to nil out the remaining state (no concurrent access possible)
+    videoSocketFD = -1
+    controllerVideoAddr = nil
+    srtpContext = nil
     audioSocketFD = -1
     controllerAudioAddr = nil
     audioSRTPContext = nil
@@ -323,16 +343,6 @@ final class CameraStreamSession {
     audioEngine = nil
     audioDecoder = nil
     incomingSRTPContext = nil
-
-    readSource?.cancel()
-    rtpQueue.sync {
-      // By the time this executes, the cancelled read source has drained.
-      if socketFD >= 0 { close(socketFD) }
-      player?.stop()
-      engine?.stop()
-      if let dec = decoder { AudioConverterDispose(dec) }
-      _ = incomingSRTP  // prevent premature dealloc until after queue drains
-    }
   }
 
   // MARK: - Video Capture
@@ -851,11 +861,15 @@ final class CameraStreamSession {
         }
       }
     } else if is16Bit {
-      // Int16 → Float32
+      // Int16 → Float32, mix down to mono if multi-channel
       data.withUnsafeBytes { ptr in
         let int16Ptr = ptr.bindMemory(to: Int16.self)
         for i in stride(from: 0, to: int16Ptr.count, by: sourceChannels) {
-          floatSamples.append(Float(int16Ptr[i]) / 32768.0)
+          var sum: Float = 0
+          for ch in 0..<sourceChannels where i + ch < int16Ptr.count {
+            sum += Float(int16Ptr[i + ch]) / 32768.0
+          }
+          floatSamples.append(sum / Float(sourceChannels))
         }
       }
     } else {
