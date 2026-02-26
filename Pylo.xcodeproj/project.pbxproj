@@ -44,6 +44,11 @@
 			path = Pylo;
 			sourceTree = "<group>";
 		};
+		34EA22292F4EB00000113A11 /* PyloTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = PyloTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -69,6 +74,7 @@
 			isa = PBXGroup;
 			children = (
 				34EA21E42F4EA5FF00113A11 /* Pylo */,
+				34EA22292F4EB00000113A11 /* PyloTests */,
 				34EA21E32F4EA5FF00113A11 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -120,6 +126,9 @@
 			);
 			dependencies = (
 				34EA21F12F4EA60100113A11 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				34EA22292F4EB00000113A11 /* PyloTests */,
 			);
 			name = PyloTests;
 			packageProductDependencies = (
