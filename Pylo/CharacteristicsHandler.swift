@@ -76,7 +76,18 @@ enum CharacteristicsHandler {
         continue
       }
 
-      // Handle event subscription
+      // Handle value write first, then apply event subscription only on success
+      if let rawValue = char["value"], let value = HAPValue(fromJSON: rawValue) {
+        let success =
+          server.accessory(aid: aid)?.writeCharacteristic(iid: iid, value: value) ?? false
+        if !success {
+          allOK = false
+          results.append(["aid": aid, "iid": iid, "status": -70402])
+          continue
+        }
+      }
+
+      // Apply event subscription (only reached if no write or write succeeded)
       if let ev = char["ev"] as? Bool {
         let charID = CharacteristicID(aid: aid, iid: iid)
         if ev {
@@ -86,20 +97,7 @@ enum CharacteristicsHandler {
         }
       }
 
-      // Handle value write
-      if let rawValue = char["value"], let value = HAPValue(fromJSON: rawValue) {
-        let success =
-          server.accessory(aid: aid)?.writeCharacteristic(iid: iid, value: value) ?? false
-        if !success {
-          allOK = false
-          results.append(["aid": aid, "iid": iid, "status": -70402])
-        } else {
-          results.append(["aid": aid, "iid": iid, "status": 0])
-        }
-      } else {
-        // Event-only subscription, no value write
-        results.append(["aid": aid, "iid": iid, "status": 0])
-      }
+      results.append(["aid": aid, "iid": iid, "status": 0])
     }
 
     if allOK {
