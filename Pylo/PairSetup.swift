@@ -114,8 +114,8 @@ enum PairSetupHandler {
     {
       return id
     }
-    let chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-    let id = String((0..<4).map { _ in chars.randomElement()! })
+    let chars = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+    let id = String((0..<4).map { _ in chars[Int.random(in: chars.indices)] })
     KeychainHelper.save(key: "setup-id", data: Data(id.utf8))
     return id
   }()
