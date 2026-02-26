@@ -364,11 +364,11 @@ final class HAPAccessory: HAPAccessoryProtocol {
         "characteristics": [
           characteristicJSON(
             iid: Self.iidOn, type: Self.uuidOn, format: "bool",
-            perms: ["pr", "pw", "ev"], value: isOn),
+            perms: ["pr", "pw", "ev"], value: .bool(isOn)),
           characteristicJSON(
             iid: Self.iidBrightness, type: Self.uuidBrightness,
-            format: "int", perms: ["pr", "pw", "ev"], value: brightness,
-            minValue: 0, maxValue: 100, unit: "percentage"),
+            format: "int", perms: ["pr", "pw", "ev"], value: .int(brightness),
+            minValue: .int(0), maxValue: .int(100), unit: "percentage"),
         ],
       ],
     ]
@@ -383,9 +383,9 @@ final class HAPAccessory: HAPAccessoryProtocol {
     type: String,
     format: String,
     perms: [String],
-    value: Any?,
-    minValue: Any? = nil,
-    maxValue: Any? = nil,
+    value: HAPValue?,
+    minValue: HAPValue? = nil,
+    maxValue: HAPValue? = nil,
     unit: String? = nil
   ) -> [String: Any] {
     var json: [String: Any] = [
@@ -394,9 +394,9 @@ final class HAPAccessory: HAPAccessoryProtocol {
       "format": format,
       "perms": perms,
     ]
-    if let value { json["value"] = value }
-    if let minValue { json["minValue"] = minValue }
-    if let maxValue { json["maxValue"] = maxValue }
+    if let value { json["value"] = value.jsonValue }
+    if let minValue { json["minValue"] = minValue.jsonValue }
+    if let maxValue { json["maxValue"] = maxValue.jsonValue }
     if let unit { json["unit"] = unit }
     return json
   }
