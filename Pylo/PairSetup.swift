@@ -16,10 +16,10 @@ import os
 final class PairSetupThrottle {
 
   /// Number of failed attempts before throttling kicks in.
-  static let maxAttempts = 100
+  nonisolated static let maxAttempts = 100
 
   /// Minimum seconds between attempts once throttled.
-  static let throttleDuration: TimeInterval = 30
+  nonisolated static let throttleDuration: TimeInterval = 30
 
   private struct State {
     var failedAttempts: Int = 0
