@@ -29,9 +29,18 @@ enum VideoQuality: String, CaseIterable, Identifiable {
 struct PyloApp: App {
   @StateObject private var viewModel = HAPViewModel()
 
+  /// UserDefaults key used to persist the screen brightness before dimming.
+  /// If the app crashes while dimmed, this value is used to restore brightness on next launch.
+  static let savedBrightnessKey = "savedScreenBrightness"
+
   init() {
     #if os(iOS)
       UIDevice.current.beginGeneratingDeviceOrientationNotifications()
+      // Restore brightness if the app was killed while the screen was dimmed.
+      if let saved = UserDefaults.standard.object(forKey: Self.savedBrightnessKey) as? Double {
+        UIScreen.main.brightness = CGFloat(saved)
+        UserDefaults.standard.removeObject(forKey: Self.savedBrightnessKey)
+      }
     #endif
   }
 
@@ -355,6 +364,7 @@ struct ContentView: View {
     dimTask?.cancel()
     if isScreenDimmed {
       UIScreen.main.brightness = savedBrightness
+      UserDefaults.standard.removeObject(forKey: PyloApp.savedBrightnessKey)
       isScreenDimmed = false
     }
     guard viewModel.isRunning else { return }
@@ -362,6 +372,7 @@ struct ContentView: View {
       try? await Task.sleep(for: .seconds(screenDimDelay))
       guard !Task.isCancelled else { return }
       savedBrightness = UIScreen.main.brightness
+      UserDefaults.standard.set(Double(savedBrightness), forKey: PyloApp.savedBrightnessKey)
       UIScreen.main.brightness = 0
       isScreenDimmed = true
     }
@@ -386,6 +397,7 @@ struct ContentView: View {
         dimTask = nil
         if isScreenDimmed {
           UIScreen.main.brightness = savedBrightness
+          UserDefaults.standard.removeObject(forKey: PyloApp.savedBrightnessKey)
           isScreenDimmed = false
         }
       }
