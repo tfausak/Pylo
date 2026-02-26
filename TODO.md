@@ -14,7 +14,8 @@
 ## Idiomatic Swift Issues
 
 - [x] **Use `@Observable` instead of `ObservableObject`** (`PyloApp.swift:50`) — `@Observable` macro is more performant (only invalidates views that read changed properties) and simpler.
-- [ ] **Decompose `HAPCameraAccessory.swift` (~2100 lines)** — `CameraStreamSession` alone is ~1200 lines handling capture, H.264, RTP, SRTP, audio encode/decode, BSD sockets, and RTCP. Should be separate types.
+- [x] **Decompose `HAPCameraAccessory.swift` (~2100 lines)** — `CameraStreamSession` alone is ~1200 lines handling capture, H.264, RTP, SRTP, audio encode/decode, BSD sockets, and RTCP. Should be separate types.
+  - Split into 4 files: `HAPCameraAccessory.swift` (778 lines), `CameraStreamSession.swift` (1367 lines), `SRTPContext.swift` (407 lines), `AUHeader.swift` (34 lines).
 - [x] **Deduplicate `toJSON` Accessory Information boilerplate** — The Accessory Information service JSON is copy-pasted across all 5 accessory classes. Extract to a shared helper or protocol extension.
 - [x] **Deduplicate RTCP sender report construction** (`HAPCameraAccessory.swift:1499-1550` and `1823-1868`) — Nearly identical 50-line blocks. Extract a shared function parameterized by SSRC, timestamp, packet/octet counts.
 - [x] **Replace `objc_setAssociatedObject` for delegate retention** (`HAPCameraAccessory.swift:1190, 1200`) — Store delegates as regular properties on `CameraStreamSession` instead of ObjC associated objects.
@@ -36,3 +37,4 @@
 ## Other
 
 - [x] Allow turning accessories off entirely. For example selecting "None" as the camera for the light sensor should disable the light sensor completely.
+- [ ] Report device battery level on accessories.
