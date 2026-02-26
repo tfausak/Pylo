@@ -227,6 +227,15 @@ final class HAPViewModel: ObservableObject {
       }
       self.lightMonitor = monitor
 
+      // Pause/resume the light monitor around snapshot captures so only
+      // one AVCaptureSession is active at a time (iOS limitation).
+      camera.onSnapshotWillCapture = { [weak monitor] in
+        monitor?.pauseSession()
+      }
+      camera.onSnapshotDidCapture = { [weak monitor] in
+        monitor?.resumeSession()
+      }
+
       // Set up motion monitor (accelerometer)
       let motion = MotionMonitor()
       self.isMotionAvailable = motion.isAvailable

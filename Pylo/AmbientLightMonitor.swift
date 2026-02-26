@@ -106,15 +106,28 @@ final class AmbientLightMonitor {
     start(with: camera)
   }
 
+  /// Synchronously stop the capture session so the camera hardware is
+  /// fully released before this method returns.  Used when another
+  /// capture session needs exclusive camera access (e.g. snapshot).
+  func pauseSession() {
+    captureSession?.stopRunning()
+    logger.debug("Ambient light session paused")
+  }
+
+  /// Restart a previously paused session.
+  func resumeSession() {
+    guard let session = captureSession, !session.isRunning else { return }
+    DispatchQueue.global(qos: .background).async {
+      session.startRunning()
+    }
+    logger.debug("Ambient light session resumed")
+  }
+
   func stop() {
     timer?.invalidate()
     timer = nil
 
-    if let session = captureSession {
-      DispatchQueue.global(qos: .background).async {
-        session.stopRunning()
-      }
-    }
+    captureSession?.stopRunning()
     captureSession = nil
 
     logger.info("Ambient light monitor stopped")

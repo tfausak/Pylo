@@ -21,6 +21,11 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
   let firmwareRevision: String
   var onStateChange: ((_ aid: Int, _ iid: Int, _ value: Any) -> Void)?
 
+  /// Called before/after snapshot capture so the host can pause other capture sessions
+  /// (e.g. the ambient light monitor) that would conflict with the snapshot session.
+  var onSnapshotWillCapture: (() -> Void)?
+  var onSnapshotDidCapture: (() -> Void)?
+
   private let logger = Logger(subsystem: "com.example.hap", category: "Camera")
 
   /// Which camera to use for streaming and snapshots (nil = default back wide-angle).
@@ -31,6 +36,9 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
 
   /// Active streaming session (nil when idle).
   private var streamSession: CameraStreamSession?
+
+  /// Most recent JPEG snapshot captured during streaming (used as fallback for snapshot requests).
+  private var cachedSnapshot: Data?
 
   /// Whether the microphone is muted.
   private var isMuted: Bool = false
@@ -509,6 +517,9 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
     session.isMuted = isMuted
     session.speakerMuted = speakerMuted
     session.speakerVolume = speakerVolume
+    session.onSnapshotFrame = { [weak self] jpeg in
+      self?.cachedSnapshot = jpeg
+    }
 
     let effectiveBitrate = max(bitrate, minimumBitrate)
     let rotation = currentRotation()
@@ -586,34 +597,40 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
 
   /// Capture a single JPEG frame from the selected camera synchronously.
   /// Uses AVCaptureVideoDataOutput instead of AVCapturePhotoOutput to avoid
-  /// the system shutter sound. Only runs when no stream is active to avoid
-  /// camera conflicts.
+  /// the system shutter sound. Falls back to a cached frame from the last
+  /// active stream when a fresh capture isn't possible.
   func captureSnapshot(width: Int, height: Int) -> Data? {
-    // If streaming is active, skip snapshot to avoid camera conflicts
-    // (the FigCaptureSourceRemote errors come from two sessions fighting over the camera)
+    // If streaming is active, return the cached frame (can't run two sessions
+    // on the same camera simultaneously).
     if streamSession != nil {
-      logger.info("Skipping snapshot — stream is active")
-      return nil
+      logger.info("Stream active — returning cached snapshot")
+      return cachedSnapshot
     }
 
     guard let camera = resolveCamera() else {
       logger.error("No camera available for snapshot")
-      return nil
+      return cachedSnapshot
     }
+
+    // Pause other capture sessions (e.g. ambient light monitor) — iOS only
+    // allows one AVCaptureSession at a time per camera, and even sessions on
+    // different cameras can interfere with each other.
+    onSnapshotWillCapture?()
+    defer { onSnapshotDidCapture?() }
 
     let session = AVCaptureSession()
     session.sessionPreset = width > 1280 ? .hd1920x1080 : width > 640 ? .hd1280x720 : .medium
 
     guard let input = try? AVCaptureDeviceInput(device: camera),
       session.canAddInput(input)
-    else { return nil }
+    else { return cachedSnapshot }
     session.addInput(input)
 
     let videoOutput = AVCaptureVideoDataOutput()
     videoOutput.videoSettings = [
       kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
     ]
-    guard session.canAddOutput(videoOutput) else { return nil }
+    guard session.canAddOutput(videoOutput) else { return cachedSnapshot }
     session.addOutput(videoOutput)
 
     // Rotate to match current device orientation
@@ -624,22 +641,31 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
       connection.videoRotationAngle = CGFloat(rotation.angle)
     }
 
-    let grabber = FrameGrabber()
+    // Skip early frames so auto-exposure has time to converge; the very
+    // first frames from a cold-started session are often black/dark.
+    let grabber = FrameGrabber(framesToSkip: 10)
     let queue = DispatchQueue(label: "com.example.hap.snapshot", qos: .userInteractive)
     videoOutput.setSampleBufferDelegate(grabber, queue: queue)
 
     session.startRunning()
     defer { session.stopRunning() }
 
-    // Wait up to 3 seconds for a frame
+    // Wait up to 3 seconds for a usable frame
     _ = grabber.semaphore.wait(timeout: .now() + 3)
 
-    guard let pixelBuffer = grabber.pixelBuffer else { return nil }
+    guard let pixelBuffer = grabber.pixelBuffer else {
+      logger.warning("Frame grab timed out — returning cached snapshot")
+      return cachedSnapshot
+    }
 
     let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
     let context = CIContext()
     let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
-    return context.jpegRepresentation(of: ciImage, colorSpace: colorSpace, options: [:])
+    guard let jpeg = context.jpegRepresentation(of: ciImage, colorSpace: colorSpace, options: [:])
+    else { return cachedSnapshot }
+
+    cachedSnapshot = jpeg
+    return jpeg
   }
 
   // MARK: - JSON Serialization
@@ -747,13 +773,21 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
 private final class FrameGrabber: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
   let semaphore = DispatchSemaphore(value: 0)
   var pixelBuffer: CVPixelBuffer?
+  private let framesToSkip: Int
+  private var framesReceived = 0
+
+  init(framesToSkip: Int = 0) {
+    self.framesToSkip = framesToSkip
+  }
 
   func captureOutput(
     _ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
     from connection: AVCaptureConnection
   ) {
-    // Grab only the first frame
     guard pixelBuffer == nil else { return }
+    framesReceived += 1
+    // Skip early frames so auto-exposure can settle.
+    guard framesReceived > framesToSkip else { return }
     pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)
     semaphore.signal()
   }
@@ -840,6 +874,12 @@ final class CameraStreamSession {
   private var incomingSRTPContext: SRTPContext?
   var speakerMuted: Bool = false
   var speakerVolume: Int = 100
+
+  // Snapshot caching — periodically grab a JPEG from the video stream
+  var onSnapshotFrame: ((Data) -> Void)?
+  private var snapshotFrameCounter = 0
+  private let snapshotInterval = 150  // every ~5s at 30fps
+  private lazy var snapshotCIContext = CIContext()
 
   // Audio encoder state — accumulates PCM until we have a full AAC-ELD frame
   private var pcmAccumulator = Data()
@@ -1227,6 +1267,19 @@ final class CameraStreamSession {
     guard let cs = compressionSession else { return }
 
     frameCount += 1
+
+    // Periodically cache a JPEG for snapshot requests while streaming.
+    snapshotFrameCounter += 1
+    if snapshotFrameCounter >= snapshotInterval, let callback = onSnapshotFrame {
+      snapshotFrameCounter = 0
+      let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+      let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
+      if let jpeg = snapshotCIContext.jpegRepresentation(
+        of: ciImage, colorSpace: colorSpace, options: [:])
+      {
+        callback(jpeg)
+      }
+    }
 
     // Force keyframe on first frame
     let props: CFDictionary? =
