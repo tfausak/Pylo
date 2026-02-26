@@ -164,9 +164,12 @@ final class SRPServer {
 
     // Compute M1 = H(H(N) XOR H(g) | H(I) | s | A | B | K)
 
-    // H(N) XOR H(g) — hash the padded 384-byte representations per HAP spec
-    let hashN = Data(SHA512.hash(data: Self.pad(Self.prime)))
-    let hashG = Data(SHA512.hash(data: Self.pad(Self.g)))
+    // H(N) XOR H(g) — hash the raw (unpadded) serializations per RFC 2945.
+    // Note: PAD() is used for k = H(PAD(N) | PAD(g)), but NOT for M1's H(N)/H(g).
+    // For N, serialize() == pad() since it's already 384 bytes; for g=5, serialize()
+    // is [0x05] (1 byte), which is what Apple Home.app expects.
+    let hashN = Data(SHA512.hash(data: Self.prime.serialize()))
+    let hashG = Data(SHA512.hash(data: Self.g.serialize()))
     let xorResult = Self.xor(hashN, hashG)
 
     // H(I) where I is the username
