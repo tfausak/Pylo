@@ -30,7 +30,7 @@
 - [x] **No privacy manifest (`PrivacyInfo.xcprivacy`)** — iOS 17+ requires privacy manifests for apps using `UserDefaults`, file system APIs, `identifierForVendor`. App Store Connect will warn/reject without one.
 - [ ] **`isIdleTimerDisabled` usage** (`PyloApp.swift:274`) — Preventing screen sleep is scrutinized under Guideline 2.5.4. Unusual for a "bridge" app.
   - This is related to background mode. Maybe the user should have to opt into this explicitly? By toggling it on or something.
-- [ ] **`UIScreen.main.brightness` manipulation** (`PyloApp.swift:365`) — Setting system brightness to 0 is aggressive. If the app is killed in this state, the user's screen stays black.
+- [x] **`UIScreen.main.brightness` manipulation** (`PyloApp.swift:365`) — Setting system brightness to 0 is aggressive. If the app is killed in this state, the user's screen stays black.
 
 ## Other
 
