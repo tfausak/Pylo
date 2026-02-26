@@ -8,5 +8,7 @@
 	</array>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>The microphone is used to stream audio to HomeKit controllers.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>Motion data is used for HomeKit motion sensor reporting.</string>
 </dict>
 </plist>
