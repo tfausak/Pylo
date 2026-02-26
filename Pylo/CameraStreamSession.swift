@@ -857,9 +857,13 @@ final class CameraStreamSession {
         if sourceChannels == 1 {
           floatSamples = Array(floatPtr)
         } else {
-          // Mix down to mono
+          // Mix down to mono by averaging all channels
           for i in stride(from: 0, to: floatPtr.count, by: sourceChannels) {
-            floatSamples.append(floatPtr[i])
+            var sum: Float = 0
+            for ch in 0..<sourceChannels where i + ch < floatPtr.count {
+              sum += floatPtr[i + ch]
+            }
+            floatSamples.append(sum / Float(sourceChannels))
           }
         }
       }
