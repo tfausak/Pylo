@@ -2,10 +2,13 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>audio</string>
-	</array>
+	<!--
+		UIBackgroundModes: audio was removed intentionally.
+		Apple rejects apps under Guideline 2.5.4 that declare the audio
+		background mode without providing audible content to the user while
+		backgrounded. Pylo only captures/streams audio during an active
+		HomeKit session, which does not qualify. Do not re-add this key.
+	-->
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_hap._tcp</string>
