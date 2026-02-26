@@ -119,6 +119,9 @@ final class HAPViewModel {
       cameraAccessory?.minimumBitrate = videoQuality.minimumBitrate
     }
   }
+  // NOTE: iOS does not offer a background mode suitable for a HAP server.
+  // The app cannot run indefinitely in the background, so keeping the screen
+  // awake (opt-in) is the best available workaround to stay reachable.
   var keepScreenAwake: Bool = false {
     didSet {
       guard keepScreenAwake != oldValue else { return }
