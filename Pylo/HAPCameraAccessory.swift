@@ -440,27 +440,6 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
             } else if ptag == 0x03 {  // Selected audio parameters
               let asub = TLV8.decode(pval) as [(UInt8, Data)]
               for (atag, aval) in asub {
-                if atag == 0x01 {  // Selected audio codec config
-                  let codecSub = TLV8.decode(aval) as [(UInt8, Data)]
-                  for (ctag, cval) in codecSub {
-                    if ctag == 0x01, let codecType = cval.first {
-                      let codecNames = ["PCMU", "PCMA", "AAC-ELD", "Opus"]
-                      let name = Int(codecType) < codecNames.count ? codecNames[Int(codecType)] : "unknown(\(codecType))"
-                      logger.info("Selected audio codec: \(name)")
-                    }
-                    if ctag == 0x02 {  // Audio codec params
-                      let paramSub = TLV8.decode(cval) as [(UInt8, Data)]
-                      for (ptag2, pval2) in paramSub {
-                        if ptag2 == 0x01, let ch = pval2.first { logger.info("  Audio channels: \(ch)") }
-                        if ptag2 == 0x02, let br = pval2.first { logger.info("  Audio bitrate: \(br == 0 ? "variable" : br == 1 ? "constant" : "unknown")") }
-                        if ptag2 == 0x03, let sr = pval2.first {
-                          let rates = ["8kHz", "16kHz", "24kHz"]
-                          logger.info("  Audio sample rate: \(Int(sr) < rates.count ? rates[Int(sr)] : "unknown(\(sr))")")
-                        }
-                      }
-                    }
-                  }
-                }
                 if atag == 0x03 {  // Audio RTP parameters
                   let rtpSub = TLV8.decode(aval) as [(UInt8, Data)]
                   for (rtag, rval) in rtpSub {
@@ -918,7 +897,6 @@ final class CameraStreamSession {
     self.pcmAccumulator = Data()
 
     // Initialize SRTP with shared keys (both sides use the same key material)
-    logger.info("Audio SRTP key=\(self.audioSRTPKey.count)B salt=\(self.audioSRTPSalt.count)B (expected 16B key, 14B salt)")
     if audioSRTPKey.isEmpty || audioSRTPSalt.isEmpty {
       logger.warning("Audio SRTP keys are EMPTY — audio encryption will fail")
     }
@@ -1032,7 +1010,7 @@ final class CameraStreamSession {
   }
 
   func stopStreaming() {
-    logger.info("Stopping stream (received \(self.incomingAudioPacketCount) incoming audio packets)")
+    logger.info("Stopping stream")
 
     // Video cleanup
     rtcpTimer?.cancel()
@@ -1569,19 +1547,10 @@ final class CameraStreamSession {
   private var audioSampleCount: Int = 0
 
   private func handleAudioSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
-    guard audioConverter != nil else {
-      logger.info("Audio sample dropped: encoder not ready")
-      return
-    }
-    guard audioSocketFD >= 0 else {
-      logger.info("Audio sample dropped: audio UDP not ready")
-      return
-    }
+    guard audioConverter != nil else { return }
+    guard audioSocketFD >= 0 else { return }
     guard !isMuted else { return }
     audioSampleCount += 1
-    if audioSampleCount == 1 || audioSampleCount % 500 == 0 {
-      logger.info("Audio mic sample #\(self.audioSampleCount) received")
-    }
 
     // Get PCM data from the sample buffer
     guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { return }
@@ -1601,9 +1570,6 @@ final class CameraStreamSession {
     // Convert to Float32 at 16kHz if needed (the mic may deliver Int16 at 44.1/48kHz)
     let pcmFloat32: Data
     if let asbd, asbd.mFormatID == kAudioFormatLinearPCM {
-      if audioSampleCount == 1 {
-        logger.info("Audio source: \(asbd.mSampleRate)Hz, \(asbd.mChannelsPerFrame)ch, \(asbd.mBitsPerChannel)bit → resampling to 16kHz mono Float32")
-      }
       pcmFloat32 = convertToFloat32At16kHz(rawData, sourceASBD: asbd)
     } else {
       logger.warning("Audio: unexpected format ID \(asbd?.mFormatID ?? 0)")
@@ -1759,9 +1725,6 @@ final class CameraStreamSession {
     var framedPayload = auHeader
     framedPayload.append(aacData)
 
-    if audioPacketsSent == 0 || audioPacketsSent % 500 == 0 {
-      logger.info("Audio encoded frame: \(encodedSize)B AAC-ELD, total packets sent: \(self.audioPacketsSent)")
-    }
     sendAudioRTPPacket(payload: framedPayload)
   }
 
@@ -1932,12 +1895,8 @@ final class CameraStreamSession {
     guard let engine = audioEngine else { return false }
     if engine.isRunning { return true }
     do {
-      #if os(iOS)
-        let session = AVAudioSession.sharedInstance()
-        logger.info("Audio session before engine start: route=\(session.currentRoute.outputs.map { $0.portName }), sampleRate=\(session.sampleRate), category=\(session.category.rawValue)")
-      #endif
       try engine.start()
-      logger.info("AVAudioEngine (re)started, outputNode sampleRate=\(engine.outputNode.outputFormat(forBus: 0).sampleRate)")
+      logger.info("AVAudioEngine started")
       return true
     } catch {
       logger.error("AVAudioEngine start error: \(error)")
@@ -1952,13 +1911,10 @@ final class CameraStreamSession {
     guard audioSocketFD >= 0, var addr = controllerAudioAddr else { return }
     data.withUnsafeBytes { buf in
       guard let base = buf.baseAddress else { return }
-      let sent = withUnsafePointer(to: &addr) { addrPtr in
+      withUnsafePointer(to: &addr) { addrPtr in
         addrPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
-          sendto(audioSocketFD, base, buf.count, 0, sockPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
+          _ = sendto(audioSocketFD, base, buf.count, 0, sockPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
         }
-      }
-      if sent < 0 && (audioPacketsSent <= 1 || audioPacketsSent % 500 == 0) {
-        logger.warning("Audio sendto error: errno \(errno)")
       }
     }
   }
@@ -1988,9 +1944,6 @@ final class CameraStreamSession {
     guard let ctx = incomingSRTPContext else { return }
     guard !speakerMuted else { return }
     incomingAudioPacketCount += 1
-    if incomingAudioPacketCount == 1 || incomingAudioPacketCount % 500 == 0 {
-      logger.info("Incoming audio SRTP packet #\(self.incomingAudioPacketCount), size=\(srtpData.count)B")
-    }
 
     // SRTP unprotect
     guard let rtpPacket = ctx.unprotect(srtpData) else {
@@ -2014,9 +1967,6 @@ final class CameraStreamSession {
       aacPayload = Data(aacPayload[aacPayload.startIndex + 4..<aacPayload.endIndex])
     }
 
-    if incomingAudioPacketCount <= 3 || aacPayload.count > 20 {
-      logger.info("Audio RTP #\(self.incomingAudioPacketCount): AAC-ELD frame \(aacPayload.count)B")
-    }
     guard !aacPayload.isEmpty else { return }
 
     // Decode AAC-ELD → PCM
@@ -2091,34 +2041,16 @@ final class CameraStreamSession {
     }
 
     let decodedSize = Int(outputBufferList.mBuffers.mDataByteSize)
-    let decodedPackets = Int(packetCount)
-    if status != noErr {
-      if incomingAudioPacketCount <= 10 || incomingAudioPacketCount % 100 == 0 {
-        logger.warning("AAC-ELD decode status=\(status), output=\(decodedSize)B (\(decodedPackets) pkts), input=\(aacPayload.count)B")
-      }
-      if decodedSize == 0 { return }
-    }
-    guard decodedSize > 0, let playerNode = audioPlayerNode else {
-      if incomingAudioPacketCount <= 10 || incomingAudioPacketCount % 100 == 0 {
-        logger.info("Audio decode produced 0B (packet #\(self.incomingAudioPacketCount)), skipping")
-      }
-      return
-    }
+    if status != noErr && decodedSize == 0 { return }
+    guard decodedSize > 0, let playerNode = audioPlayerNode else { return }
 
     let sampleCount = decodedSize / 4
 
     // Skip tiny priming buffers (< 10 samples / 0.6ms) — they're inaudible and
     // can cause the player to enter a finished state before real audio arrives.
-    if sampleCount < 10 {
-      if incomingAudioPacketCount <= 10 {
-        logger.info("Skipping priming buffer: \(decodedSize)B (\(sampleCount) samples)")
-      }
-      return
-    }
+    if sampleCount < 10 { return }
 
-    // Apply volume gain and measure peak amplitude
     let gain = Float(speakerVolume) / 100.0
-    var peak: Float = 0
 
     guard
       let format = AVAudioFormat(
@@ -2133,18 +2065,9 @@ final class CameraStreamSession {
     outputBuffer.withMemoryRebound(to: Float.self, capacity: sampleCount) { src in
       if let channelData = pcmBuffer.floatChannelData?[0] {
         for i in 0..<sampleCount {
-          let sample = src[i] * gain
-          channelData[i] = sample
-          let absSample = abs(sample)
-          if absSample > peak { peak = absSample }
+          channelData[i] = src[i] * gain
         }
       }
-    }
-
-    if incomingAudioPacketCount <= 10 || incomingAudioPacketCount % 25 == 0 || peak > 0.01 {
-      let engineRunning = audioEngine?.isRunning ?? false
-      let playerPlaying = playerNode.isPlaying
-      logger.info("Audio decoded #\(self.incomingAudioPacketCount): \(sampleCount) samples, peak=\(peak, format: .fixed(precision: 4)), engine=\(engineRunning), player=\(playerPlaying)")
     }
 
     guard ensureAudioEngineRunning() else { return }
@@ -2152,7 +2075,6 @@ final class CameraStreamSession {
     if !audioPlayerStarted || !playerNode.isPlaying {
       playerNode.play()
       audioPlayerStarted = true
-      logger.info("Audio player started (volume=\(self.speakerVolume)%)")
     }
   }
 }
