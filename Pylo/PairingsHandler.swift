@@ -34,6 +34,17 @@ enum PairingsHandler {
       return errorResponse(error: .unknown)
     }
 
+    // HAP spec §5.10-5.12: add/remove pairings requires admin privileges
+    if method == methodAddPairing || method == methodRemovePairing {
+      guard let controllerID = connection.verifiedControllerID,
+        let pairing = server.pairingStore.getPairing(identifier: controllerID),
+        pairing.isAdmin
+      else {
+        logger.warning("Non-admin controller attempted add/remove pairing")
+        return errorResponse(error: .authentication)
+      }
+    }
+
     switch method {
     case methodAddPairing:
       return handleAdd(tlv: tlv, server: server)

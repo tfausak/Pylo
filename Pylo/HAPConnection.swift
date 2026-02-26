@@ -24,6 +24,10 @@ final class HAPConnection {
   /// Characteristics this connection is subscribed to (for EVENT notifications).
   var eventSubscriptions: Set<CharacteristicID> = []
 
+  /// The pairing identifier of the controller that authenticated this session.
+  /// Set after pair-verify M3 succeeds; used to check admin status for /pairings.
+  var verifiedControllerID: String?
+
   /// The pairing session state (tracks in-progress pair-setup/verify).
   var pairSetupState: PairSetupSession?
   var pairVerifyState: PairVerifySession?
