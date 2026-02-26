@@ -321,6 +321,10 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
       "SetupEndpoints: controller=\(controllerAddress):\(controllerVideoPort)/\(controllerAudioPort)"
     )
 
+    // Stop any existing stream session before creating a new one
+    streamSession?.stopStreaming()
+    streamSession = nil
+
     let videoSSRC = UInt32.random(in: 1...UInt32.max)
     let audioSSRC = UInt32.random(in: 1...UInt32.max)
 
@@ -482,7 +486,14 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
   /// The camera sensor's native orientation is landscape-left, so portrait requires a 90° rotation.
   private func currentRotation() -> (angle: Int, swapDimensions: Bool) {
     #if os(iOS)
-      switch UIDevice.current.orientation {
+      // UIDevice.current.orientation must be read on the main thread.
+      let orientation: UIDeviceOrientation
+      if Thread.isMainThread {
+        orientation = UIDevice.current.orientation
+      } else {
+        orientation = DispatchQueue.main.sync { UIDevice.current.orientation }
+      }
+      switch orientation {
       case .landscapeLeft: return (0, false)
       case .landscapeRight: return (180, false)
       case .portraitUpsideDown: return (270, true)
@@ -656,12 +667,11 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
     // Wait up to 3 seconds for a usable frame
     _ = grabber.semaphore.wait(timeout: .now() + 3)
 
-    guard let pixelBuffer = grabber.pixelBuffer else {
+    guard let ciImage = grabber.capturedImage else {
       logger.warning("Frame grab timed out — returning cached snapshot")
       return cachedSnapshot
     }
 
-    let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
     let context = CIContext()
     guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
       let jpeg = context.jpegRepresentation(of: ciImage, colorSpace: colorSpace, options: [:])
@@ -763,7 +773,9 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
 
 private final class FrameGrabber: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
   let semaphore = DispatchSemaphore(value: 0)
-  var pixelBuffer: CVPixelBuffer?
+  /// CIImage created inside the callback to avoid holding a CVPixelBuffer
+  /// beyond the delegate callback lifetime (AVFoundation may recycle the backing memory).
+  var capturedImage: CIImage?
   private let framesToSkip: Int
   private var framesReceived = 0
 
@@ -775,11 +787,13 @@ private final class FrameGrabber: NSObject, AVCaptureVideoDataOutputSampleBuffer
     _ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
     from connection: AVCaptureConnection
   ) {
-    guard pixelBuffer == nil else { return }
+    guard capturedImage == nil else { return }
     framesReceived += 1
     // Skip early frames so auto-exposure can settle.
     guard framesReceived > framesToSkip else { return }
-    pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)
+    if let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) {
+      capturedImage = CIImage(cvPixelBuffer: pixelBuffer)
+    }
     semaphore.signal()
   }
 }
