@@ -553,6 +553,102 @@ struct AccessoryInfoServiceTests {
   }
 }
 
+// MARK: - Accessory IID Constants Tests
+
+@Suite("Accessory IID Constants")
+struct AccessoryIIDConstantsTests {
+
+  @Test("Lightbulb IIDs match toJSON output")
+  func lightbulbIIDs() {
+    let light = HAPAccessory(aid: 2)
+    let json = light.toJSON()
+    let services = json["services"] as! [[String: Any]]
+    let lightService = services[1]
+    #expect(lightService["iid"] as? Int == HAPAccessory.iidLightbulbService)
+    let chars = lightService["characteristics"] as! [[String: Any]]
+    #expect(chars[0]["iid"] as? Int == HAPAccessory.iidOn)
+    #expect(chars[1]["iid"] as? Int == HAPAccessory.iidBrightness)
+  }
+
+  @Test("Light sensor IIDs match toJSON output")
+  func lightSensorIIDs() {
+    let sensor = HAPLightSensorAccessory(aid: 4)
+    let json = sensor.toJSON()
+    let services = json["services"] as! [[String: Any]]
+    let sensorService = services[1]
+    #expect(
+      sensorService["iid"] as? Int
+        == HAPLightSensorAccessory.iidLightSensorService)
+    let chars = sensorService["characteristics"] as! [[String: Any]]
+    #expect(
+      chars[0]["iid"] as? Int
+        == HAPLightSensorAccessory.iidAmbientLightLevel)
+  }
+
+  @Test("Motion sensor IIDs match toJSON output")
+  func motionSensorIIDs() {
+    let motion = HAPMotionSensorAccessory(aid: 5)
+    let json = motion.toJSON()
+    let services = json["services"] as! [[String: Any]]
+    let sensorService = services[1]
+    #expect(
+      sensorService["iid"] as? Int
+        == HAPMotionSensorAccessory.iidMotionSensorService)
+    let chars = sensorService["characteristics"] as! [[String: Any]]
+    #expect(
+      chars[0]["iid"] as? Int
+        == HAPMotionSensorAccessory.iidMotionDetected)
+  }
+
+  @Test("Camera IIDs match toJSON output")
+  func cameraIIDs() {
+    let camera = HAPCameraAccessory(aid: 3)
+    let json = camera.toJSON()
+    let services = json["services"] as! [[String: Any]]
+
+    let cameraService = services[1]
+    #expect(
+      cameraService["iid"] as? Int
+        == HAPCameraAccessory.iidCameraService)
+    let cameraChars =
+      cameraService["characteristics"] as! [[String: Any]]
+    #expect(
+      cameraChars[0]["iid"] as? Int
+        == HAPCameraAccessory.iidSupportedVideoConfig)
+    #expect(
+      cameraChars[5]["iid"] as? Int
+        == HAPCameraAccessory.iidStreamingStatus)
+
+    let micService = services[2]
+    #expect(
+      micService["iid"] as? Int
+        == HAPCameraAccessory.iidMicrophoneService)
+
+    let speakerService = services[3]
+    #expect(
+      speakerService["iid"] as? Int
+        == HAPCameraAccessory.iidSpeakerService)
+  }
+
+  @Test("AccessoryInfoIID constants match shared JSON")
+  func accessoryInfoIIDs() {
+    let bridge = HAPBridgeInfo()
+    let json = bridge.accessoryInformationServiceJSON()
+    #expect(json["iid"] as? Int == AccessoryInfoIID.service)
+    let chars = json["characteristics"] as! [[String: Any]]
+    #expect(chars[0]["iid"] as? Int == AccessoryInfoIID.identify)
+    #expect(
+      chars[1]["iid"] as? Int == AccessoryInfoIID.manufacturer)
+    #expect(chars[2]["iid"] as? Int == AccessoryInfoIID.model)
+    #expect(chars[3]["iid"] as? Int == AccessoryInfoIID.name)
+    #expect(
+      chars[4]["iid"] as? Int == AccessoryInfoIID.serialNumber)
+    #expect(
+      chars[5]["iid"] as? Int
+        == AccessoryInfoIID.firmwareRevision)
+  }
+}
+
 // MARK: - HAP Bridge Info Tests
 
 @Suite("HAP Bridge Info")

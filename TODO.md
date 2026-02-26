@@ -17,7 +17,7 @@
 - [x] **Deduplicate `toJSON` Accessory Information boilerplate** — The Accessory Information service JSON is copy-pasted across all 5 accessory classes. Extract to a shared helper or protocol extension.
 - [ ] **Deduplicate RTCP sender report construction** (`HAPCameraAccessory.swift:1499-1550` and `1823-1868`) — Nearly identical 50-line blocks. Extract a shared function parameterized by SSRC, timestamp, packet/octet counts.
 - [ ] **Replace `objc_setAssociatedObject` for delegate retention** (`HAPCameraAccessory.swift:1190, 1200`) — Store delegates as regular properties on `CameraStreamSession` instead of ObjC associated objects.
-- [ ] **Replace magic number IIDs with named constants** — Callbacks use bare numbers like `iid == 9` (`PyloApp.swift:156`) and `iid == 14` (`PyloApp.swift:187`). Reference named constants from the accessory classes.
+- [x] **Replace magic number IIDs with named constants** — Callbacks use bare numbers like `iid == 9` (`PyloApp.swift:156`) and `iid == 14` (`PyloApp.swift:187`). Reference named constants from the accessory classes.
 - [x] **Fix logger subsystem** — All loggers use `"com.example.hap"`. Should use `"me.fausak.taylor.Pylo"`.
 - [ ] **Type-safe characteristic values** — `HAPAccessoryProtocol` uses `Any` for `readCharacteristic`/`writeCharacteristic`. A `HAPValue` enum would provide type safety.
 

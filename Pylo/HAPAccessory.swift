@@ -40,36 +40,55 @@ protocol HAPAccessoryProtocol: AnyObject {
   func toJSON() -> [String: Any]
 }
 
+// MARK: - Shared Accessory Information IIDs
+
+/// Instance IDs for the Accessory Information service, shared by all accessories.
+enum AccessoryInfoIID {
+  static let service = 1
+  static let identify = 2
+  static let manufacturer = 3
+  static let model = 4
+  static let name = 5
+  static let serialNumber = 6
+  static let firmwareRevision = 7
+}
+
 extension HAPAccessoryProtocol {
   /// Builds the Accessory Information service JSON (iid 1, characteristics 2-7).
   /// Shared by all accessories to avoid duplicating this boilerplate.
   func accessoryInformationServiceJSON() -> [String: Any] {
     [
-      "iid": 1,
+      "iid": AccessoryInfoIID.service,
       "type": HAPAccessory.uuidAccessoryInformation,
       "characteristics": [
         [
-          "iid": 2, "type": HAPAccessory.uuidIdentify, "format": "bool",
+          "iid": AccessoryInfoIID.identify,
+          "type": HAPAccessory.uuidIdentify, "format": "bool",
           "perms": ["pw"],
         ],
         [
-          "iid": 3, "type": HAPAccessory.uuidManufacturer, "format": "string",
+          "iid": AccessoryInfoIID.manufacturer,
+          "type": HAPAccessory.uuidManufacturer, "format": "string",
           "perms": ["pr"], "value": manufacturer,
         ],
         [
-          "iid": 4, "type": HAPAccessory.uuidModel, "format": "string",
+          "iid": AccessoryInfoIID.model,
+          "type": HAPAccessory.uuidModel, "format": "string",
           "perms": ["pr"], "value": model,
         ],
         [
-          "iid": 5, "type": HAPAccessory.uuidName, "format": "string",
+          "iid": AccessoryInfoIID.name,
+          "type": HAPAccessory.uuidName, "format": "string",
           "perms": ["pr"], "value": name,
         ],
         [
-          "iid": 6, "type": HAPAccessory.uuidSerialNumber, "format": "string",
+          "iid": AccessoryInfoIID.serialNumber,
+          "type": HAPAccessory.uuidSerialNumber, "format": "string",
           "perms": ["pr"], "value": serialNumber,
         ],
         [
-          "iid": 7, "type": HAPAccessory.uuidFirmwareRevision, "format": "string",
+          "iid": AccessoryInfoIID.firmwareRevision,
+          "type": HAPAccessory.uuidFirmwareRevision, "format": "string",
           "perms": ["pr"], "value": firmwareRevision,
         ],
       ],
@@ -123,19 +142,10 @@ final class HAPAccessory: HAPAccessoryProtocol {
   }
 
   // MARK: - Instance IDs (iid)
-  // These must be stable. We assign them statically for our simple accessory.
-  //
-  // Service: Accessory Information (iid 1)
-  //   - Identify:          iid 2
-  //   - Manufacturer:      iid 3
-  //   - Model:             iid 4
-  //   - Name:              iid 5
-  //   - Serial Number:     iid 6
-  //   - Firmware Revision: iid 7
-  //
-  // Service: Lightbulb (iid 8)
-  //   - On:                iid 9
-  //   - Brightness:        iid 10
+
+  static let iidLightbulbService = 8
+  static let iidOn = 9
+  static let iidBrightness = 10
 
   // MARK: - HAP Service/Characteristic UUIDs (shortened form)
   // HAP uses Apple-defined UUIDs of the form 000000XX-0000-1000-8000-0026BB765291.
@@ -157,13 +167,13 @@ final class HAPAccessory: HAPAccessoryProtocol {
 
   func readCharacteristic(iid: Int) -> Any? {
     switch iid {
-    case 3: return manufacturer
-    case 4: return model
-    case 5: return name
-    case 6: return serialNumber
-    case 7: return firmwareRevision
-    case 9: return isOn
-    case 10: return brightness
+    case AccessoryInfoIID.manufacturer: return manufacturer
+    case AccessoryInfoIID.model: return model
+    case AccessoryInfoIID.name: return name
+    case AccessoryInfoIID.serialNumber: return serialNumber
+    case AccessoryInfoIID.firmwareRevision: return firmwareRevision
+    case Self.iidOn: return isOn
+    case Self.iidBrightness: return brightness
     default: return nil
     }
   }
@@ -174,12 +184,10 @@ final class HAPAccessory: HAPAccessoryProtocol {
   @discardableResult
   func writeCharacteristic(iid: Int, value: Any) -> Bool {
     switch iid {
-    case 2:
-      // Identify
+    case AccessoryInfoIID.identify:
       identify()
       return true
-    case 9:
-      // On (bool)
+    case Self.iidOn:
       if let v = value as? Bool {
         isOn = v
         onStateChange?(aid, iid, v)
@@ -191,8 +199,7 @@ final class HAPAccessory: HAPAccessoryProtocol {
         return true
       }
       return false
-    case 10:
-      // Brightness (int 0-100)
+    case Self.iidBrightness:
       if let v = value as? Int {
         brightness = max(0, min(100, v))
         onStateChange?(aid, iid, brightness)
@@ -260,15 +267,15 @@ final class HAPAccessory: HAPAccessoryProtocol {
         accessoryInformationServiceJSON(),
         // Lightbulb Service
         [
-          "iid": 8,
+          "iid": Self.iidLightbulbService,
           "type": Self.uuidLightbulb,
           "characteristics": [
             characteristicJSON(
-              iid: 9, type: Self.uuidOn, format: "bool",
+              iid: Self.iidOn, type: Self.uuidOn, format: "bool",
               perms: ["pr", "pw", "ev"], value: isOn),
             characteristicJSON(
-              iid: 10, type: Self.uuidBrightness, format: "int",
-              perms: ["pr", "pw", "ev"], value: brightness,
+              iid: Self.iidBrightness, type: Self.uuidBrightness,
+              format: "int", perms: ["pr", "pw", "ev"], value: brightness,
               minValue: 0, maxValue: 100, unit: "percentage"),
           ],
         ],
@@ -330,18 +337,18 @@ final class HAPBridgeInfo: HAPAccessoryProtocol {
 
   func readCharacteristic(iid: Int) -> Any? {
     switch iid {
-    case 3: return manufacturer
-    case 4: return model
-    case 5: return name
-    case 6: return serialNumber
-    case 7: return firmwareRevision
+    case AccessoryInfoIID.manufacturer: return manufacturer
+    case AccessoryInfoIID.model: return model
+    case AccessoryInfoIID.name: return name
+    case AccessoryInfoIID.serialNumber: return serialNumber
+    case AccessoryInfoIID.firmwareRevision: return firmwareRevision
     default: return nil
     }
   }
 
   @discardableResult
   func writeCharacteristic(iid: Int, value: Any) -> Bool {
-    if iid == 2 {
+    if iid == AccessoryInfoIID.identify {
       identify()
       return true
     }
@@ -377,7 +384,9 @@ final class HAPLightSensorAccessory: HAPAccessoryProtocol {
 
   private(set) var ambientLightLevel: Float = 1.0
 
-  // IID 8 = Light Sensor service, IID 9 = Current Ambient Light Level
+  static let iidLightSensorService = 8
+  static let iidAmbientLightLevel = 9
+
   private static let uuidLightSensor = "84"
   private static let uuidAmbientLightLevel = "6B"
 
@@ -399,24 +408,24 @@ final class HAPLightSensorAccessory: HAPAccessoryProtocol {
 
   func updateAmbientLight(_ lux: Float) {
     ambientLightLevel = lux
-    onStateChange?(aid, 9, lux)
+    onStateChange?(aid, Self.iidAmbientLightLevel, lux)
   }
 
   func readCharacteristic(iid: Int) -> Any? {
     switch iid {
-    case 3: return manufacturer
-    case 4: return model
-    case 5: return name
-    case 6: return serialNumber
-    case 7: return firmwareRevision
-    case 9: return ambientLightLevel
+    case AccessoryInfoIID.manufacturer: return manufacturer
+    case AccessoryInfoIID.model: return model
+    case AccessoryInfoIID.name: return name
+    case AccessoryInfoIID.serialNumber: return serialNumber
+    case AccessoryInfoIID.firmwareRevision: return firmwareRevision
+    case Self.iidAmbientLightLevel: return ambientLightLevel
     default: return nil
     }
   }
 
   @discardableResult
   func writeCharacteristic(iid: Int, value: Any) -> Bool {
-    if iid == 2 {
+    if iid == AccessoryInfoIID.identify {
       identify()
       return true
     }
@@ -431,13 +440,15 @@ final class HAPLightSensorAccessory: HAPAccessoryProtocol {
       "services": [
         accessoryInformationServiceJSON(),
         [
-          "iid": 8,
+          "iid": Self.iidLightSensorService,
           "type": Self.uuidLightSensor,
           "characteristics": [
             [
-              "iid": 9, "type": Self.uuidAmbientLightLevel, "format": "float",
+              "iid": Self.iidAmbientLightLevel,
+              "type": Self.uuidAmbientLightLevel, "format": "float",
               "perms": ["pr", "ev"], "value": ambientLightLevel,
-              "minValue": Float(0.0001), "maxValue": Float(100000), "unit": "lux",
+              "minValue": Float(0.0001), "maxValue": Float(100000),
+              "unit": "lux",
             ]
           ],
         ],
@@ -461,7 +472,9 @@ final class HAPMotionSensorAccessory: HAPAccessoryProtocol {
 
   private(set) var isMotionDetected: Bool = false
 
-  // IID 8 = Motion Sensor service, IID 9 = Motion Detected
+  static let iidMotionSensorService = 8
+  static let iidMotionDetected = 9
+
   private static let uuidMotionSensor = "85"
   private static let uuidMotionDetected = "22"
 
@@ -483,24 +496,24 @@ final class HAPMotionSensorAccessory: HAPAccessoryProtocol {
 
   func updateMotionDetected(_ detected: Bool) {
     isMotionDetected = detected
-    onStateChange?(aid, 9, detected)
+    onStateChange?(aid, Self.iidMotionDetected, detected)
   }
 
   func readCharacteristic(iid: Int) -> Any? {
     switch iid {
-    case 3: return manufacturer
-    case 4: return model
-    case 5: return name
-    case 6: return serialNumber
-    case 7: return firmwareRevision
-    case 9: return isMotionDetected
+    case AccessoryInfoIID.manufacturer: return manufacturer
+    case AccessoryInfoIID.model: return model
+    case AccessoryInfoIID.name: return name
+    case AccessoryInfoIID.serialNumber: return serialNumber
+    case AccessoryInfoIID.firmwareRevision: return firmwareRevision
+    case Self.iidMotionDetected: return isMotionDetected
     default: return nil
     }
   }
 
   @discardableResult
   func writeCharacteristic(iid: Int, value: Any) -> Bool {
-    if iid == 2 {
+    if iid == AccessoryInfoIID.identify {
       identify()
       return true
     }
@@ -515,11 +528,12 @@ final class HAPMotionSensorAccessory: HAPAccessoryProtocol {
       "services": [
         accessoryInformationServiceJSON(),
         [
-          "iid": 8,
+          "iid": Self.iidMotionSensorService,
           "type": Self.uuidMotionSensor,
           "characteristics": [
             [
-              "iid": 9, "type": Self.uuidMotionDetected, "format": "bool",
+              "iid": Self.iidMotionDetected,
+              "type": Self.uuidMotionDetected, "format": "bool",
               "perms": ["pr", "ev"], "value": isMotionDetected,
             ]
           ],

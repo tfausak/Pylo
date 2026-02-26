@@ -161,9 +161,11 @@ final class HAPViewModel: ObservableObject {
       lightbulb.onStateChange = { [weak self] aid, iid, value in
         Task { @MainActor in
           guard let self else { return }
-          if iid == 9, let on = value as? Bool {
+          if iid == HAPAccessory.iidOn, let on = value as? Bool {
             self.isLightOn = on
-          } else if iid == 10, let brightness = value as? Int {
+          } else if iid == HAPAccessory.iidBrightness,
+            let brightness = value as? Int
+          {
             self.brightness = brightness
           }
           self.server?.notifySubscribers(aid: aid, iid: iid, value: value)
@@ -173,7 +175,9 @@ final class HAPViewModel: ObservableObject {
       lightSensor.onStateChange = { [weak self] aid, iid, value in
         Task { @MainActor in
           guard let self else { return }
-          if iid == 9, let lux = value as? Float {
+          if iid == HAPLightSensorAccessory.iidAmbientLightLevel,
+            let lux = value as? Float
+          {
             self.ambientLux = lux
           }
           self.server?.notifySubscribers(aid: aid, iid: iid, value: value)
@@ -183,7 +187,9 @@ final class HAPViewModel: ObservableObject {
       motionSensor.onStateChange = { [weak self] aid, iid, value in
         Task { @MainActor in
           guard let self else { return }
-          if iid == 9, let detected = value as? Bool {
+          if iid == HAPMotionSensorAccessory.iidMotionDetected,
+            let detected = value as? Bool
+          {
             self.isMotionDetected = detected
           }
           self.server?.notifySubscribers(aid: aid, iid: iid, value: value)
@@ -193,7 +199,7 @@ final class HAPViewModel: ObservableObject {
       camera.onStateChange = { [weak self] aid, iid, value in
         Task { @MainActor in
           guard let self else { return }
-          if iid == 14 {  // StreamingStatus changed
+          if iid == HAPCameraAccessory.iidStreamingStatus {
             // Check if streaming (base64 TLV8 with status byte)
             if let b64 = value as? String, let data = Data(base64Encoded: b64), data.count >= 3 {
               self.isCameraStreaming = data[data.startIndex + 2] == 1

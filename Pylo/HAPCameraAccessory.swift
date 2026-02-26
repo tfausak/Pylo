@@ -67,30 +67,20 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
     self.firmwareRevision = firmwareRevision
   }
 
-  // MARK: - IID Map
-  //
-  // Service: Accessory Information (iid 1)
-  //   - Identify:          iid 2
-  //   - Manufacturer:      iid 3
-  //   - Model:             iid 4
-  //   - Name:              iid 5
-  //   - Serial Number:     iid 6
-  //   - Firmware Revision: iid 7
-  //
-  // Service: CameraRTPStreamManagement (iid 8)
-  //   - SupportedVideoStreamConfiguration: iid 9
-  //   - SupportedAudioStreamConfiguration: iid 10
-  //   - SupportedRTPConfiguration:         iid 11
-  //   - SetupEndpoints:                    iid 12
-  //   - SelectedRTPStreamConfiguration:    iid 13
-  //   - StreamingStatus:                   iid 14
-  //
-  // Service: Microphone (iid 15)
-  //   - Mute:              iid 16
-  //
-  // Service: Speaker (iid 17)
-  //   - Mute:              iid 18
-  //   - Volume:            iid 19
+  // MARK: - Instance IDs (iid)
+
+  static let iidCameraService = 8
+  static let iidSupportedVideoConfig = 9
+  static let iidSupportedAudioConfig = 10
+  static let iidSupportedRTPConfig = 11
+  static let iidSetupEndpoints = 12
+  static let iidSelectedRTPStreamConfig = 13
+  static let iidStreamingStatus = 14
+  static let iidMicrophoneService = 15
+  static let iidMicrophoneMute = 16
+  static let iidSpeakerService = 17
+  static let iidSpeakerMute = 18
+  static let iidSpeakerVolume = 19
 
   // MARK: - HAP UUIDs
 
@@ -110,20 +100,26 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
 
   func readCharacteristic(iid: Int) -> Any? {
     switch iid {
-    case 3: return manufacturer
-    case 4: return model
-    case 5: return name
-    case 6: return serialNumber
-    case 7: return firmwareRevision
-    case 9: return Self.supportedVideoConfig().base64()
-    case 10: return Self.supportedAudioConfig().base64()
-    case 11: return Self.supportedRTPConfig().base64()
-    case 12: return setupEndpointsResponse.base64EncodedString()
-    case 13: return ""  // write-only effectively
-    case 14: return streamingStatusTLV().base64EncodedString()
-    case 16: return isMuted
-    case 18: return speakerMuted
-    case 19: return speakerVolume
+    case AccessoryInfoIID.manufacturer: return manufacturer
+    case AccessoryInfoIID.model: return model
+    case AccessoryInfoIID.name: return name
+    case AccessoryInfoIID.serialNumber: return serialNumber
+    case AccessoryInfoIID.firmwareRevision: return firmwareRevision
+    case Self.iidSupportedVideoConfig:
+      return Self.supportedVideoConfig().base64()
+    case Self.iidSupportedAudioConfig:
+      return Self.supportedAudioConfig().base64()
+    case Self.iidSupportedRTPConfig:
+      return Self.supportedRTPConfig().base64()
+    case Self.iidSetupEndpoints:
+      return setupEndpointsResponse.base64EncodedString()
+    case Self.iidSelectedRTPStreamConfig:
+      return ""  // write-only effectively
+    case Self.iidStreamingStatus:
+      return streamingStatusTLV().base64EncodedString()
+    case Self.iidMicrophoneMute: return isMuted
+    case Self.iidSpeakerMute: return speakerMuted
+    case Self.iidSpeakerVolume: return speakerVolume
     default: return nil
     }
   }
@@ -133,14 +129,14 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
   @discardableResult
   func writeCharacteristic(iid: Int, value: Any) -> Bool {
     switch iid {
-    case 2:
+    case AccessoryInfoIID.identify:
       identify()
       return true
-    case 12:
+    case Self.iidSetupEndpoints:
       return handleSetupEndpoints(value)
-    case 13:
+    case Self.iidSelectedRTPStreamConfig:
       return handleSelectedRTPStreamConfig(value)
-    case 16:
+    case Self.iidMicrophoneMute:
       if let v = value as? Bool {
         isMuted = v
         streamSession?.isMuted = v
@@ -152,7 +148,7 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
         return true
       }
       return false
-    case 18:
+    case Self.iidSpeakerMute:
       if let v = value as? Bool {
         speakerMuted = v
         streamSession?.speakerMuted = v
@@ -164,7 +160,7 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
         return true
       }
       return false
-    case 19:
+    case Self.iidSpeakerVolume:
       if let v = value as? Int {
         speakerVolume = max(0, min(100, v))
         streamSession?.speakerVolume = speakerVolume
@@ -530,13 +526,13 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
       width: width, height: height, fps: fps, bitrate: effectiveBitrate, payloadType: payloadType,
       audioPayloadType: audioPayloadType, camera: camera, rotationAngle: rotation.angle,
       swapDimensions: rotation.swapDimensions)
-    onStateChange?(aid, 14, streamingStatusTLV().base64EncodedString())
+    onStateChange?(aid, Self.iidStreamingStatus, streamingStatusTLV().base64EncodedString())
   }
 
   private func stopStreaming() {
     streamSession?.stopStreaming()
     streamSession = nil
-    onStateChange?(aid, 14, streamingStatusTLV().base64EncodedString())
+    onStateChange?(aid, Self.iidStreamingStatus, streamingStatusTLV().base64EncodedString())
   }
 
   // MARK: - Utility
@@ -677,57 +673,74 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
         accessoryInformationServiceJSON(),
         // Camera RTP Stream Management Service
         [
-          "iid": 8,
+          "iid": Self.iidCameraService,
           "type": Self.uuidCameraRTPStreamManagement,
           "characteristics": [
             [
-              "iid": 9, "type": Self.uuidSupportedVideoStreamConfig, "format": "tlv8",
-              "perms": ["pr"], "value": Self.supportedVideoConfig().base64(),
+              "iid": Self.iidSupportedVideoConfig,
+              "type": Self.uuidSupportedVideoStreamConfig,
+              "format": "tlv8",
+              "perms": ["pr"],
+              "value": Self.supportedVideoConfig().base64(),
             ],
             [
-              "iid": 10, "type": Self.uuidSupportedAudioStreamConfig, "format": "tlv8",
-              "perms": ["pr"], "value": Self.supportedAudioConfig().base64(),
+              "iid": Self.iidSupportedAudioConfig,
+              "type": Self.uuidSupportedAudioStreamConfig,
+              "format": "tlv8",
+              "perms": ["pr"],
+              "value": Self.supportedAudioConfig().base64(),
             ],
             [
-              "iid": 11, "type": Self.uuidSupportedRTPConfig, "format": "tlv8",
-              "perms": ["pr"], "value": Self.supportedRTPConfig().base64(),
+              "iid": Self.iidSupportedRTPConfig,
+              "type": Self.uuidSupportedRTPConfig,
+              "format": "tlv8",
+              "perms": ["pr"],
+              "value": Self.supportedRTPConfig().base64(),
             ],
             [
-              "iid": 12, "type": Self.uuidSetupEndpoints, "format": "tlv8",
+              "iid": Self.iidSetupEndpoints,
+              "type": Self.uuidSetupEndpoints, "format": "tlv8",
               "perms": ["pr", "pw"], "value": "",
             ],
             [
-              "iid": 13, "type": Self.uuidSelectedRTPStreamConfig, "format": "tlv8",
+              "iid": Self.iidSelectedRTPStreamConfig,
+              "type": Self.uuidSelectedRTPStreamConfig,
+              "format": "tlv8",
               "perms": ["pr", "pw"], "value": "",
             ],
             [
-              "iid": 14, "type": Self.uuidStreamingStatus, "format": "tlv8",
-              "perms": ["pr", "ev"], "value": streamingStatusTLV().base64EncodedString(),
+              "iid": Self.iidStreamingStatus,
+              "type": Self.uuidStreamingStatus, "format": "tlv8",
+              "perms": ["pr", "ev"],
+              "value": streamingStatusTLV().base64EncodedString(),
             ],
           ],
         ],
-        // Microphone Service (required alongside CameraRTPStreamManagement)
+        // Microphone Service
         [
-          "iid": 15,
+          "iid": Self.iidMicrophoneService,
           "type": Self.uuidMicrophone,
           "characteristics": [
             [
-              "iid": 16, "type": Self.uuidMute, "format": "bool",
+              "iid": Self.iidMicrophoneMute,
+              "type": Self.uuidMute, "format": "bool",
               "perms": ["pr", "pw", "ev"], "value": isMuted,
             ]
           ],
         ],
         // Speaker Service
         [
-          "iid": 17,
+          "iid": Self.iidSpeakerService,
           "type": Self.uuidSpeaker,
           "characteristics": [
             [
-              "iid": 18, "type": Self.uuidMute, "format": "bool",
+              "iid": Self.iidSpeakerMute,
+              "type": Self.uuidMute, "format": "bool",
               "perms": ["pr", "pw", "ev"], "value": speakerMuted,
             ],
             [
-              "iid": 19, "type": Self.uuidVolume, "format": "uint8",
+              "iid": Self.iidSpeakerVolume,
+              "type": Self.uuidVolume, "format": "uint8",
               "perms": ["pr", "pw", "ev"], "value": speakerVolume,
               "minValue": 0, "maxValue": 100, "minStep": 1,
             ],
