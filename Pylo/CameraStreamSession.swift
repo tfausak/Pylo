@@ -794,7 +794,7 @@ final class CameraStreamSession {
 
     var converter: AudioConverterRef?
     let status = AudioConverterNew(&inputDesc, &outputDesc, &converter)
-    if status != noErr {
+    guard status == noErr, let converter else {
       logger.error("AudioConverter (encoder) create failed: \(status)")
       return
     }
@@ -802,7 +802,7 @@ final class CameraStreamSession {
     // Set bitrate to 24kbps (good quality for voice)
     var bitrate: UInt32 = 24000
     AudioConverterSetProperty(
-      converter!, kAudioConverterEncodeBitRate,
+      converter, kAudioConverterEncodeBitRate,
       UInt32(MemoryLayout<UInt32>.size), &bitrate)
 
     self.audioConverter = converter
