@@ -6,6 +6,8 @@
 	<array>
 		<string>_hap._tcp</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>The camera is used for HomeKit video streaming, snapshots, and ambient light sensing.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>The microphone is used to stream audio to HomeKit controllers.</string>
 	<key>NSMotionUsageDescription</key>
