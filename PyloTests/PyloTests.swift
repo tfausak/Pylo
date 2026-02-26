@@ -1,3 +1,4 @@
+import CommonCrypto
 import CryptoKit
 import Foundation
 import Testing
@@ -927,5 +928,294 @@ struct PairingStoreTests {
     #expect(decoded.identifier == original.identifier)
     #expect(decoded.publicKey == original.publicKey)
     #expect(decoded.isAdmin == original.isAdmin)
+  }
+}
+
+// MARK: - Setup Hash Tests
+
+@Suite("Setup Hash")
+struct SetupHashTests {
+
+  @Test("Deterministic — same input produces same output")
+  func deterministic() {
+    let h1 = PairSetupHandler.setupHash(setupID: "ABCD", deviceID: "AA:BB:CC:DD:EE:FF")
+    let h2 = PairSetupHandler.setupHash(setupID: "ABCD", deviceID: "AA:BB:CC:DD:EE:FF")
+    #expect(h1 == h2)
+  }
+
+  @Test("Output is valid base64 that decodes to exactly 4 bytes")
+  func validBase64FourBytes() {
+    let hash = PairSetupHandler.setupHash(setupID: "ABCD", deviceID: "11:22:33:44:55:66")
+    let decoded = Data(base64Encoded: hash)
+    #expect(decoded != nil)
+    #expect(decoded?.count == 4)
+  }
+
+  @Test("Different deviceIDs produce different hashes")
+  func differentDeviceIDs() {
+    let h1 = PairSetupHandler.setupHash(setupID: "ABCD", deviceID: "AA:BB:CC:DD:EE:F1")
+    let h2 = PairSetupHandler.setupHash(setupID: "ABCD", deviceID: "AA:BB:CC:DD:EE:F2")
+    #expect(h1 != h2)
+  }
+
+  @Test("Different setupIDs produce different hashes")
+  func differentSetupIDs() {
+    let h1 = PairSetupHandler.setupHash(setupID: "AAAA", deviceID: "11:22:33:44:55:66")
+    let h2 = PairSetupHandler.setupHash(setupID: "BBBB", deviceID: "11:22:33:44:55:66")
+    #expect(h1 != h2)
+  }
+
+  @Test("Matches manual SHA512 computation")
+  func matchesManualSHA512() {
+    let setupID = "T3ST"
+    let deviceID = "DE:AD:BE:EF:00:01"
+    let input = Data((setupID + deviceID).utf8)
+    var digest = [UInt8](repeating: 0, count: Int(CC_SHA512_DIGEST_LENGTH))
+    input.withUnsafeBytes { ptr in
+      _ = CC_SHA512(ptr.baseAddress, CC_LONG(input.count), &digest)
+    }
+    let expected = Data(digest[0..<4]).base64EncodedString()
+
+    let actual = PairSetupHandler.setupHash(setupID: setupID, deviceID: deviceID)
+    #expect(actual == expected)
+  }
+}
+
+// MARK: - AU Header Framing Tests
+
+@Suite("AU Header Framing")
+struct AUHeaderTests {
+
+  @Test("Roundtrip: strip(add(data)) == data")
+  func roundtrip() {
+    let original = Data([0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02, 0x03])
+    let framed = AUHeader.add(to: original)
+    let stripped = AUHeader.strip(from: framed)
+    #expect(stripped == original)
+  }
+
+  @Test("add() produces 0x00 0x10 prefix")
+  func addPrefix() {
+    let payload = Data([0xAA, 0xBB])
+    let framed = AUHeader.add(to: payload)
+    #expect(framed.count == payload.count + 4)
+    #expect(framed[0] == 0x00)
+    #expect(framed[1] == 0x10)
+  }
+
+  @Test("AU-size field encodes correctly for small payload")
+  func auSizeSmall() {
+    // Payload size 10: AU-size field = 10 << 3 = 80 = 0x0050
+    let payload = Data(repeating: 0xFF, count: 10)
+    let framed = AUHeader.add(to: payload)
+    let auSizeBits = UInt16(framed[2]) << 8 | UInt16(framed[3])
+    // Upper 13 bits = payload size, lower 3 bits = AU-Index = 0
+    #expect(auSizeBits >> 3 == 10)
+    #expect(auSizeBits & 0x07 == 0)
+  }
+
+  @Test("AU-size field encodes correctly for larger payload")
+  func auSizeLarger() {
+    let payload = Data(repeating: 0xAA, count: 500)
+    let framed = AUHeader.add(to: payload)
+    let auSizeBits = UInt16(framed[2]) << 8 | UInt16(framed[3])
+    #expect(auSizeBits >> 3 == 500)
+    #expect(auSizeBits & 0x07 == 0)
+  }
+
+  @Test("strip() passes through data without AU header unchanged")
+  func stripPassthrough() {
+    // Data that doesn't start with 0x00, 0x10
+    let raw = Data([0xFF, 0xFE, 0xFD, 0xFC, 0xFB])
+    let result = AUHeader.strip(from: raw)
+    #expect(result == raw)
+  }
+
+  @Test("strip() handles empty data")
+  func stripEmpty() {
+    let result = AUHeader.strip(from: Data())
+    #expect(result == Data())
+  }
+
+  @Test("strip() handles short data (< 4 bytes)")
+  func stripShort() {
+    let short = Data([0x00, 0x10])  // Only 2 bytes — too short for full header
+    let result = AUHeader.strip(from: short)
+    #expect(result == short)
+  }
+
+  @Test("add() with empty payload")
+  func addEmpty() {
+    let framed = AUHeader.add(to: Data())
+    #expect(framed.count == 4)
+    #expect(framed[0] == 0x00)
+    #expect(framed[1] == 0x10)
+    #expect(framed[2] == 0x00)
+    #expect(framed[3] == 0x00)
+  }
+}
+
+// MARK: - SRTP Tests
+
+@Suite("SRTP")
+struct SRTPTests {
+
+  /// RFC 3711 Appendix B.3 test vectors for key derivation.
+  @Test("Key derivation matches RFC 3711 B.3 test vectors")
+  func keyDerivationRFC3711() {
+    let testKey = Data([
+      0xE1, 0xF9, 0x7A, 0x0D, 0x3E, 0x01, 0x8B, 0xE0,
+      0xD6, 0x4F, 0xA3, 0x2C, 0x06, 0xDE, 0x41, 0x39,
+    ])
+    let testSalt = Data([
+      0x0E, 0xC6, 0x75, 0xAD, 0x49, 0x8A, 0xFE, 0xEB,
+      0xB6, 0x96, 0x0B, 0x3A, 0xAB, 0xE6,
+    ])
+    let expectedCipherKey = Data([
+      0xC6, 0x1E, 0x7A, 0x93, 0x74, 0x4F, 0x39, 0xEE,
+      0x10, 0x73, 0x4A, 0xFE, 0x3F, 0xF7, 0xA0, 0x87,
+    ])
+    let expectedSalt = Data([
+      0x30, 0xCB, 0xBC, 0x08, 0x86, 0x3D, 0x8C, 0x85,
+      0xD4, 0x9D, 0xB3, 0x4A, 0x9A, 0xE1,
+    ])
+    let expectedAuthKey = Data([
+      0xCE, 0xBE, 0x32, 0x1F, 0x6F, 0xF7, 0x71, 0x6B,
+      0x6F, 0xD4, 0xAB, 0x49, 0xAF, 0x25, 0x6A, 0x15,
+      0x6D, 0x38, 0xBA, 0xA4,
+    ])
+
+    let ck = SRTPContext.deriveKey(masterKey: testKey, masterSalt: testSalt, label: 0x00, length: 16)
+    let cs = SRTPContext.deriveKey(masterKey: testKey, masterSalt: testSalt, label: 0x02, length: 14)
+    let ak = SRTPContext.deriveKey(masterKey: testKey, masterSalt: testSalt, label: 0x01, length: 20)
+
+    #expect(ck == expectedCipherKey)
+    #expect(cs == expectedSalt)
+    #expect(ak == expectedAuthKey)
+  }
+
+  /// Helper: build a minimal valid RTP packet with given seq, SSRC, and payload.
+  private static func makeRTPPacket(seq: UInt16, ssrc: UInt32, payload: Data) -> Data {
+    var header = Data(count: 12)
+    header[0] = 0x80  // V=2
+    header[1] = 0x60  // PT=96
+    header[2] = UInt8(seq >> 8)
+    header[3] = UInt8(seq & 0xFF)
+    // Timestamp = 0
+    header[8] = UInt8((ssrc >> 24) & 0xFF)
+    header[9] = UInt8((ssrc >> 16) & 0xFF)
+    header[10] = UInt8((ssrc >> 8) & 0xFF)
+    header[11] = UInt8(ssrc & 0xFF)
+    var pkt = header
+    pkt.append(payload)
+    return pkt
+  }
+
+  private static let testMasterKey = Data([
+    0xE1, 0xF9, 0x7A, 0x0D, 0x3E, 0x01, 0x8B, 0xE0,
+    0xD6, 0x4F, 0xA3, 0x2C, 0x06, 0xDE, 0x41, 0x39,
+  ])
+  private static let testMasterSalt = Data([
+    0x0E, 0xC6, 0x75, 0xAD, 0x49, 0x8A, 0xFE, 0xEB,
+    0xB6, 0x96, 0x0B, 0x3A, 0xAB, 0xE6,
+  ])
+
+  @Test("Protect/unprotect roundtrip with known keys")
+  func protectUnprotectRoundtrip() {
+    let sender = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+    let receiver = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+
+    let rtp = Self.makeRTPPacket(seq: 1, ssrc: 0xDEADBEEF, payload: Data(repeating: 0x42, count: 160))
+    let srtp = sender.protect(rtp)
+
+    // SRTP adds 10-byte auth tag
+    #expect(srtp.count == rtp.count + 10)
+
+    let recovered = receiver.unprotect(srtp)
+    #expect(recovered == rtp)
+  }
+
+  @Test("Auth failure: tampered ciphertext returns nil")
+  func authFailureTampered() {
+    let sender = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+    let receiver = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+
+    let rtp = Self.makeRTPPacket(seq: 1, ssrc: 0xDEADBEEF, payload: Data(repeating: 0xAA, count: 100))
+    var srtp = sender.protect(rtp)
+
+    // Tamper with encrypted payload (flip a byte in the middle)
+    let tamperIndex = 20
+    if tamperIndex < srtp.count - 10 {
+      srtp[tamperIndex] ^= 0xFF
+    }
+
+    let result = receiver.unprotect(srtp)
+    #expect(result == nil)
+  }
+
+  @Test("Empty payload roundtrip (12-byte header only)")
+  func emptyPayloadRoundtrip() {
+    let sender = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+    let receiver = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+
+    let rtp = Self.makeRTPPacket(seq: 1, ssrc: 0x12345678, payload: Data())
+    let srtp = sender.protect(rtp)
+
+    // Header-only: 12 bytes + 10-byte auth tag
+    #expect(srtp.count == 22)
+
+    let recovered = receiver.unprotect(srtp)
+    #expect(recovered == rtp)
+  }
+
+  @Test("Multiple sequential packets with incrementing seq")
+  func multipleSequentialPackets() {
+    let sender = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+    let receiver = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+
+    for seq: UInt16 in 1...10 {
+      let rtp = Self.makeRTPPacket(
+        seq: seq, ssrc: 0xCAFEBABE, payload: Data(repeating: UInt8(seq), count: 80))
+      let srtp = sender.protect(rtp)
+      let recovered = receiver.unprotect(srtp)
+      #expect(recovered == rtp, "Failed at seq \(seq)")
+    }
+  }
+
+  @Test("RTCP protect produces output larger than input")
+  func rtcpProtectGrows() {
+    let ctx = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+
+    // Minimal RTCP Sender Report: 8-byte header + 20-byte SR body
+    var rtcp = Data(count: 28)
+    rtcp[0] = 0x80  // V=2
+    rtcp[1] = 200  // PT=SR
+    rtcp[2] = 0x00
+    rtcp[3] = 0x06  // length
+    // SSRC at bytes 4-7
+    rtcp[4] = 0xDE
+    rtcp[5] = 0xAD
+    rtcp[6] = 0xBE
+    rtcp[7] = 0xEF
+
+    let srtcp = ctx.protectRTCP(rtcp)
+    // SRTCP adds: E||index (4 bytes) + auth tag (10 bytes) = 14 bytes
+    #expect(srtcp.count == rtcp.count + 14)
+  }
+
+  @Test("Short packets (< 12 bytes) are returned unchanged by protect")
+  func shortPacketProtect() {
+    let ctx = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+    let shortData = Data([0x80, 0x60, 0x00, 0x01])  // Only 4 bytes
+    let result = ctx.protect(shortData)
+    #expect(result == shortData)
+  }
+
+  @Test("Short packets (< 22 bytes) return nil from unprotect")
+  func shortPacketUnprotect() {
+    let ctx = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+    let shortData = Data(repeating: 0x00, count: 15)
+    let result = ctx.unprotect(shortData)
+    #expect(result == nil)
   }
 }

@@ -1716,14 +1716,7 @@ final class CameraStreamSession {
     let aacData = Data(bytes: outputBuffer, count: encodedSize)
 
     // Wrap in RFC 3640 AU header section (HomeKit expects this framing)
-    let auSize = UInt16(encodedSize)
-    var auHeader = Data(count: 4)
-    auHeader[0] = 0x00  // AU-headers-length MSB
-    auHeader[1] = 0x10  // AU-headers-length LSB = 16 bits (one AU header)
-    auHeader[2] = UInt8((auSize << 3) >> 8)  // AU-size upper bits
-    auHeader[3] = UInt8((auSize << 3) & 0xFF)  // AU-size lower bits + AU-Index=0
-    var framedPayload = auHeader
-    framedPayload.append(aacData)
+    let framedPayload = AUHeader.add(to: aacData)
 
     sendAudioRTPPacket(payload: framedPayload)
   }
@@ -1957,15 +1950,7 @@ final class CameraStreamSession {
     guard !aacPayload.isEmpty else { return }
 
     // Strip RFC 3640 AU header section if present.
-    // HomeKit wraps AAC-ELD frames with a 4-byte AU header:
-    //   2 bytes AU-headers-length (= 0x0010, meaning one 16-bit AU header)
-    //   2 bytes AU header (13-bit AU-size + 3-bit AU-Index)
-    if aacPayload.count >= 4
-      && aacPayload[aacPayload.startIndex] == 0x00
-      && aacPayload[aacPayload.startIndex + 1] == 0x10
-    {
-      aacPayload = Data(aacPayload[aacPayload.startIndex + 4..<aacPayload.endIndex])
-    }
+    aacPayload = AUHeader.strip(from: aacPayload)
 
     guard !aacPayload.isEmpty else { return }
 
@@ -2129,6 +2114,38 @@ private final class AudioCaptureDelegate: NSObject, AVCaptureAudioDataOutputSamp
     from connection: AVCaptureConnection
   ) {
     handler(sampleBuffer)
+  }
+}
+
+// MARK: - AU Header (RFC 3640)
+
+/// RFC 3640 AU header helpers for AAC-ELD framing used by HomeKit.
+enum AUHeader {
+
+  /// Prepend a 4-byte RFC 3640 AU header section to raw AAC data.
+  /// Layout: 2-byte AU-headers-length (0x0010 = one 16-bit AU header)
+  ///       + 2-byte AU header (13-bit AU-size << 3 | AU-Index=0).
+  static func add(to aacData: Data) -> Data {
+    let auSize = UInt16(aacData.count)
+    var header = Data(count: 4)
+    header[0] = 0x00  // AU-headers-length MSB
+    header[1] = 0x10  // AU-headers-length LSB = 16 bits
+    header[2] = UInt8((auSize << 3) >> 8)  // AU-size upper bits
+    header[3] = UInt8((auSize << 3) & 0xFF)  // AU-size lower bits + AU-Index=0
+    var result = header
+    result.append(aacData)
+    return result
+  }
+
+  /// Strip the 4-byte RFC 3640 AU header if present, otherwise return data unchanged.
+  static func strip(from payload: Data) -> Data {
+    guard payload.count >= 4,
+      payload[payload.startIndex] == 0x00,
+      payload[payload.startIndex + 1] == 0x10
+    else {
+      return payload
+    }
+    return Data(payload[payload.startIndex + 4..<payload.endIndex])
   }
 }
 
@@ -2414,7 +2431,7 @@ final class SRTPContext {
   // MARK: - Key Derivation (AES-CM PRF)
 
   /// RFC 3711 §4.3.1 — derive a session key using AES-CM as a PRF.
-  private static func deriveKey(masterKey: Data, masterSalt: Data, label: UInt8, length: Int)
+  static func deriveKey(masterKey: Data, masterSalt: Data, label: UInt8, length: Int)
     -> Data
   {
     // x = label || 0x000000000000 (7 bytes) — then r = salt XOR (x left-padded to 14 bytes)

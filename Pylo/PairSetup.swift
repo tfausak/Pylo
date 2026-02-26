@@ -45,6 +45,11 @@ enum PairSetupHandler {
   /// Compute the Setup Hash (sh) for the Bonjour TXT record.
   /// sh = Base64(SHA512(setupID + deviceID)[0..<4])
   static func setupHash(deviceID: String) -> String {
+    return setupHash(setupID: setupID, deviceID: deviceID)
+  }
+
+  /// Testable overload that accepts an explicit setupID.
+  static func setupHash(setupID: String, deviceID: String) -> String {
     let input = Data((setupID + deviceID).utf8)
     var digest = [UInt8](repeating: 0, count: Int(CC_SHA512_DIGEST_LENGTH))
     input.withUnsafeBytes { ptr in
