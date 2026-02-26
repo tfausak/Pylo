@@ -65,6 +65,8 @@ final class HAPViewModel {
   var selectedCamera: CameraOption? {
     didSet {
       guard oldValue?.id != selectedCamera?.id else { return }
+      let wasNone = oldValue == nil
+      let isNone = selectedCamera == nil
       if let selectedCamera {
         UserDefaults.standard.set(selectedCamera.id, forKey: "selectedCameraID")
         lightMonitor?.restart(with: selectedCamera)
@@ -72,11 +74,14 @@ final class HAPViewModel {
         UserDefaults.standard.set("none", forKey: "selectedCameraID")
         lightMonitor?.stop()
       }
+      if isRunning && wasNone != isNone { needsRestart = true }
     }
   }
   var selectedStreamCamera: CameraOption? {
     didSet {
       guard oldValue?.id != selectedStreamCamera?.id else { return }
+      let wasNone = oldValue == nil
+      let isNone = selectedStreamCamera == nil
       if let selectedStreamCamera {
         UserDefaults.standard.set(selectedStreamCamera.id, forKey: "selectedStreamCameraID")
         cameraAccessory?.selectedCameraID = selectedStreamCamera.id
@@ -84,6 +89,14 @@ final class HAPViewModel {
         UserDefaults.standard.set("none", forKey: "selectedStreamCameraID")
         cameraAccessory?.selectedCameraID = nil
       }
+      if isRunning && wasNone != isNone { needsRestart = true }
+    }
+  }
+  var flashlightEnabled: Bool = true {
+    didSet {
+      guard flashlightEnabled != oldValue else { return }
+      UserDefaults.standard.set(flashlightEnabled, forKey: "flashlightEnabled")
+      if isRunning { needsRestart = true }
     }
   }
   var motionEnabled: Bool = true {
@@ -96,6 +109,7 @@ final class HAPViewModel {
         motionMonitor?.stop()
         isMotionDetected = false
       }
+      if isRunning { needsRestart = true }
     }
   }
   var videoQuality: VideoQuality = .medium {
@@ -113,6 +127,9 @@ final class HAPViewModel {
     }
   }
 
+  /// Whether the accessory configuration has changed since the server started.
+  var needsRestart = false
+
   @ObservationIgnored private var server: HAPServer?
   @ObservationIgnored private var lightMonitor: AmbientLightMonitor?
   @ObservationIgnored private var motionMonitor: MotionMonitor?
@@ -122,6 +139,7 @@ final class HAPViewModel {
   func start() {
     guard !isRunning && !isStarting else { return }
     isStarting = true
+    needsRestart = false
     statusMessage = "Starting…"
 
     // Defer heavy work so the UI can render the starting state first.
@@ -177,54 +195,30 @@ final class HAPViewModel {
       let pairingStore = PairingStore()
       let identity = DeviceIdentity()
 
-      // Wire up state change callbacks
-      lightbulb.onStateChange = { [weak self] aid, iid, value in
-        Task { @MainActor in
-          guard let self else { return }
-          if iid == HAPAccessory.iidOn, case .bool(let on) = value {
-            self.isLightOn = on
-          } else if iid == HAPAccessory.iidBrightness, case .int(let b) = value {
-            self.brightness = b
-          }
-          self.server?.notifySubscribers(aid: aid, iid: iid, value: value)
-        }
+      // Restore accessory-enable preferences (default to true)
+      if UserDefaults.standard.object(forKey: "flashlightEnabled") != nil {
+        self.flashlightEnabled = UserDefaults.standard.bool(forKey: "flashlightEnabled")
+      }
+      if UserDefaults.standard.object(forKey: "motionEnabled") != nil {
+        self.motionEnabled = UserDefaults.standard.bool(forKey: "motionEnabled")
       }
 
-      lightSensor.onStateChange = { [weak self] aid, iid, value in
-        Task { @MainActor in
-          guard let self else { return }
-          if iid == HAPLightSensorAccessory.iidAmbientLightLevel,
-            case .float(let lux) = value
-          {
-            self.ambientLux = lux
-          }
-          self.server?.notifySubscribers(aid: aid, iid: iid, value: value)
-        }
-      }
+      // Wire up state change callbacks and build accessories list
+      var enabledAccessories: [HAPAccessoryProtocol] = []
 
-      motionSensor.onStateChange = { [weak self] aid, iid, value in
-        Task { @MainActor in
-          guard let self else { return }
-          if iid == HAPMotionSensorAccessory.iidMotionDetected,
-            case .bool(let detected) = value
-          {
-            self.isMotionDetected = detected
+      if self.flashlightEnabled {
+        lightbulb.onStateChange = { [weak self] aid, iid, value in
+          Task { @MainActor in
+            guard let self else { return }
+            if iid == HAPAccessory.iidOn, case .bool(let on) = value {
+              self.isLightOn = on
+            } else if iid == HAPAccessory.iidBrightness, case .int(let b) = value {
+              self.brightness = b
+            }
+            self.server?.notifySubscribers(aid: aid, iid: iid, value: value)
           }
-          self.server?.notifySubscribers(aid: aid, iid: iid, value: value)
         }
-      }
-
-      camera.onStateChange = { [weak self] aid, iid, value in
-        Task { @MainActor in
-          guard let self else { return }
-          if iid == HAPCameraAccessory.iidStreamingStatus,
-            case .string(let b64) = value,
-            let data = Data(base64Encoded: b64), data.count >= 3
-          {
-            self.isCameraStreaming = data[data.startIndex + 2] == 1
-          }
-          self.server?.notifySubscribers(aid: aid, iid: iid, value: value)
-        }
+        enabledAccessories.append(lightbulb)
       }
 
       // Discover available cameras; restore previous selections
@@ -252,14 +246,45 @@ final class HAPViewModel {
             ?? cameras.first
         }
       }
-      self.cameraAccessory = camera
-      camera.selectedCameraID = self.selectedStreamCamera?.id
-      if let savedQuality = UserDefaults.standard.string(forKey: "videoQuality"),
-        let quality = VideoQuality(rawValue: savedQuality)
-      {
-        self.videoQuality = quality
+
+      if self.selectedStreamCamera != nil {
+        camera.onStateChange = { [weak self] aid, iid, value in
+          Task { @MainActor in
+            guard let self else { return }
+            if iid == HAPCameraAccessory.iidStreamingStatus,
+              case .string(let b64) = value,
+              let data = Data(base64Encoded: b64), data.count >= 3
+            {
+              self.isCameraStreaming = data[data.startIndex + 2] == 1
+            }
+            self.server?.notifySubscribers(aid: aid, iid: iid, value: value)
+          }
+        }
+        self.cameraAccessory = camera
+        camera.selectedCameraID = self.selectedStreamCamera?.id
+        if let savedQuality = UserDefaults.standard.string(forKey: "videoQuality"),
+          let quality = VideoQuality(rawValue: savedQuality)
+        {
+          self.videoQuality = quality
+        }
+        camera.minimumBitrate = self.videoQuality.minimumBitrate
+        enabledAccessories.append(camera)
       }
-      camera.minimumBitrate = self.videoQuality.minimumBitrate
+
+      if self.selectedCamera != nil {
+        lightSensor.onStateChange = { [weak self] aid, iid, value in
+          Task { @MainActor in
+            guard let self else { return }
+            if iid == HAPLightSensorAccessory.iidAmbientLightLevel,
+              case .float(let lux) = value
+            {
+              self.ambientLux = lux
+            }
+            self.server?.notifySubscribers(aid: aid, iid: iid, value: value)
+          }
+        }
+        enabledAccessories.append(lightSensor)
+      }
 
       // Set up ambient light monitor
       let monitor = AmbientLightMonitor()
@@ -275,6 +300,21 @@ final class HAPViewModel {
       }
       camera.onSnapshotDidCapture = { [weak monitor] in
         monitor?.resumeSession()
+      }
+
+      if self.motionEnabled {
+        motionSensor.onStateChange = { [weak self] aid, iid, value in
+          Task { @MainActor in
+            guard let self else { return }
+            if iid == HAPMotionSensorAccessory.iidMotionDetected,
+              case .bool(let detected) = value
+            {
+              self.isMotionDetected = detected
+            }
+            self.server?.notifySubscribers(aid: aid, iid: iid, value: value)
+          }
+        }
+        enabledAccessories.append(motionSensor)
       }
 
       // Set up motion monitor (accelerometer)
@@ -294,7 +334,7 @@ final class HAPViewModel {
       do {
         let hapServer = try HAPServer(
           bridge: bridge,
-          accessories: [lightbulb, camera, lightSensor, motionSensor],
+          accessories: enabledAccessories,
           pairingStore: pairingStore,
           deviceIdentity: identity
         )
@@ -308,11 +348,6 @@ final class HAPViewModel {
         // Start ambient light monitoring with selected camera (if any)
         if self.selectedCamera != nil {
           monitor.start(with: self.selectedCamera)
-        }
-
-        // Restore motion enabled preference (defaults to true if not set)
-        if UserDefaults.standard.object(forKey: "motionEnabled") != nil {
-          self.motionEnabled = UserDefaults.standard.bool(forKey: "motionEnabled")
         }
 
         // Start motion monitoring if enabled
@@ -460,6 +495,11 @@ struct ContentView: View {
               Text(viewModel.statusMessage)
                 .font(.caption)
                 .foregroundColor(.secondary)
+              if viewModel.needsRestart {
+                Text("Restart required for accessory changes to take effect")
+                  .font(.caption)
+                  .foregroundColor(.orange)
+              }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
           }
@@ -495,20 +535,31 @@ struct ContentView: View {
 
           // Light State
           if viewModel.isRunning {
-            GroupBox("Light State") {
+            GroupBox("Flashlight") {
               VStack(spacing: 12) {
-                Image(systemName: viewModel.isLightOn ? "lightbulb.fill" : "lightbulb")
-                  .font(.system(size: 48))
-                  .foregroundColor(viewModel.isLightOn ? .yellow : .gray)
+                if viewModel.flashlightEnabled {
+                  Image(systemName: viewModel.isLightOn ? "lightbulb.fill" : "lightbulb")
+                    .font(.system(size: 48))
+                    .foregroundColor(viewModel.isLightOn ? .yellow : .gray)
 
-                Text(viewModel.isLightOn ? "ON" : "OFF")
-                  .font(.headline)
+                  Text(viewModel.isLightOn ? "ON" : "OFF")
+                    .font(.headline)
 
-                if viewModel.isLightOn {
-                  Text("Brightness: \(viewModel.brightness)%")
-                    .font(.subheadline)
+                  if viewModel.isLightOn {
+                    Text("Brightness: \(viewModel.brightness)%")
+                      .font(.subheadline)
+                      .foregroundColor(.secondary)
+                  }
+                } else {
+                  Image(systemName: "lightbulb.slash")
+                    .font(.system(size: 48))
                     .foregroundColor(.secondary)
+
+                  Text("Disabled")
+                    .font(.headline)
                 }
+
+                Toggle("Enabled", isOn: $viewModel.flashlightEnabled)
               }
               .frame(maxWidth: .infinity)
             }
