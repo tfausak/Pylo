@@ -175,17 +175,21 @@ final class HAPServer {
     logger.info("New connection: \(id)")
   }
 
+  /// Remove a connection from the active set. Safe to call from any thread.
   func removeConnection(_ id: String) {
-    connections.removeValue(forKey: id)
-    logger.info("Connection removed: \(id)")
+    queue.async { [weak self] in
+      guard let self else { return }
+      self.connections.removeValue(forKey: id)
+      self.logger.info("Connection removed: \(id)")
+    }
   }
 
   /// Terminate all sessions belonging to a specific controller (HAP spec §5.11).
   func terminateSessions(forController controllerID: String) {
     queue.async { [weak self] in
       guard let self else { return }
-      for (id, conn) in self.connections
-      where conn.verifiedControllerID == controllerID {
+      let toRemove = self.connections.filter { $0.value.verifiedControllerID == controllerID }
+      for (id, conn) in toRemove {
         conn.cancel()
         self.connections.removeValue(forKey: id)
       }
