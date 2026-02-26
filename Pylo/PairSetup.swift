@@ -216,12 +216,14 @@ enum PairSetupHandler {
     // Set the client's public key and verify the proof
     guard srpSession.setClientPublicKey(clientPublicKey) else {
       logger.error("Invalid client public key")
+      connection.pairSetupState = nil
       return errorResponse(state: 0x04, error: .authentication)
     }
 
     guard let serverProof = srpSession.verifyClientProof(clientProof) else {
       logger.error("Client proof verification failed (wrong setup code?)")
       throttle.recordFailure()
+      connection.pairSetupState = nil
       return errorResponse(state: 0x04, error: .authentication)
     }
 
