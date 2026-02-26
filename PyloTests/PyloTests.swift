@@ -398,12 +398,30 @@ struct HAPValueTests {
     #expect(HAPValue(fromJSON: json["v"]!) == .string("hello"))
   }
 
+  @Test("fromJSON converts float correctly")
+  func fromJSONFloat() {
+    let json =
+      try! JSONSerialization.jsonObject(
+        with: Data("{\"v\":3.14}".utf8)) as! [String: Any]
+    let value = HAPValue(fromJSON: json["v"]!)
+    #expect(value == .float(Float(3.14)))
+  }
+
   @Test("fromJSON distinguishes bool from int")
   func fromJSONBoolVsInt() {
     let json =
       try! JSONSerialization.jsonObject(
         with: Data("{\"b\":true,\"i\":1}".utf8)) as! [String: Any]
     #expect(HAPValue(fromJSON: json["b"]!) == .bool(true))
+    #expect(HAPValue(fromJSON: json["i"]!) == .int(1))
+  }
+
+  @Test("fromJSON distinguishes float from int")
+  func fromJSONFloatVsInt() {
+    let json =
+      try! JSONSerialization.jsonObject(
+        with: Data("{\"f\":1.5,\"i\":1}".utf8)) as! [String: Any]
+    #expect(HAPValue(fromJSON: json["f"]!) == .float(1.5))
     #expect(HAPValue(fromJSON: json["i"]!) == .int(1))
   }
 

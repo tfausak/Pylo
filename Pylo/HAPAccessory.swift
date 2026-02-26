@@ -51,6 +51,8 @@ enum HAPValue: Equatable {
     if let n = value as? NSNumber {
       if CFGetTypeID(n) == CFBooleanGetTypeID() {
         self = .bool(n.boolValue)
+      } else if CFNumberIsFloatType(n) {
+        self = .float(n.floatValue)
       } else {
         self = .int(n.intValue)
       }
