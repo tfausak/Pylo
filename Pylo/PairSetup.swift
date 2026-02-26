@@ -21,27 +21,39 @@ final class PairSetupThrottle {
   /// Minimum seconds between attempts once throttled.
   static let throttleDuration: TimeInterval = 30
 
-  private(set) var failedAttempts = 0
-  private var lastFailureDate: Date?
+  private struct State {
+    var failedAttempts: Int = 0
+    var lastFailureDate: Date?
+  }
+
+  private let lock = OSAllocatedUnfairLock(initialState: State())
+
+  var failedAttempts: Int { lock.withLock { $0.failedAttempts } }
 
   /// Returns true if the next attempt should be rejected due to rate limiting.
   func isThrottled(now: Date = Date()) -> Bool {
-    guard failedAttempts >= Self.maxAttempts, let lastFailure = lastFailureDate else {
-      return false
+    lock.withLock { state in
+      guard state.failedAttempts >= Self.maxAttempts, let lastFailure = state.lastFailureDate else {
+        return false
+      }
+      return now.timeIntervalSince(lastFailure) < Self.throttleDuration
     }
-    return now.timeIntervalSince(lastFailure) < Self.throttleDuration
   }
 
   /// Record a failed authentication attempt.
   func recordFailure(now: Date = Date()) {
-    failedAttempts += 1
-    lastFailureDate = now
+    lock.withLock { state in
+      state.failedAttempts += 1
+      state.lastFailureDate = now
+    }
   }
 
   /// Reset the counter after a successful pairing.
   func reset() {
-    failedAttempts = 0
-    lastFailureDate = nil
+    lock.withLock { state in
+      state.failedAttempts = 0
+      state.lastFailureDate = nil
+    }
   }
 }
 
