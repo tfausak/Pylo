@@ -179,6 +179,18 @@ final class HAPServer {
     logger.info("Connection removed: \(id)")
   }
 
+  /// Terminate all sessions belonging to a specific controller (HAP spec §5.11).
+  func terminateSessions(forController controllerID: String) {
+    queue.async { [weak self] in
+      guard let self else { return }
+      for (id, conn) in self.connections
+      where conn.verifiedControllerID == controllerID {
+        conn.cancel()
+        self.connections.removeValue(forKey: id)
+      }
+    }
+  }
+
   /// Notify all subscribed connections of a characteristic change.
   /// Dispatches to the server queue so `connections` is accessed thread-safely.
   func notifySubscribers(aid: Int, iid: Int, value: HAPValue) {
