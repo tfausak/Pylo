@@ -663,8 +663,8 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
 
     let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
     let context = CIContext()
-    let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
-    guard let jpeg = context.jpegRepresentation(of: ciImage, colorSpace: colorSpace, options: [:])
+    guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+      let jpeg = context.jpegRepresentation(of: ciImage, colorSpace: colorSpace, options: [:])
     else { return cachedSnapshot }
 
     cachedSnapshot = jpeg

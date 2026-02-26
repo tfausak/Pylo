@@ -497,9 +497,9 @@ final class CameraStreamSession {
     if snapshotFrameCounter >= snapshotInterval, let callback = onSnapshotFrame {
       snapshotFrameCounter = 0
       let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-      let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
-      if let jpeg = snapshotCIContext.jpegRepresentation(
-        of: ciImage, colorSpace: colorSpace, options: [:])
+      if let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+        let jpeg = snapshotCIContext.jpegRepresentation(
+          of: ciImage, colorSpace: colorSpace, options: [:])
       {
         callback(jpeg)
       }

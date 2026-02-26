@@ -287,6 +287,8 @@ final class EncryptionContext {
     var nonceData = Data(repeating: 0, count: 4)  // 4 zero bytes
     var le = counter.littleEndian
     nonceData.append(Data(bytes: &le, count: 8))
+    precondition(nonceData.count == 12, "HAP nonce must be exactly 12 bytes")
+    // Safe: precondition guarantees the 12-byte invariant ChaChaPoly.Nonce requires.
     return try! ChaChaPoly.Nonce(data: nonceData)
   }
 }
