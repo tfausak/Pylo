@@ -778,7 +778,11 @@ private final class FrameGrabber: NSObject, AVCaptureVideoDataOutputSampleBuffer
   let semaphore = DispatchSemaphore(value: 0)
   /// CIImage created inside the callback to avoid holding a CVPixelBuffer
   /// beyond the delegate callback lifetime (AVFoundation may recycle the backing memory).
-  var capturedImage: CIImage?
+  /// Protected by a lock to prevent data races between the capture queue
+  /// (writer) and the calling thread (reader after semaphore wait).
+  private let lock = NSLock()
+  private var _capturedImage: CIImage?
+  var capturedImage: CIImage? { lock.withLock { _capturedImage } }
   private let framesToSkip: Int
   private var framesReceived = 0
 
@@ -790,12 +794,12 @@ private final class FrameGrabber: NSObject, AVCaptureVideoDataOutputSampleBuffer
     _ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
     from connection: AVCaptureConnection
   ) {
-    guard capturedImage == nil else { return }
+    guard lock.withLock({ _capturedImage }) == nil else { return }
     framesReceived += 1
     // Skip early frames so auto-exposure can settle.
     guard framesReceived > framesToSkip else { return }
     if let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) {
-      capturedImage = CIImage(cvPixelBuffer: pixelBuffer)
+      lock.withLock { _capturedImage = CIImage(cvPixelBuffer: pixelBuffer) }
     }
     semaphore.signal()
   }
