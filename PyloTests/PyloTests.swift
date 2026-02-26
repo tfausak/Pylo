@@ -1999,3 +1999,239 @@ struct PairSetupThrottleThreadTests {
     #expect(throttle.failedAttempts == 4 * iterations)
   }
 }
+
+// MARK: - TLV8 Truncation Rejection Tests
+
+@Suite("TLV8 Truncation Rejection")
+struct TLV8TruncationTests {
+
+  @Test("Decode stops at truncated entry — length exceeds available data")
+  func truncatedEntry() {
+    // Valid entry (state=0x02) followed by a truncated entry (claims 5 bytes but only 2 available)
+    let data = Data([0x06, 0x01, 0x02, 0x03, 0x05, 0xAA, 0xBB])
+    let pairs: [(UInt8, Data)] = TLV8.decode(data)
+    // Only the first valid entry should be returned
+    #expect(pairs.count == 1)
+    #expect(pairs[0].0 == 0x06)
+    #expect(pairs[0].1 == Data([0x02]))
+  }
+
+  @Test("Decode stops when only tag byte remains (no length byte)")
+  func onlyTagByte() {
+    // Valid entry followed by a lone tag byte
+    let data = Data([0x06, 0x01, 0x02, 0x07])
+    let pairs: [(UInt8, Data)] = TLV8.decode(data)
+    #expect(pairs.count == 1)
+    #expect(pairs[0].0 == 0x06)
+  }
+
+  @Test("Decode handles entry with length exactly at boundary")
+  func exactBoundary() {
+    // Two valid entries, second one ends exactly at data boundary
+    let data = Data([0x06, 0x01, 0x02, 0x07, 0x02, 0xAA, 0xBB])
+    let pairs: [(UInt8, Data)] = TLV8.decode(data)
+    #expect(pairs.count == 2)
+    #expect(pairs[1].1 == Data([0xAA, 0xBB]))
+  }
+
+  @Test("Decode returns empty for single byte input")
+  func singleByte() {
+    let data = Data([0x06])
+    let pairs: [(UInt8, Data)] = TLV8.decode(data)
+    #expect(pairs.isEmpty)
+  }
+
+  @Test("Decode handles length claiming zero bytes correctly")
+  func zeroLengthEntry() {
+    // Tag with zero length followed by a valid entry
+    let data = Data([0xFF, 0x00, 0x06, 0x01, 0x03])
+    let pairs: [(UInt8, Data)] = TLV8.decode(data)
+    #expect(pairs.count == 2)
+    #expect(pairs[0].0 == 0xFF)
+    #expect(pairs[0].1.isEmpty)
+    #expect(pairs[1].1 == Data([0x03]))
+  }
+}
+
+// MARK: - SRP Session Key Deferral Tests
+
+@Suite("SRP Session Key Deferral")
+struct SRPSessionKeyDeferralTests {
+
+  @Test("Session key is nil after setClientPublicKey but before verifyClientProof")
+  func sessionKeyNilAfterSetClientPublicKey() {
+    let server = SRPServer(username: "Pair-Setup", password: "111-22-333")!
+
+    // Use a valid (non-zero) client public key
+    var fakeKey = Data(repeating: 0, count: 384)
+    fakeKey[383] = 0x05
+    let result = server.setClientPublicKey(fakeKey)
+    #expect(result == true)
+
+    // sessionKey should still be nil — not exposed until proof succeeds
+    #expect(server.sessionKey == nil)
+  }
+
+  @Test("Session key is nil after failed verifyClientProof")
+  func sessionKeyNilAfterFailedProof() {
+    let server = SRPServer(username: "Pair-Setup", password: "111-22-333")!
+
+    var fakeKey = Data(repeating: 0, count: 384)
+    fakeKey[383] = 0x05
+    _ = server.setClientPublicKey(fakeKey)
+
+    // Wrong proof should fail
+    let result = server.verifyClientProof(Data(repeating: 0xAB, count: 64))
+    #expect(result == nil)
+
+    // sessionKey should still be nil
+    #expect(server.sessionKey == nil)
+  }
+}
+
+// MARK: - Throttle Window Sliding Tests
+
+@Suite("PairSetupThrottle Window Behavior")
+struct PairSetupThrottleWindowTests {
+
+  @Test("Additional failures beyond maxAttempts do not slide the throttle window")
+  func windowDoesNotSlide() {
+    let throttle = PairSetupThrottle()
+    let startTime = Date()
+
+    // Record exactly maxAttempts failures at startTime
+    for _ in 0..<PairSetupThrottle.maxAttempts {
+      throttle.recordFailure(now: startTime)
+    }
+    #expect(throttle.isThrottled(now: startTime))
+
+    // Record more failures 15 seconds later (within the 30s window)
+    let midTime = startTime.addingTimeInterval(15)
+    for _ in 0..<50 {
+      throttle.recordFailure(now: midTime)
+    }
+
+    // Should still be throttled at midTime
+    #expect(throttle.isThrottled(now: midTime))
+
+    // The window should expire 30s after startTime, NOT after the later failures
+    let afterOriginalWindow = startTime.addingTimeInterval(
+      PairSetupThrottle.throttleDuration + 1)
+    #expect(!throttle.isThrottled(now: afterOriginalWindow))
+  }
+
+  @Test("Throttle re-engages after counter reset from expired window")
+  func reEngagesAfterExpiry() {
+    let throttle = PairSetupThrottle()
+    let t0 = Date()
+
+    // Trigger throttle
+    for _ in 0..<PairSetupThrottle.maxAttempts {
+      throttle.recordFailure(now: t0)
+    }
+    #expect(throttle.isThrottled(now: t0))
+
+    // Wait for expiry — isThrottled resets the counter
+    let t1 = t0.addingTimeInterval(PairSetupThrottle.throttleDuration + 1)
+    #expect(!throttle.isThrottled(now: t1))
+
+    // Counter was reset, so we need maxAttempts more failures to re-throttle
+    #expect(!throttle.isThrottled(now: t1))
+    for _ in 0..<PairSetupThrottle.maxAttempts {
+      throttle.recordFailure(now: t1)
+    }
+    #expect(throttle.isThrottled(now: t1))
+  }
+}
+
+// MARK: - SRTP Thread Safety Tests
+
+@Suite("SRTP Thread Safety")
+struct SRTPThreadSafetyTests {
+
+  private static let testMasterKey = Data([
+    0xE1, 0xF9, 0x7A, 0x0D, 0x3E, 0x01, 0x8B, 0xE0,
+    0xD6, 0x4F, 0xA3, 0x2C, 0x06, 0xDE, 0x41, 0x39,
+  ])
+  private static let testMasterSalt = Data([
+    0x0E, 0xC6, 0x75, 0xAD, 0x49, 0x8A, 0xFE, 0xEB,
+    0xB6, 0x96, 0x0B, 0x3A, 0xAB, 0xE6,
+  ])
+
+  private static func makeRTPPacket(seq: UInt16, ssrc: UInt32, payload: Data) -> Data {
+    var header = Data(count: 12)
+    header[0] = 0x80
+    header[1] = 0x60
+    header[2] = UInt8(seq >> 8)
+    header[3] = UInt8(seq & 0xFF)
+    header[8] = UInt8((ssrc >> 24) & 0xFF)
+    header[9] = UInt8((ssrc >> 16) & 0xFF)
+    header[10] = UInt8((ssrc >> 8) & 0xFF)
+    header[11] = UInt8(ssrc & 0xFF)
+    var pkt = header
+    pkt.append(payload)
+    return pkt
+  }
+
+  @Test("Concurrent protect calls do not crash")
+  func concurrentProtect() async {
+    let ctx = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+
+    await withTaskGroup(of: Void.self) { group in
+      for i: UInt16 in 0..<100 {
+        group.addTask {
+          let rtp = Self.makeRTPPacket(
+            seq: i, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0x42, count: 160))
+          _ = ctx.protect(rtp)
+        }
+      }
+    }
+  }
+
+  @Test("Concurrent protectRTCP calls do not crash")
+  func concurrentProtectRTCP() async {
+    let ctx = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+
+    await withTaskGroup(of: Void.self) { group in
+      for _ in 0..<100 {
+        group.addTask {
+          var rtcp = Data(count: 28)
+          rtcp[0] = 0x80
+          rtcp[1] = 200
+          rtcp[3] = 0x06
+          rtcp[4] = 0xDE
+          rtcp[5] = 0xAD
+          rtcp[6] = 0xBE
+          rtcp[7] = 0xEF
+          _ = ctx.protectRTCP(rtcp)
+        }
+      }
+    }
+  }
+
+  @Test("Concurrent protect produces SRTP packets of correct size")
+  func concurrentProtectCorrectSize() async {
+    let ctx = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+
+    let results = await withTaskGroup(of: Int.self, returning: [Int].self) { group in
+      for i: UInt16 in 0..<50 {
+        group.addTask {
+          let rtp = Self.makeRTPPacket(
+            seq: i, ssrc: 0xCAFE_BABE, payload: Data(repeating: UInt8(i), count: 80))
+          let srtp = ctx.protect(rtp)
+          return srtp.count
+        }
+      }
+      var collected: [Int] = []
+      for await result in group {
+        collected.append(result)
+      }
+      return collected
+    }
+
+    // Each SRTP packet should be RTP (12 header + 80 payload) + 10 auth tag = 102
+    for size in results {
+      #expect(size == 102)
+    }
+  }
+}
