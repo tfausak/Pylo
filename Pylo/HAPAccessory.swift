@@ -194,7 +194,6 @@ final class HAPAccessory: HAPAccessoryProtocol {
   let manufacturer: String
   let serialNumber: String
   let firmwareRevision: String
-  let category: HAPAccessoryCategory
   let aid: Int
 
   private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "Accessory")
@@ -221,8 +220,7 @@ final class HAPAccessory: HAPAccessoryProtocol {
     model: String = "iPhone Light",
     manufacturer: String = "HAP PoC",
     serialNumber: String = "000001",
-    firmwareRevision: String = "1.0.0",
-    category: HAPAccessoryCategory = .lightbulb
+    firmwareRevision: String = "1.0.0"
   ) {
     self.aid = aid
     self.name = name
@@ -230,7 +228,6 @@ final class HAPAccessory: HAPAccessoryProtocol {
     self.manufacturer = manufacturer
     self.serialNumber = serialNumber
     self.firmwareRevision = firmwareRevision
-    self.category = category
   }
 
   // MARK: - Instance IDs (iid)
