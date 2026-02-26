@@ -51,7 +51,7 @@ enum PairingsHandler {
     case methodAddPairing:
       return handleAdd(tlv: tlv, server: server)
     case methodRemovePairing:
-      return handleRemove(tlv: tlv, server: server)
+      return handleRemove(tlv: tlv, connection: connection, server: server)
     case methodListPairings:
       return handleList(server: server)
     default:
@@ -81,7 +81,9 @@ enum PairingsHandler {
     return successResponse()
   }
 
-  private static func handleRemove(tlv: [TLV8.Tag: Data], server: HAPServer) -> HTTPResponse {
+  private static func handleRemove(
+    tlv: [TLV8.Tag: Data], connection: HAPConnection, server: HAPServer
+  ) -> HTTPResponse {
     guard let identifier = tlv[.identifier] else {
       return errorResponse(error: .unknown)
     }
@@ -89,8 +91,16 @@ enum PairingsHandler {
     let id = String(data: identifier, encoding: .utf8) ?? ""
     server.pairingStore.removePairing(identifier: id)
 
-    // HAP spec §5.11: terminate sessions for the removed controller
-    server.terminateSessions(forController: id)
+    // HAP spec §5.11: terminate sessions for the removed controller.
+    // If the requesting controller is removing itself, defer termination
+    // so the M2 success response can be sent before the session is torn down.
+    if id == connection.verifiedControllerID {
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+        server.terminateSessions(forController: id)
+      }
+    } else {
+      server.terminateSessions(forController: id)
+    }
 
     // If no pairings remain, update advertisement
     if !server.pairingStore.isPaired {
