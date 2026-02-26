@@ -548,11 +548,11 @@ struct ContentView: View {
               }
               Text(viewModel.statusMessage)
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
               if viewModel.needsRestart {
                 Text("Restart required for accessory changes to take effect")
                   .font(.caption)
-                  .foregroundColor(.orange)
+                  .foregroundStyle(.orange)
               }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -582,7 +582,7 @@ struct ContentView: View {
                   .frame(maxWidth: .infinity)
                 Text("Scan with Home.app or enter the code manually")
                   .font(.caption)
-                  .foregroundColor(.secondary)
+                  .foregroundStyle(.secondary)
               }
             }
           }
@@ -594,7 +594,7 @@ struct ContentView: View {
                 if viewModel.flashlightEnabled {
                   Image(systemName: viewModel.isLightOn ? "lightbulb.fill" : "lightbulb")
                     .font(.system(size: 48))
-                    .foregroundColor(viewModel.isLightOn ? .yellow : .gray)
+                    .foregroundStyle(viewModel.isLightOn ? .yellow : .gray)
 
                   Text(viewModel.isLightOn ? "ON" : "OFF")
                     .font(.headline)
@@ -602,12 +602,12 @@ struct ContentView: View {
                   if viewModel.isLightOn {
                     Text("Brightness: \(viewModel.brightness)%")
                       .font(.subheadline)
-                      .foregroundColor(.secondary)
+                      .foregroundStyle(.secondary)
                   }
                 } else {
                   Image(systemName: "lightbulb.slash")
                     .font(.system(size: 48))
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
 
                   Text("Disabled")
                     .font(.headline)
@@ -623,13 +623,13 @@ struct ContentView: View {
                 if viewModel.selectedCamera == nil {
                   Image(systemName: "sun.max")
                     .font(.system(size: 32))
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                   Text("Disabled")
                     .font(.headline)
                 } else {
                   Image(systemName: "sun.max")
                     .font(.system(size: 32))
-                    .foregroundColor(.orange)
+                    .foregroundStyle(.orange)
                   Text(String(format: "%.1f lux", viewModel.ambientLux))
                     .font(.system(.title2, design: .monospaced))
                 }
@@ -650,7 +650,7 @@ struct ContentView: View {
                 if !viewModel.motionEnabled {
                   Image(systemName: "figure.stand")
                     .font(.system(size: 32))
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                   Text("Disabled")
                     .font(.headline)
                 } else if viewModel.isMotionAvailable {
@@ -658,21 +658,21 @@ struct ContentView: View {
                     systemName: viewModel.isMotionDetected ? "figure.walk.motion" : "figure.stand"
                   )
                   .font(.system(size: 32))
-                  .foregroundColor(viewModel.isMotionDetected ? .blue : .gray)
+                  .foregroundStyle(viewModel.isMotionDetected ? .blue : .gray)
                   Text(viewModel.isMotionDetected ? "Motion Detected" : "No Motion")
                     .font(.headline)
                   Text("Accelerometer movement")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                 } else {
                   Image(systemName: "figure.stand")
                     .font(.system(size: 32))
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                   Text("No accelerometer found")
                     .font(.headline)
                   Text("An accelerometer is required for motion sensing")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                 }
 
                 Toggle("Enabled", isOn: $viewModel.motionEnabled)
@@ -685,16 +685,16 @@ struct ContentView: View {
                 if viewModel.availableCameras.isEmpty {
                   Image(systemName: "video.slash")
                     .font(.system(size: 32))
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                   Text("No cameras found")
                     .font(.headline)
                   Text("A camera is required for HomeKit streaming")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                 } else if viewModel.selectedStreamCamera == nil {
                   Image(systemName: "video.slash")
                     .font(.system(size: 32))
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                   Text("Disabled")
                     .font(.headline)
 
@@ -708,7 +708,7 @@ struct ContentView: View {
                 } else {
                   Image(systemName: viewModel.isCameraStreaming ? "video.fill" : "video")
                     .font(.system(size: 32))
-                    .foregroundColor(viewModel.isCameraStreaming ? .green : .gray)
+                    .foregroundStyle(viewModel.isCameraStreaming ? .green : .gray)
                   Text(viewModel.isCameraStreaming ? "Streaming" : "Idle")
                     .font(.headline)
 
@@ -729,7 +729,7 @@ struct ContentView: View {
 
                   Text(viewModel.selectedStreamCamera?.name ?? "")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                 }
               }
               .frame(maxWidth: .infinity)
@@ -748,7 +748,7 @@ struct ContentView: View {
               .frame(maxWidth: .infinity)
               .padding(10)
               .background(Color.orange)
-              .foregroundColor(.white)
+              .foregroundStyle(.white)
               .clipShape(.rect(cornerRadius: 10))
           }
         }
@@ -777,7 +777,7 @@ struct ContentView: View {
           .background(
             viewModel.isStarting ? Color.gray : viewModel.isRunning ? Color.red : Color.blue
           )
-          .foregroundColor(.white)
+          .foregroundStyle(.white)
           .clipShape(.rect(cornerRadius: 12))
         }
         .disabled(viewModel.isStarting)
