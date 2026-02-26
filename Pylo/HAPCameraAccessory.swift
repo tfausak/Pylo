@@ -3,7 +3,6 @@ import AudioToolbox
 import CommonCrypto
 import CoreImage
 import Foundation
-import Network
 import UIKit
 import VideoToolbox
 import os
@@ -441,6 +440,27 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
             } else if ptag == 0x03 {  // Selected audio parameters
               let asub = TLV8.decode(pval) as [(UInt8, Data)]
               for (atag, aval) in asub {
+                if atag == 0x01 {  // Selected audio codec config
+                  let codecSub = TLV8.decode(aval) as [(UInt8, Data)]
+                  for (ctag, cval) in codecSub {
+                    if ctag == 0x01, let codecType = cval.first {
+                      let codecNames = ["PCMU", "PCMA", "AAC-ELD", "Opus"]
+                      let name = Int(codecType) < codecNames.count ? codecNames[Int(codecType)] : "unknown(\(codecType))"
+                      logger.info("Selected audio codec: \(name)")
+                    }
+                    if ctag == 0x02 {  // Audio codec params
+                      let paramSub = TLV8.decode(cval) as [(UInt8, Data)]
+                      for (ptag2, pval2) in paramSub {
+                        if ptag2 == 0x01, let ch = pval2.first { logger.info("  Audio channels: \(ch)") }
+                        if ptag2 == 0x02, let br = pval2.first { logger.info("  Audio bitrate: \(br == 0 ? "variable" : br == 1 ? "constant" : "unknown")") }
+                        if ptag2 == 0x03, let sr = pval2.first {
+                          let rates = ["8kHz", "16kHz", "24kHz"]
+                          logger.info("  Audio sample rate: \(Int(sr) < rates.count ? rates[Int(sr)] : "unknown(\(sr))")")
+                        }
+                      }
+                    }
+                  }
+                }
                 if atag == 0x03 {  // Audio RTP parameters
                   let rtpSub = TLV8.decode(aval) as [(UInt8, Data)]
                   for (rtag, rval) in rtpSub {
@@ -793,9 +813,9 @@ final class CameraStreamSession {
   private let captureQueue = DispatchQueue(label: "com.example.hap.camera.capture")
   private let rtpQueue = DispatchQueue(label: "com.example.hap.camera.rtp")
 
-  // UDP connections (RTP on video port, RTCP on video port + 1)
-  private var udpConnection: NWConnection?
-  private var rtcpConnection: NWConnection?
+  // Video UDP — BSD socket (immune to ICMP route-poisoning that kills NWConnection)
+  private var videoSocketFD: Int32 = -1
+  private var controllerVideoAddr: sockaddr_in?
 
   // RTP state
   private var sequenceNumber: UInt16 = 0
@@ -815,7 +835,6 @@ final class CameraStreamSession {
   // Audio pipeline (microphone → controller)
   private var audioOutput: AVCaptureAudioDataOutput?
   private var audioConverter: AudioConverterRef?
-  private var audioConnection: NWConnection?
   private var audioSRTPContext: SRTPContext?
   private var audioRTPSeq: UInt16 = 0
   private var audioRTPTimestamp: UInt32 = 0
@@ -825,14 +844,21 @@ final class CameraStreamSession {
   private var audioRTCPTimer: DispatchSourceTimer?
   var isMuted: Bool = false
 
+  // Audio UDP — single BSD socket for both send and receive.
+  // Using a raw BSD socket avoids two NWConnection/NWListener issues:
+  // 1. Port conflicts (NWConnection + NWListener can't share the same local port)
+  // 2. ICMP poisoning (connected UDP sockets propagate ICMP errors to the kernel,
+  //    which poisons the route to the host and kills ALL connections including video)
+  private var audioSocketFD: Int32 = -1
+  private var audioReadSource: DispatchSourceRead?
+  private var controllerAudioAddr: sockaddr_in?
+
   // Audio pipeline (controller → speaker)
   private var audioDecoder: AudioConverterRef?
   private var audioEngine: AVAudioEngine?
   private var audioPlayerNode: AVAudioPlayerNode?
   private var audioPlayerStarted: Bool = false
   private var incomingSRTPContext: SRTPContext?
-  private var audioListener: NWListener?
-  private var audioListenerConnection: NWConnection?
   var speakerMuted: Bool = false
   var speakerVolume: Int = 100
 
@@ -900,118 +926,113 @@ final class CameraStreamSession {
     audioSRTPContext = SRTPContext(masterKey: audioSRTPKey, masterSalt: audioSRTPSalt)
     incomingSRTPContext = SRTPContext(masterKey: audioSRTPKey, masterSalt: audioSRTPSalt)
 
-    // Open UDP to controller, binding to our advertised local port
-    let host = NWEndpoint.Host(controllerAddress)
-    let port = NWEndpoint.Port(rawValue: controllerVideoPort)!
-    let params = NWParameters.udp
-    params.requiredLocalEndpoint = NWEndpoint.hostPort(
-      host: NWEndpoint.Host(localAddress),
-      port: NWEndpoint.Port(rawValue: localVideoPort)!
-    )
-    let conn = NWConnection(host: host, port: port, using: params)
-    conn.stateUpdateHandler = { [weak self] state in
-      guard let self else { return }
-      self.logger.info("UDP state: \(String(describing: state))")
-      if case .ready = state {
-        // Only start capture pipeline once UDP is ready.
-        // Swap encoder dimensions when the rotation produces portrait frames.
-        let encWidth = swapDimensions ? height : width
-        let encHeight = swapDimensions ? width : height
-        self.setupCompression(width: encWidth, height: encHeight, fps: fps, bitrate: bitrate)
-        self.setupCapture(
-          width: width, height: height, fps: fps, camera: camera, rotationAngle: rotationAngle)
-        self.startRTCPTimer()
-      }
+    // Video: BSD UDP socket (immune to ICMP route-poisoning that kills NWConnection)
+    let videoFD = socket(AF_INET, SOCK_DGRAM, 0)
+    guard videoFD >= 0 else {
+      logger.error("Failed to create video UDP socket: errno \(errno)")
+      return
     }
-    conn.start(queue: rtpQueue)
-    self.udpConnection = conn
 
-    // Open separate UDP for RTCP on port + 1
-    let rtcpPort = NWEndpoint.Port(rawValue: controllerVideoPort + 1)!
-    let rtcpParams = NWParameters.udp
-    rtcpParams.requiredLocalEndpoint = NWEndpoint.hostPort(
-      host: NWEndpoint.Host(localAddress),
-      port: NWEndpoint.Port(rawValue: localVideoPort + 1)!
-    )
-    let rtcpConn = NWConnection(host: host, port: rtcpPort, using: rtcpParams)
-    rtcpConn.stateUpdateHandler = { [weak self] state in
-      self?.logger.info("RTCP UDP state: \(String(describing: state))")
-    }
-    rtcpConn.start(queue: rtpQueue)
-    self.rtcpConnection = rtcpConn
+    var videoBindAddr = sockaddr_in()
+    videoBindAddr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+    videoBindAddr.sin_family = sa_family_t(AF_INET)
+    videoBindAddr.sin_port = localVideoPort.bigEndian
+    videoBindAddr.sin_addr.s_addr = inet_addr(localAddress)
 
-    // Open UDP for sending audio RTP to controller's audio port
-    let audioParams = NWParameters.udp
-    audioParams.requiredLocalEndpoint = NWEndpoint.hostPort(
-      host: NWEndpoint.Host(localAddress),
-      port: NWEndpoint.Port(rawValue: localAudioPort)!
-    )
-    let audioConn = NWConnection(
-      host: host,
-      port: NWEndpoint.Port(rawValue: controllerAudioPort)!,
-      using: audioParams
-    )
-    audioConn.stateUpdateHandler = { [weak self] state in
-      guard let self else { return }
-      self.logger.info("Audio send UDP state: \(String(describing: state))")
-      if case .ready = state {
-        self.setupAudioEncoder()
-        self.startAudioRTCPTimer()
-      }
-      if case .failed = state {
-        // Audio send failed (e.g. ICMP port unreachable) — nil it out so we
-        // stop trying to send, but don't let it affect video or audio receive.
-        self.logger.warning("Audio send connection failed — mic audio will not be delivered")
-        self.audioConnection?.cancel()
-        self.audioConnection = nil
+    let videoBindResult = withUnsafePointer(to: &videoBindAddr) { ptr in
+      ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
+        Darwin.bind(videoFD, sockPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
       }
     }
-    audioConn.start(queue: rtpQueue)
-    self.audioConnection = audioConn
+    guard videoBindResult == 0 else {
+      logger.error("Failed to bind video socket to port \(self.localVideoPort): errno \(errno)")
+      close(videoFD)
+      return
+    }
 
-    // Open a separate UDP listener for receiving audio FROM the controller.
-    // We use NWListener instead of the connected NWConnection because a
-    // connected UDP socket fails from ICMP errors when the controller isn't
-    // listening yet, poisoning the socket and killing audio receive.
-    do {
-      let listenParams = NWParameters.udp
-      listenParams.requiredLocalEndpoint = NWEndpoint.hostPort(
-        host: NWEndpoint.Host(localAddress),
-        port: NWEndpoint.Port(rawValue: localAudioPort)!
-      )
-      listenParams.allowLocalEndpointReuse = true
-      let listener = try NWListener(using: listenParams)
-      listener.stateUpdateHandler = { [weak self] state in
-        self?.logger.info("Audio receive listener state: \(String(describing: state))")
-      }
-      listener.newConnectionHandler = { [weak self] newConn in
-        guard let self else { return }
-        self.logger.info("Audio receive: incoming connection from \(String(describing: newConn.endpoint))")
-        // Only accept one incoming audio flow
-        if self.audioListenerConnection != nil {
-          newConn.cancel()
-          return
-        }
-        self.audioListenerConnection = newConn
-        newConn.stateUpdateHandler = { [weak self] state in
-          if case .failed = state {
-            self?.audioListenerConnection = nil
-          }
-        }
-        newConn.start(queue: self.rtpQueue)
-        self.startReceivingAudio(on: newConn)
-      }
-      listener.start(queue: rtpQueue)
-      self.audioListener = listener
-      self.setupAudioDecoder()
-      self.setupAudioPlayback()
-    } catch {
-      logger.error("Failed to create audio receive listener: \(error)")
+    let videoFlags = fcntl(videoFD, F_GETFL)
+    _ = fcntl(videoFD, F_SETFL, videoFlags | O_NONBLOCK)
+
+    self.videoSocketFD = videoFD
+    logger.info("Video BSD socket bound to port \(self.localVideoPort)")
+
+    var vidAddr = sockaddr_in()
+    vidAddr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+    vidAddr.sin_family = sa_family_t(AF_INET)
+    vidAddr.sin_port = controllerVideoPort.bigEndian
+    vidAddr.sin_addr.s_addr = inet_addr(controllerAddress)
+    self.controllerVideoAddr = vidAddr
+
+    // Start capture pipeline immediately (BSD socket is ready after bind)
+    let encWidth = swapDimensions ? height : width
+    let encHeight = swapDimensions ? width : height
+    self.setupCompression(width: encWidth, height: encHeight, fps: fps, bitrate: bitrate)
+    self.setupCapture(
+      width: width, height: height, fps: fps, camera: camera, rotationAngle: rotationAngle)
+    self.startRTCPTimer()
+
+    // Audio: single BSD UDP socket for both send and receive.
+    // Avoids NWConnection port conflicts and ICMP route-poisoning issues.
+    let fd = socket(AF_INET, SOCK_DGRAM, 0)
+    guard fd >= 0 else {
+      logger.error("Failed to create audio UDP socket: errno \(errno)")
+      return
     }
+
+    // Bind to our advertised local audio port
+    var bindAddr = sockaddr_in()
+    bindAddr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+    bindAddr.sin_family = sa_family_t(AF_INET)
+    bindAddr.sin_port = localAudioPort.bigEndian
+    bindAddr.sin_addr.s_addr = inet_addr(localAddress)
+
+    let bindResult = withUnsafePointer(to: &bindAddr) { ptr in
+      ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
+        Darwin.bind(fd, sockPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
+      }
+    }
+    guard bindResult == 0 else {
+      logger.error("Failed to bind audio socket to port \(self.localAudioPort): errno \(errno)")
+      close(fd)
+      return
+    }
+
+    // Set non-blocking
+    let flags = fcntl(fd, F_GETFL)
+    _ = fcntl(fd, F_SETFL, flags | O_NONBLOCK)
+
+    self.audioSocketFD = fd
+    logger.info("Audio BSD socket bound to port \(self.localAudioPort)")
+
+    // Store controller audio address for sendto()
+    var ctrlAddr = sockaddr_in()
+    ctrlAddr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+    ctrlAddr.sin_family = sa_family_t(AF_INET)
+    ctrlAddr.sin_port = controllerAudioPort.bigEndian
+    ctrlAddr.sin_addr.s_addr = inet_addr(controllerAddress)
+    self.controllerAudioAddr = ctrlAddr
+
+    // Start async receive via GCD read source
+    let readSource = DispatchSource.makeReadSource(fileDescriptor: fd, queue: rtpQueue)
+    readSource.setEventHandler { [weak self] in
+      self?.readAudioSocket()
+    }
+    readSource.setCancelHandler {
+      // Socket will be closed in stopStreaming
+    }
+    readSource.resume()
+    self.audioReadSource = readSource
+
+    if self.audioConverter == nil {
+      self.setupAudioEncoder()
+    }
+    self.startAudioRTCPTimer()
+    self.setupAudioDecoder()
+    self.setupAudioPlayback()
   }
 
   func stopStreaming() {
-    logger.info("Stopping stream")
+    logger.info("Stopping stream (received \(self.incomingAudioPacketCount) incoming audio packets)")
 
     // Video cleanup
     rtcpTimer?.cancel()
@@ -1027,10 +1048,11 @@ final class CameraStreamSession {
     }
     compressionSession = nil
 
-    udpConnection?.cancel()
-    udpConnection = nil
-    rtcpConnection?.cancel()
-    rtcpConnection = nil
+    if videoSocketFD >= 0 {
+      close(videoSocketFD)
+      videoSocketFD = -1
+    }
+    controllerVideoAddr = nil
     srtpContext = nil
 
     // Audio mic cleanup
@@ -1044,17 +1066,17 @@ final class CameraStreamSession {
     audioConverter = nil
     pcmAccumulator = Data()
 
-    audioConnection?.cancel()
-    audioConnection = nil
+    // Audio socket cleanup
+    audioReadSource?.cancel()
+    audioReadSource = nil
+    if audioSocketFD >= 0 {
+      close(audioSocketFD)
+      audioSocketFD = -1
+    }
+    controllerAudioAddr = nil
     audioSRTPContext = nil
     audioSampleCount = 0
     incomingAudioPacketCount = 0
-
-    // Audio receive cleanup
-    audioListenerConnection?.cancel()
-    audioListenerConnection = nil
-    audioListener?.cancel()
-    audioListener = nil
 
     // Audio speaker cleanup
     audioPlayerNode?.stop()
@@ -1412,16 +1434,23 @@ final class CameraStreamSession {
       rtpPacket = ctx.protect(rtpPacket)
     }
 
-    // Send via UDP
+    // Send via BSD UDP socket
     packetsSent += 1
     octetsSent += payload.count
-    udpConnection?.send(
-      content: rtpPacket,
-      completion: .contentProcessed { [weak self] error in
-        if let error, self?.packetsSent ?? 0 <= 1 || (self?.packetsSent ?? 0) % 300 == 0 {
-          self?.logger.error("UDP send error: \(error)")
+    sendVideoUDP(rtpPacket)
+  }
+
+  /// Send data via the BSD video socket to the controller's video port.
+  private func sendVideoUDP(_ data: Data) {
+    guard videoSocketFD >= 0, var addr = controllerVideoAddr else { return }
+    data.withUnsafeBytes { buf in
+      guard let base = buf.baseAddress else { return }
+      withUnsafePointer(to: &addr) { addrPtr in
+        addrPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
+          _ = sendto(videoSocketFD, base, buf.count, 0, sockPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
         }
-      })
+      }
+    }
   }
 
   // MARK: - RTCP Sender Report
@@ -1483,15 +1512,9 @@ final class CameraStreamSession {
     sr[26] = UInt8((oc >> 8) & 0xFF)
     sr[27] = UInt8(oc & 0xFF)
 
-    // Encrypt with SRTCP and send on RTCP port (video port + 1)
+    // Encrypt with SRTCP and send on the same video port (RTP/RTCP muxed per HAP)
     let srtcpPacket = ctx.protectRTCP(sr)
-    rtcpConnection?.send(
-      content: srtcpPacket,
-      completion: .contentProcessed { [weak self] error in
-        if let error {
-          self?.logger.error("RTCP send error: \(error)")
-        }
-      })
+    sendVideoUDP(srtcpPacket)
     logger.debug("Sent RTCP-SR: packets=\(self.packetsSent) octets=\(self.octetsSent)")
   }
 
@@ -1550,8 +1573,8 @@ final class CameraStreamSession {
       logger.info("Audio sample dropped: encoder not ready")
       return
     }
-    guard audioConnection != nil else {
-      logger.info("Audio sample dropped: audio UDP not connected")
+    guard audioSocketFD >= 0 else {
+      logger.info("Audio sample dropped: audio UDP not ready")
       return
     }
     guard !isMuted else { return }
@@ -1691,12 +1714,15 @@ final class CameraStreamSession {
         AudioConverterFillComplexBuffer(
           converter,
           { (_, ioNumberDataPackets, ioData, outDataPacketDescription, inUserData) -> OSStatus in
-            guard let userData = inUserData else { return -1 }
+            guard let userData = inUserData else {
+              ioNumberDataPackets.pointee = 0
+              return noErr
+            }
             let cb = userData.assumingMemoryBound(to: AudioEncoderInput.self)
 
             if cb.pointee.consumed {
               ioNumberDataPackets.pointee = 0
-              return -1
+              return noErr  // Signal "no more data" without error
             }
             cb.pointee.consumed = true
 
@@ -1723,10 +1749,20 @@ final class CameraStreamSession {
     guard encodedSize > 0 else { return }
     let aacData = Data(bytes: outputBuffer, count: encodedSize)
 
+    // Wrap in RFC 3640 AU header section (HomeKit expects this framing)
+    let auSize = UInt16(encodedSize)
+    var auHeader = Data(count: 4)
+    auHeader[0] = 0x00  // AU-headers-length MSB
+    auHeader[1] = 0x10  // AU-headers-length LSB = 16 bits (one AU header)
+    auHeader[2] = UInt8((auSize << 3) >> 8)  // AU-size upper bits
+    auHeader[3] = UInt8((auSize << 3) & 0xFF)  // AU-size lower bits + AU-Index=0
+    var framedPayload = auHeader
+    framedPayload.append(aacData)
+
     if audioPacketsSent == 0 || audioPacketsSent % 500 == 0 {
       logger.info("Audio encoded frame: \(encodedSize)B AAC-ELD, total packets sent: \(self.audioPacketsSent)")
     }
-    sendAudioRTPPacket(payload: aacData)
+    sendAudioRTPPacket(payload: framedPayload)
   }
 
   // MARK: - Audio RTP Send
@@ -1760,13 +1796,7 @@ final class CameraStreamSession {
 
     audioPacketsSent += 1
     audioOctetsSent += payload.count
-    audioConnection?.send(
-      content: rtpPacket,
-      completion: .contentProcessed { [weak self] error in
-        if let error, self?.audioPacketsSent ?? 0 <= 1 || (self?.audioPacketsSent ?? 0) % 500 == 0 {
-          self?.logger.error("Audio UDP send error: \(error)")
-        }
-      })
+    sendAudioUDP(rtpPacket)
   }
 
   // MARK: - Audio RTCP Sender Report
@@ -1821,15 +1851,9 @@ final class CameraStreamSession {
     sr[26] = UInt8((oc >> 8) & 0xFF)
     sr[27] = UInt8(oc & 0xFF)
 
-    // Audio RTCP is sent on the audio connection (same port pair for HAP)
+    // Audio RTCP is sent on the same BSD socket
     let srtcpPacket = ctx.protectRTCP(sr)
-    audioConnection?.send(
-      content: srtcpPacket,
-      completion: .contentProcessed { [weak self] error in
-        if let error {
-          self?.logger.error("Audio RTCP send error: \(error)")
-        }
-      })
+    sendAudioUDP(srtcpPacket)
     logger.debug(
       "Sent audio RTCP-SR: packets=\(self.audioPacketsSent) octets=\(self.audioOctetsSent)")
   }
@@ -1892,41 +1916,69 @@ final class CameraStreamSession {
     }
     engine.connect(playerNode, to: engine.mainMixerNode, format: format)
 
-    do {
-      try engine.start()
-      // Don't call playerNode.play() here — defer it until the first buffer is
-      // scheduled. Playing before any audio is queued can cause the player to
-      // finish immediately, after which scheduleBuffer calls may not produce sound.
-    } catch {
-      logger.error("AVAudioEngine start error: \(error)")
-      return
-    }
-
+    // Don't start the engine here — the capture session starts asynchronously
+    // and will interrupt the audio session, killing the engine. Instead, we
+    // start it lazily in ensureAudioEngineRunning() when we actually have
+    // audio to play.
     self.audioEngine = engine
     self.audioPlayerNode = playerNode
     self.audioPlayerStarted = false
-    logger.info("Audio playback engine started (player deferred until first buffer)")
+    logger.info("Audio playback engine prepared (will start on first audio)")
   }
 
-  // MARK: - Receive Incoming Audio
-
-  private func startReceivingAudio(on connection: NWConnection) {
-    receiveNextAudioPacket(on: connection)
+  /// Ensure the AVAudioEngine is running. Call before scheduling buffers.
+  /// The engine may have been interrupted by the capture session or audio route changes.
+  private func ensureAudioEngineRunning() -> Bool {
+    guard let engine = audioEngine else { return false }
+    if engine.isRunning { return true }
+    do {
+      #if os(iOS)
+        let session = AVAudioSession.sharedInstance()
+        logger.info("Audio session before engine start: route=\(session.currentRoute.outputs.map { $0.portName }), sampleRate=\(session.sampleRate), category=\(session.category.rawValue)")
+      #endif
+      try engine.start()
+      logger.info("AVAudioEngine (re)started, outputNode sampleRate=\(engine.outputNode.outputFormat(forBus: 0).sampleRate)")
+      return true
+    } catch {
+      logger.error("AVAudioEngine start error: \(error)")
+      return false
+    }
   }
 
-  private func receiveNextAudioPacket(on connection: NWConnection) {
-    connection.receiveMessage { [weak self] data, _, _, error in
-      guard let self else { return }
-      if let data {
-        self.rtpQueue.async {
-          self.handleIncomingAudioPacket(data)
+  // MARK: - Audio BSD Socket Send/Receive
+
+  /// Send data via the BSD audio socket to the controller's audio port.
+  private func sendAudioUDP(_ data: Data) {
+    guard audioSocketFD >= 0, var addr = controllerAudioAddr else { return }
+    data.withUnsafeBytes { buf in
+      guard let base = buf.baseAddress else { return }
+      let sent = withUnsafePointer(to: &addr) { addrPtr in
+        addrPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
+          sendto(audioSocketFD, base, buf.count, 0, sockPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
         }
       }
-      if let error {
-        self.logger.warning("Audio receive stopped: \(error)")
-        return  // Stop the loop — connection is broken
+      if sent < 0 && (audioPacketsSent <= 1 || audioPacketsSent % 500 == 0) {
+        logger.warning("Audio sendto error: errno \(errno)")
       }
-      self.receiveNextAudioPacket(on: connection)
+    }
+  }
+
+  /// Called by GCD read source when data is available on the audio socket.
+  private func readAudioSocket() {
+    var buf = [UInt8](repeating: 0, count: 2048)
+    while true {
+      let n = recv(audioSocketFD, &buf, buf.count, 0)
+      if n <= 0 { break }  // EAGAIN (no more data) or error
+      // Distinguish RTP from RTCP: RTCP has payload type 200-204 in byte[1]
+      // (RFC 5761). We only process RTP audio; RTCP receiver reports are ignored.
+      guard n >= 12 else { continue }
+      let pt = buf[1]
+      if pt >= 200 && pt <= 204 {
+        // SRTCP packet from controller (receiver report, etc.) — skip
+        continue
+      }
+      let data = Data(buf[0..<n])
+      handleIncomingAudioPacket(data)
     }
   }
 
@@ -1948,7 +2000,23 @@ final class CameraStreamSession {
 
     // Extract AAC-ELD payload from RTP (skip 12-byte header)
     guard rtpPacket.count > 12 else { return }
-    let aacPayload = Data(rtpPacket[rtpPacket.startIndex + 12..<rtpPacket.endIndex])
+    var aacPayload = Data(rtpPacket[rtpPacket.startIndex + 12..<rtpPacket.endIndex])
+    guard !aacPayload.isEmpty else { return }
+
+    // Strip RFC 3640 AU header section if present.
+    // HomeKit wraps AAC-ELD frames with a 4-byte AU header:
+    //   2 bytes AU-headers-length (= 0x0010, meaning one 16-bit AU header)
+    //   2 bytes AU header (13-bit AU-size + 3-bit AU-Index)
+    if aacPayload.count >= 4
+      && aacPayload[aacPayload.startIndex] == 0x00
+      && aacPayload[aacPayload.startIndex + 1] == 0x10
+    {
+      aacPayload = Data(aacPayload[aacPayload.startIndex + 4..<aacPayload.endIndex])
+    }
+
+    if incomingAudioPacketCount <= 3 || aacPayload.count > 20 {
+      logger.info("Audio RTP #\(self.incomingAudioPacketCount): AAC-ELD frame \(aacPayload.count)B")
+    }
     guard !aacPayload.isEmpty else { return }
 
     // Decode AAC-ELD → PCM
@@ -1968,7 +2036,9 @@ final class CameraStreamSession {
       )
     )
 
-    var packetCount: UInt32 = 1
+    // For PCM output, mFramesPerPacket=1 so each "packet" is one sample.
+    // Request a full frame's worth of samples (480) to decode the entire AAC-ELD frame.
+    var packetCount: UInt32 = UInt32(outputSamples)
 
     let status: OSStatus = aacPayload.withUnsafeBytes { aacBuf -> OSStatus in
       guard let aacBase = aacBuf.baseAddress else { return -1 }
@@ -1988,12 +2058,15 @@ final class CameraStreamSession {
         AudioConverterFillComplexBuffer(
           decoder,
           { (_, ioNumberDataPackets, ioData, outDataPacketDescription, inUserData) -> OSStatus in
-            guard let userData = inUserData else { return -1 }
+            guard let userData = inUserData else {
+              ioNumberDataPackets.pointee = 0
+              return noErr
+            }
             let cb = userData.assumingMemoryBound(to: AudioDecoderInput.self)
 
             if cb.pointee.consumed {
               ioNumberDataPackets.pointee = 0
-              return -1
+              return noErr  // Signal "no more data" without error
             }
             cb.pointee.consumed = true
             ioNumberDataPackets.pointee = 1
@@ -2002,7 +2075,6 @@ final class CameraStreamSession {
             ioData.pointee.mBuffers.mDataByteSize = cb.pointee.srcSize
             ioData.pointee.mBuffers.mNumberChannels = 1
 
-            // Point to the packetDesc field within our struct
             if let outDesc = outDataPacketDescription {
               let descOffset = MemoryLayout<AudioDecoderInput>.offset(of: \.packetDesc)!
               outDesc.pointee = userData.advanced(by: descOffset)
@@ -2018,21 +2090,35 @@ final class CameraStreamSession {
       }
     }
 
-    guard status == noErr else {
-      logger.warning("AAC-ELD decode error: \(status)")
+    let decodedSize = Int(outputBufferList.mBuffers.mDataByteSize)
+    let decodedPackets = Int(packetCount)
+    if status != noErr {
+      if incomingAudioPacketCount <= 10 || incomingAudioPacketCount % 100 == 0 {
+        logger.warning("AAC-ELD decode status=\(status), output=\(decodedSize)B (\(decodedPackets) pkts), input=\(aacPayload.count)B")
+      }
+      if decodedSize == 0 { return }
+    }
+    guard decodedSize > 0, let playerNode = audioPlayerNode else {
+      if incomingAudioPacketCount <= 10 || incomingAudioPacketCount % 100 == 0 {
+        logger.info("Audio decode produced 0B (packet #\(self.incomingAudioPacketCount)), skipping")
+      }
       return
     }
 
-    let decodedSize = Int(outputBufferList.mBuffers.mDataByteSize)
-    guard decodedSize > 0, let playerNode = audioPlayerNode else { return }
-    if incomingAudioPacketCount == 1 || incomingAudioPacketCount % 500 == 0 {
-      logger.info("Audio decoded: \(decodedSize)B PCM, scheduling for playback")
+    let sampleCount = decodedSize / 4
+
+    // Skip tiny priming buffers (< 10 samples / 0.6ms) — they're inaudible and
+    // can cause the player to enter a finished state before real audio arrives.
+    if sampleCount < 10 {
+      if incomingAudioPacketCount <= 10 {
+        logger.info("Skipping priming buffer: \(decodedSize)B (\(sampleCount) samples)")
+      }
+      return
     }
 
-    // Apply volume gain
+    // Apply volume gain and measure peak amplitude
     let gain = Float(speakerVolume) / 100.0
-    let sampleCount = decodedSize / 4
-    let pcmData = Data(bytes: outputBuffer, count: decodedSize)
+    var peak: Float = 0
 
     guard
       let format = AVAudioFormat(
@@ -2044,20 +2130,29 @@ final class CameraStreamSession {
     }
 
     pcmBuffer.frameLength = AVAudioFrameCount(sampleCount)
-    if let channelData = pcmBuffer.floatChannelData?[0] {
-      pcmData.withUnsafeBytes { ptr in
-        guard let src = ptr.bindMemory(to: Float.self).baseAddress else { return }
+    outputBuffer.withMemoryRebound(to: Float.self, capacity: sampleCount) { src in
+      if let channelData = pcmBuffer.floatChannelData?[0] {
         for i in 0..<sampleCount {
-          channelData[i] = src[i] * gain
+          let sample = src[i] * gain
+          channelData[i] = sample
+          let absSample = abs(sample)
+          if absSample > peak { peak = absSample }
         }
       }
     }
 
+    if incomingAudioPacketCount <= 10 || incomingAudioPacketCount % 25 == 0 || peak > 0.01 {
+      let engineRunning = audioEngine?.isRunning ?? false
+      let playerPlaying = playerNode.isPlaying
+      logger.info("Audio decoded #\(self.incomingAudioPacketCount): \(sampleCount) samples, peak=\(peak, format: .fixed(precision: 4)), engine=\(engineRunning), player=\(playerPlaying)")
+    }
+
+    guard ensureAudioEngineRunning() else { return }
     playerNode.scheduleBuffer(pcmBuffer)
-    if !audioPlayerStarted {
+    if !audioPlayerStarted || !playerNode.isPlaying {
       playerNode.play()
       audioPlayerStarted = true
-      logger.info("Audio player started after first buffer scheduled")
+      logger.info("Audio player started (volume=\(self.speakerVolume)%)")
     }
   }
 }
