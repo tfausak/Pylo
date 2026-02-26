@@ -2144,6 +2144,43 @@ struct PairSetupThrottleWindowTests {
   }
 }
 
+// MARK: - Setup URI Tests
+
+@Suite("HAP Setup URI")
+struct SetupURITests {
+
+  @Test("Bit layout matches HAP spec §8.6.1")
+  func bitLayout() {
+    // Setup code "111-22-333" = 11122333, category = bridge (2), flags = 2 (IP)
+    // Expected layout:
+    //   bits  0-26: 11122333 (0xA9C29D)
+    //   bits 27-30: category (2)
+    //   bits 31-34: flags (2)
+    let uri = hapSetupURI(setupCode: "111-22-333", category: 2)
+    #expect(uri.hasPrefix("X-HM://"))
+
+    // Extract base-36 payload (drop "X-HM://" prefix and 4-char setupID suffix)
+    let body = String(uri.dropFirst(7))
+    let encoded = String(body.prefix(9))
+    let payload = UInt64(encoded, radix: 36)!
+
+    // Verify bit fields
+    let code = payload & 0x7FF_FFFF  // bits 0-26 (27 bits)
+    let category = (payload >> 27) & 0xF  // bits 27-30 (4 bits)
+    let flags = (payload >> 31) & 0xF  // bits 31-34 (4 bits)
+
+    #expect(code == 11122333)
+    #expect(category == 2)
+    #expect(flags == 2)
+  }
+
+  @Test("Returns empty string for invalid setup code")
+  func invalidCode() {
+    let uri = hapSetupURI(setupCode: "not-a-number")
+    #expect(uri.isEmpty)
+  }
+}
+
 // MARK: - SRTP Thread Safety Tests
 
 @Suite("SRTP Thread Safety")

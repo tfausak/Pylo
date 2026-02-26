@@ -430,13 +430,13 @@ final class HAPViewModel {
 
 // MARK: - HomeKit QR Code Helpers
 
-/// Build the `X-HM://` setup URI defined by the HAP spec.
+/// Build the `X-HM://` setup URI defined by the HAP spec (§8.6.1).
 /// The payload is a 45-bit integer, base-36 encoded and zero-padded to 9 chars:
 ///   bits  0–26: setup code as plain integer (digits without dashes)
-///   bits 27–30: flags (2 = IP)
-///   bits 31–38: accessory category
-///   bits 39–44: reserved / version (0)
-private func hapSetupURI(setupCode: String, category: Int = HAPAccessoryCategory.bridge.rawValue)
+///   bits 27–30: accessory category (4 bits)
+///   bits 31–34: status flags (4 bits, 2 = IP)
+///   bits 35–44: reserved / version (0)
+func hapSetupURI(setupCode: String, category: Int = HAPAccessoryCategory.bridge.rawValue)
   -> String
 {
   let digits = setupCode.filter(\.isWholeNumber)
@@ -444,8 +444,8 @@ private func hapSetupURI(setupCode: String, category: Int = HAPAccessoryCategory
   let flags: UInt64 = 2  // IP accessory
   var payload: UInt64 = 0
   payload |= code
-  payload |= flags << 27
-  payload |= UInt64(category) << 31
+  payload |= UInt64(category) << 27
+  payload |= flags << 31
 
   // Base-36 encode, uppercase, zero-padded to 9 characters
   var encoded = String(payload, radix: 36, uppercase: true)
