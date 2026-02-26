@@ -419,45 +419,8 @@ struct HTTPRequest {
   /// Only parses headers as UTF-8; the body is kept as raw Data
   /// (TLV8 bodies may contain non-UTF-8 binary like Ed25519 keys).
   static func parse(_ data: Data) -> HTTPRequest? {
-    // Find header/body separator — only convert headers to UTF-8
-    guard let separatorRange = data.range(of: Data("\r\n\r\n".utf8)) else {
-      return nil
-    }
-
-    let headerData = data[data.startIndex..<separatorRange.lowerBound]
-    guard let headerStr = String(data: headerData, encoding: .utf8) else { return nil }
-
-    let lines = headerStr.components(separatedBy: "\r\n")
-    guard let requestLine = lines.first else { return nil }
-
-    let requestParts = requestLine.split(separator: " ", maxSplits: 2)
-    guard requestParts.count >= 2 else { return nil }
-
-    let method = String(requestParts[0])
-    let path = String(requestParts[1])
-
-    var headers: [String: String] = [:]
-    for line in lines.dropFirst() {
-      if let colonIndex = line.firstIndex(of: ":") {
-        let key = line[line.startIndex..<colonIndex].trimmingCharacters(in: .whitespaces)
-          .lowercased()
-        let value = line[line.index(after: colonIndex)...].trimmingCharacters(in: .whitespaces)
-        headers[key] = value
-      }
-    }
-
-    // Extract body as raw Data based on Content-Length
-    var body: Data?
-    if let contentLengthStr = headers["content-length"],
-      let contentLength = Int(contentLengthStr),
-      contentLength > 0
-    {
-      let bodyStart = separatorRange.upperBound
-      let bodyEnd = min(bodyStart + contentLength, data.endIndex)
-      body = data[bodyStart..<bodyEnd]
-    }
-
-    return HTTPRequest(method: method, path: path, headers: headers, body: body)
+    var buffer = data
+    return parseAndConsume(&buffer)
   }
 
   /// Parse a complete HTTP request from buffer and consume it.
