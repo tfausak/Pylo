@@ -981,6 +981,65 @@ struct SetupHashTests {
   }
 }
 
+// MARK: - Setup Code Validation Tests
+
+@Suite("Setup Code Validation")
+struct SetupCodeValidationTests {
+
+  @Test("Rejects all-zeros code")
+  func rejectsAllZeros() {
+    #expect(PairSetupHandler.isValidSetupCode("000-00-000") == false)
+  }
+
+  @Test("Rejects all-same-digit codes (111 through 999)")
+  func rejectsAllSameDigit() {
+    for d in 1...9 {
+      let code = "\(d)\(d)\(d)-\(d)\(d)-\(d)\(d)\(d)"
+      #expect(PairSetupHandler.isValidSetupCode(code) == false, "Should reject \(code)")
+    }
+  }
+
+  @Test("Rejects ascending sequence 123-45-678")
+  func rejectsAscending() {
+    #expect(PairSetupHandler.isValidSetupCode("123-45-678") == false)
+  }
+
+  @Test("Rejects descending sequence 876-54-321")
+  func rejectsDescending() {
+    #expect(PairSetupHandler.isValidSetupCode("876-54-321") == false)
+  }
+
+  @Test("Accepts a typical valid code")
+  func acceptsValidCode() {
+    #expect(PairSetupHandler.isValidSetupCode("031-45-154") == true)
+  }
+
+  @Test("Invalid set contains exactly 12 codes")
+  func invalidSetSize() {
+    // 000-00-000, 111-11-111 ... 999-99-999 (10), 123-45-678, 876-54-321 = 12
+    #expect(PairSetupHandler.invalidSetupCodes.count == 12)
+  }
+
+  @Test("generateSetupCode never produces an invalid code")
+  func generateNeverInvalid() {
+    for _ in 0..<1000 {
+      let code = PairSetupHandler.generateSetupCode()
+      #expect(PairSetupHandler.isValidSetupCode(code), "Generated invalid code: \(code)")
+    }
+  }
+
+  @Test("generateSetupCode produces XXX-XX-XXX format")
+  func generateFormat() {
+    let code = PairSetupHandler.generateSetupCode()
+    let parts = code.split(separator: "-")
+    #expect(parts.count == 3)
+    #expect(parts[0].count == 3)
+    #expect(parts[1].count == 2)
+    #expect(parts[2].count == 3)
+    #expect(code.allSatisfy { $0.isNumber || $0 == "-" })
+  }
+}
+
 // MARK: - AU Header Framing Tests
 
 @Suite("AU Header Framing")

@@ -14,6 +14,35 @@ enum PairSetupHandler {
 
   private static let logger = Logger(subsystem: "com.example.hap", category: "PairSetup")
 
+  /// Codes excluded by HAP spec Table 5-8.
+  static let invalidSetupCodes: Set<String> = {
+    var codes: Set<String> = [
+      "000-00-000",
+      "123-45-678",
+      "876-54-321",
+    ]
+    for d in 1...9 {
+      codes.insert("\(d)\(d)\(d)-\(d)\(d)-\(d)\(d)\(d)")
+    }
+    return codes
+  }()
+
+  /// Returns true if the setup code is valid per HAP spec Table 5-8.
+  static func isValidSetupCode(_ code: String) -> Bool {
+    !invalidSetupCodes.contains(code)
+  }
+
+  /// Generates a random setup code in XXX-XX-XXX format, excluding invalid codes.
+  static func generateSetupCode() -> String {
+    while true {
+      let d = (0..<8).map { _ in Int.random(in: 0...9) }
+      let code = "\(d[0])\(d[1])\(d[2])-\(d[3])\(d[4])-\(d[5])\(d[6])\(d[7])"
+      if isValidSetupCode(code) {
+        return code
+      }
+    }
+  }
+
   /// The setup code displayed to the user (format: XXX-XX-XXX).
   /// Generated randomly on first launch and persisted to Keychain.
   static let setupCode: String = {
@@ -22,8 +51,7 @@ enum PairSetupHandler {
     {
       return code
     }
-    let d = (0..<8).map { _ in Int.random(in: 0...9) }
-    let code = "\(d[0])\(d[1])\(d[2])-\(d[3])\(d[4])-\(d[5])\(d[6])\(d[7])"
+    let code = generateSetupCode()
     KeychainHelper.save(key: "setup-code", data: Data(code.utf8))
     return code
   }()
