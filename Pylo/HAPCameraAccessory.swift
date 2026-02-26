@@ -469,8 +469,11 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
             width: Int(width), height: Int(height), fps: Int(fps), bitrate: maxBitrate,
             payloadType: payloadType, audioPayloadType: audioPayloadType)
 
-        case 0, 2:  // END(0) or RECONFIGURE(2) - for now treat reconfigure as restart
-          logger.info("Stream \(command == 0 ? "STOP" : "RECONFIGURE") requested")
+        case 0:  // END
+          logger.info("Stream STOP requested")
+          stopStreaming()
+        case 2:  // RECONFIGURE — not fully implemented; stop stream as fallback
+          logger.warning("Stream RECONFIGURE not implemented — stopping stream")
           stopStreaming()
         default:
           break
