@@ -858,6 +858,10 @@ final class CameraStreamSession {
   var speakerMuted: Bool = false
   var speakerVolume: Int = 100
 
+  // Delegate retention — stored as properties instead of ObjC associated objects
+  private var videoCaptureDelegate: VideoCaptureDelegate?
+  private var audioCaptureDelegate: AudioCaptureDelegate?
+
   // Snapshot caching — periodically grab a JPEG from the video stream
   var onSnapshotFrame: ((Data) -> Void)?
   private var snapshotFrameCounter = 0
@@ -1170,7 +1174,7 @@ final class CameraStreamSession {
       if session.canAddOutput(audioOut) {
         session.addOutput(audioOut)
         self.audioOutput = audioOut
-        objc_setAssociatedObject(audioOut, "delegate", audioDelegate, .OBJC_ASSOCIATION_RETAIN)
+        self.audioCaptureDelegate = audioDelegate
         logger.info("Microphone audio capture added to session")
       }
     } else {
@@ -1179,8 +1183,7 @@ final class CameraStreamSession {
 
     self.captureSession = session
     self.videoOutput = output
-    // Store delegate to prevent deallocation
-    objc_setAssociatedObject(output, "delegate", delegate, .OBJC_ASSOCIATION_RETAIN)
+    self.videoCaptureDelegate = delegate
 
     // Pre-create the audio encoder so it's ready when mic samples arrive.
     // Without this, audio samples arriving before the audio UDP is ready are silently dropped.
