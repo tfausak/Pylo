@@ -598,7 +598,6 @@ final class CameraStreamSession {
     // First pass: collect non-SEI NAL units
     var nalUnits: [Data] = []
     var offset = 0
-    var nalIndex = 0
     while offset + 4 <= data.count {
       let nalLength =
         Int(data[offset]) << 24 | Int(data[offset + 1]) << 16 | Int(data[offset + 2]) << 8
@@ -611,7 +610,6 @@ final class CameraStreamSession {
 
       nalUnits.append(Data(nalUnit))
       offset += nalLength
-      nalIndex += 1
     }
 
     // Second pass: send with correct marker bits
