@@ -184,26 +184,35 @@ final class SRTPContext {
       UInt16(authenticated[authenticated.startIndex + 2]) << 8
       | UInt16(authenticated[authenticated.startIndex + 3])
 
-    // Track incoming ROC (under lock for thread safety)
-    let inROC = state.withLock { s -> UInt32 in
+    // Compute candidate ROC without mutating state (RFC 3711 §3.3:
+    // state must only be updated after authentication succeeds).
+    let (candidateROC, candidateSeq, wasInitialized) = state.withLock {
+      s -> (UInt32, UInt16, Bool) in
       if !s.incomingInitialized {
-        s.incomingLastSeq = seq
-        s.incomingInitialized = true
-      } else if seq < s.incomingLastSeq && (s.incomingLastSeq - seq) > 0x8000 {
-        s.incomingROC += 1
+        return (s.incomingROC, seq, false)
       }
-      s.incomingLastSeq = seq
-      return s.incomingROC
+      var roc = s.incomingROC
+      if seq < s.incomingLastSeq && (s.incomingLastSeq - seq) > 0x8000 {
+        roc += 1
+      }
+      return (roc, seq, true)
     }
 
-    // Verify HMAC-SHA1-80
+    // Verify HMAC-SHA1-80 before committing any state changes
     var authInput = authenticated
-    var roc = inROC.bigEndian
+    var roc = candidateROC.bigEndian
     authInput.append(Data(bytes: &roc, count: 4))
     let expectedTag = hmacSHA1(key: sessionAuthKey, data: authInput)
     guard receivedTag == expectedTag.prefix(10) else {
       logger.debug("SRTP unprotect: auth tag mismatch")
       return nil
+    }
+
+    // Authentication passed — now commit the state update
+    state.withLock { s in
+      s.incomingROC = candidateROC
+      s.incomingLastSeq = candidateSeq
+      if !wasInitialized { s.incomingInitialized = true }
     }
 
     // Extract SSRC and build IV (same as protect)
@@ -215,7 +224,7 @@ final class SRTPContext {
       UInt32(header[header.startIndex + 8]) << 24 | UInt32(header[header.startIndex + 9]) << 16
       | UInt32(header[header.startIndex + 10]) << 8 | UInt32(header[header.startIndex + 11])
 
-    let packetIndex = UInt64(inROC) << 16 | UInt64(seq)
+    let packetIndex = UInt64(candidateROC) << 16 | UInt64(seq)
 
     var iv = Data(count: 16)
     iv[4] = UInt8((ssrc >> 24) & 0xFF)
