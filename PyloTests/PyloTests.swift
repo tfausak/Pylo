@@ -2131,12 +2131,12 @@ struct PairSetupThrottleWindowTests {
     }
     #expect(throttle.isThrottled(now: t0))
 
-    // Wait for expiry — isThrottled resets the counter
+    // Wait for expiry — isThrottled no longer resets, recordFailure does
     let t1 = t0.addingTimeInterval(PairSetupThrottle.throttleDuration + 1)
     #expect(!throttle.isThrottled(now: t1))
 
-    // Counter was reset, so we need maxAttempts more failures to re-throttle
-    #expect(!throttle.isThrottled(now: t1))
+    // Counter will be reset on the next recordFailure call
+    // Need maxAttempts more failures to re-throttle
     for _ in 0..<PairSetupThrottle.maxAttempts {
       throttle.recordFailure(now: t1)
     }

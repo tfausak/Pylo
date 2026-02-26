@@ -36,22 +36,23 @@ final class PairSetupThrottle {
       guard state.failedAttempts >= Self.maxAttempts, let lastFailure = state.lastFailureDate else {
         return false
       }
-      if now.timeIntervalSince(lastFailure) >= Self.throttleDuration {
-        // Window expired — allow one attempt and reset the counter so
-        // the next batch of failures will re-engage the throttle.
-        state.failedAttempts = 0
-        state.lastFailureDate = nil
-        return false
-      }
-      return true
+      return now.timeIntervalSince(lastFailure) < Self.throttleDuration
     }
   }
 
   /// Record a failed authentication attempt.
   /// Only updates the throttle timestamp when crossing the threshold, so that
   /// an attacker making continuous attempts cannot slide the window indefinitely.
+  /// If the previous throttle window has expired, resets the counter to start fresh.
   func recordFailure(now: Date = Date()) {
     lock.withLock { state in
+      // If the previous window expired, start a fresh count
+      if let lastFailure = state.lastFailureDate,
+        now.timeIntervalSince(lastFailure) >= Self.throttleDuration
+      {
+        state.failedAttempts = 0
+        state.lastFailureDate = nil
+      }
       state.failedAttempts += 1
       if state.failedAttempts == Self.maxAttempts {
         state.lastFailureDate = now
