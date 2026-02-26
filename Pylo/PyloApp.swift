@@ -1,4 +1,3 @@
-import Combine
 import CoreImage.CIFilterBuiltins
 import SwiftUI
 
@@ -27,7 +26,7 @@ enum VideoQuality: String, CaseIterable, Identifiable {
 
 @main
 struct PyloApp: App {
-  @StateObject private var viewModel = HAPViewModel()
+  @State private var viewModel = HAPViewModel()
 
   /// UserDefaults key used to persist the screen brightness before dimming.
   /// If the app crashes while dimmed, this value is used to restore brightness on next launch.
@@ -56,36 +55,37 @@ struct PyloApp: App {
 
 // MARK: - View Model
 
-final class HAPViewModel: ObservableObject {
+@Observable
+final class HAPViewModel {
 
-  @Published var isRunning = false
-  @Published var isStarting = false
-  @Published var isLightOn = false
-  @Published var brightness: Int = 100
-  @Published var isPaired = false
-  @Published var statusMessage = "Tap Start to begin"
-  @Published var setupCode = PairSetupHandler.setupCode
-  @Published var ambientLux: Float = 1.0
-  @Published var isMotionDetected = false
-  @Published var isMotionAvailable = false
-  @Published var isCameraStreaming = false
-  @Published var hasPairings = false
-  @Published var availableCameras: [CameraOption] = []
-  @Published var selectedCamera: CameraOption? {
+  var isRunning = false
+  var isStarting = false
+  var isLightOn = false
+  var brightness: Int = 100
+  var isPaired = false
+  var statusMessage = "Tap Start to begin"
+  var setupCode = PairSetupHandler.setupCode
+  var ambientLux: Float = 1.0
+  var isMotionDetected = false
+  var isMotionAvailable = false
+  var isCameraStreaming = false
+  var hasPairings = false
+  var availableCameras: [CameraOption] = []
+  var selectedCamera: CameraOption? {
     didSet {
       guard let selectedCamera, oldValue?.id != selectedCamera.id else { return }
       UserDefaults.standard.set(selectedCamera.id, forKey: "selectedCameraID")
       lightMonitor?.restart(with: selectedCamera)
     }
   }
-  @Published var selectedStreamCamera: CameraOption? {
+  var selectedStreamCamera: CameraOption? {
     didSet {
       guard let selectedStreamCamera, oldValue?.id != selectedStreamCamera.id else { return }
       UserDefaults.standard.set(selectedStreamCamera.id, forKey: "selectedStreamCameraID")
       cameraAccessory?.selectedCameraID = selectedStreamCamera.id
     }
   }
-  @Published var videoQuality: VideoQuality = .medium {
+  var videoQuality: VideoQuality = .medium {
     didSet {
       guard videoQuality != oldValue else { return }
       UserDefaults.standard.set(videoQuality.rawValue, forKey: "videoQuality")
@@ -93,10 +93,10 @@ final class HAPViewModel: ObservableObject {
     }
   }
 
-  private var server: HAPServer?
-  private var lightMonitor: AmbientLightMonitor?
-  private var motionMonitor: MotionMonitor?
-  private var cameraAccessory: HAPCameraAccessory?
+  @ObservationIgnored private var server: HAPServer?
+  @ObservationIgnored private var lightMonitor: AmbientLightMonitor?
+  @ObservationIgnored private var motionMonitor: MotionMonitor?
+  @ObservationIgnored private var cameraAccessory: HAPCameraAccessory?
 
   @MainActor
   func start() {
@@ -361,7 +361,7 @@ private func generateQRCode(from string: String) -> UIImage? {
 private let screenDimDelay: TimeInterval = 120
 
 struct ContentView: View {
-  @ObservedObject var viewModel: HAPViewModel
+  @Bindable var viewModel: HAPViewModel
   @State private var isScreenDimmed = false
   @State private var savedBrightness: CGFloat = 0.5
   @State private var dimTask: Task<Void, Never>?

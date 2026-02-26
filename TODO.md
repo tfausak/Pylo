@@ -12,7 +12,7 @@
 
 ## Idiomatic Swift Issues
 
-- [ ] **Use `@Observable` instead of `ObservableObject`** (`PyloApp.swift:50`) — `@Observable` macro is more performant (only invalidates views that read changed properties) and simpler.
+- [x] **Use `@Observable` instead of `ObservableObject`** (`PyloApp.swift:50`) — `@Observable` macro is more performant (only invalidates views that read changed properties) and simpler.
 - [ ] **Decompose `HAPCameraAccessory.swift` (~2100 lines)** — `CameraStreamSession` alone is ~1200 lines handling capture, H.264, RTP, SRTP, audio encode/decode, BSD sockets, and RTCP. Should be separate types.
 - [x] **Deduplicate `toJSON` Accessory Information boilerplate** — The Accessory Information service JSON is copy-pasted across all 5 accessory classes. Extract to a shared helper or protocol extension.
 - [x] **Deduplicate RTCP sender report construction** (`HAPCameraAccessory.swift:1499-1550` and `1823-1868`) — Nearly identical 50-line blocks. Extract a shared function parameterized by SSRC, timestamp, packet/octet counts.
