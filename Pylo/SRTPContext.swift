@@ -22,15 +22,20 @@ final class SRTPContext {
   private let srtcpAuthKey: Data
 
   private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "SRTP")
-  private var rolloverCounter: UInt32 = 0
-  private var lastSequenceNumber: UInt16 = 0
-  private var packetCount: Int = 0
-  private var srtcpIndex: UInt32 = 0
 
-  // Incoming (receive) direction ROC tracking — separate from outgoing
-  private var incomingROC: UInt32 = 0
-  private var incomingLastSeq: UInt16 = 0
-  private var incomingInitialized: Bool = false
+  // Mutable state protected by a lock to prevent data races when
+  // protect/unprotect are called from concurrent threads.
+  private struct State {
+    var rolloverCounter: UInt32 = 0
+    var lastSequenceNumber: UInt16 = 0
+    var packetCount: Int = 0
+    var srtcpIndex: UInt32 = 0
+    // Incoming (receive) direction ROC tracking — separate from outgoing
+    var incomingROC: UInt32 = 0
+    var incomingLastSeq: UInt16 = 0
+    var incomingInitialized: Bool = false
+  }
+  private let state = OSAllocatedUnfairLock(initialState: State())
 
   init(masterKey: Data, masterSalt: Data) {
     self.masterKey = masterKey
@@ -115,14 +120,15 @@ final class SRTPContext {
       | UInt32(header[header.startIndex + 10]) << 8 | UInt32(header[header.startIndex + 11])
     let seq = UInt16(header[header.startIndex + 2]) << 8 | UInt16(header[header.startIndex + 3])
 
-    // Track rollover counter
-    if seq < lastSequenceNumber && (lastSequenceNumber - seq) > 0x8000 {
-      rolloverCounter += 1
+    // Track rollover counter (under lock for thread safety)
+    let (currentROC, packetIndex) = state.withLock { s -> (UInt32, UInt64) in
+      if seq < s.lastSequenceNumber && (s.lastSequenceNumber - seq) > 0x8000 {
+        s.rolloverCounter += 1
+      }
+      s.lastSequenceNumber = seq
+      s.packetCount += 1
+      return (s.rolloverCounter, UInt64(s.rolloverCounter) << 16 | UInt64(seq))
     }
-    lastSequenceNumber = seq
-
-    // Packet index = ROC * 65536 + SEQ
-    let packetIndex = UInt64(rolloverCounter) << 16 | UInt64(seq)
 
     // Build the IV for AES-ICM (RFC 3711 §4.1.1)
     // IV = (k_s * 2^16) XOR (SSRC * 2^64) XOR (i * 2^16)
@@ -148,15 +154,13 @@ final class SRTPContext {
     // Encrypt payload with AES-128-CTR
     let encryptedPayload = aesCTREncrypt(key: sessionKey, iv: iv, data: Data(payload))
 
-    packetCount += 1
-
     // Assemble: original header + encrypted payload
     var srtpPacket = Data(header)
     srtpPacket.append(encryptedPayload)
 
     // Compute HMAC-SHA1 authentication tag over (header + encrypted payload + ROC)
     var authInput = srtpPacket
-    var roc = rolloverCounter.bigEndian
+    var roc = currentROC.bigEndian
     authInput.append(Data(bytes: &roc, count: 4))
 
     let tag = hmacSHA1(key: sessionAuthKey, data: authInput)
@@ -180,18 +184,21 @@ final class SRTPContext {
       UInt16(authenticated[authenticated.startIndex + 2]) << 8
       | UInt16(authenticated[authenticated.startIndex + 3])
 
-    // Track incoming ROC
-    if !incomingInitialized {
-      incomingLastSeq = seq
-      incomingInitialized = true
-    } else if seq < incomingLastSeq && (incomingLastSeq - seq) > 0x8000 {
-      incomingROC += 1
+    // Track incoming ROC (under lock for thread safety)
+    let inROC = state.withLock { s -> UInt32 in
+      if !s.incomingInitialized {
+        s.incomingLastSeq = seq
+        s.incomingInitialized = true
+      } else if seq < s.incomingLastSeq && (s.incomingLastSeq - seq) > 0x8000 {
+        s.incomingROC += 1
+      }
+      s.incomingLastSeq = seq
+      return s.incomingROC
     }
-    incomingLastSeq = seq
 
     // Verify HMAC-SHA1-80
     var authInput = authenticated
-    var roc = incomingROC.bigEndian
+    var roc = inROC.bigEndian
     authInput.append(Data(bytes: &roc, count: 4))
     let expectedTag = hmacSHA1(key: sessionAuthKey, data: authInput)
     guard receivedTag == expectedTag.prefix(10) else {
@@ -208,7 +215,7 @@ final class SRTPContext {
       UInt32(header[header.startIndex + 8]) << 24 | UInt32(header[header.startIndex + 9]) << 16
       | UInt32(header[header.startIndex + 10]) << 8 | UInt32(header[header.startIndex + 11])
 
-    let packetIndex = UInt64(incomingROC) << 16 | UInt64(seq)
+    let packetIndex = UInt64(inROC) << 16 | UInt64(seq)
 
     var iv = Data(count: 16)
     iv[4] = UInt8((ssrc >> 24) & 0xFF)
@@ -247,8 +254,11 @@ final class SRTPContext {
       UInt32(header[header.startIndex + 4]) << 24 | UInt32(header[header.startIndex + 5]) << 16
       | UInt32(header[header.startIndex + 6]) << 8 | UInt32(header[header.startIndex + 7])
 
-    let index = srtcpIndex
-    srtcpIndex += 1
+    let index = state.withLock { s -> UInt32 in
+      let idx = s.srtcpIndex
+      s.srtcpIndex += 1
+      return idx
+    }
 
     // Build IV: (srtcp_salt * 2^16) XOR (SSRC * 2^64) XOR (index * 2^16)
     var iv = Data(count: 16)
