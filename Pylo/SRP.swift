@@ -139,10 +139,6 @@ final class SRPServer {
     let s = avu.power(self.privateKey, modulus: Self.prime)
     self.sharedSecret = s
 
-    // 5. Compute K = H(S) — this will become sessionKey after proof verification
-    let derivedKey = Data(SHA512.hash(data: Self.pad(s)))
-    self.sessionKey = derivedKey
-
     return true
   }
 
@@ -152,16 +148,19 @@ final class SRPServer {
   /// Returns nil if verification fails (wrong password).
   func verifyClientProof(_ clientProof: Data) -> Data? {
     guard let clientA = self.clientPublicKey,
-      let derivedKey = self.sessionKey
+      let s = self.sharedSecret
     else {
       return nil
     }
 
+    // Derive K = H(S) — only exposed as sessionKey after proof succeeds
+    let derivedKey = Data(SHA512.hash(data: Self.pad(s)))
+
     // Compute M1 = H(H(N) XOR H(g) | H(I) | s | A | B | K)
 
-    // H(N) XOR H(g) — hash the raw (unpadded) serializations of N and g
-    let hashN = Data(SHA512.hash(data: Self.prime.serialize()))
-    let hashG = Data(SHA512.hash(data: Self.g.serialize()))
+    // H(N) XOR H(g) — hash the padded 384-byte representations per HAP spec
+    let hashN = Data(SHA512.hash(data: Self.pad(Self.prime)))
+    let hashG = Data(SHA512.hash(data: Self.pad(Self.g)))
     let xorResult = Self.xor(hashN, hashG)
 
     // H(I) where I is the username
@@ -191,6 +190,9 @@ final class SRPServer {
     m2Data.append(derivedKey)
 
     let serverProof = Data(SHA512.hash(data: m2Data))
+
+    // Proof verified — now expose the session key
+    self.sessionKey = derivedKey
 
     return serverProof
   }
