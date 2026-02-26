@@ -1493,3 +1493,75 @@ struct PairSetupThrottleTests {
     #expect(!throttle.isThrottled(now: now))
   }
 }
+
+// MARK: - RTCP Sender Report Tests
+
+@Suite("RTCP Sender Report")
+struct RTCPSenderReportTests {
+
+  @Test("Report is 28 bytes with correct header")
+  func headerFormat() {
+    let sr = CameraStreamSession.buildRTCPSenderReport(
+      ssrc: 0x1234_5678, rtpTimestamp: 0,
+      packetsSent: 0, octetsSent: 0)
+    #expect(sr.count == 28)
+    #expect(sr[0] == 0x80)  // V=2, P=0, RC=0
+    #expect(sr[1] == 200)  // PT = Sender Report
+    #expect(sr[2] == 0x00)  // Length MSB
+    #expect(sr[3] == 0x06)  // Length = 6
+  }
+
+  @Test("SSRC is encoded big-endian at bytes 4-7")
+  func ssrcEncoding() {
+    let sr = CameraStreamSession.buildRTCPSenderReport(
+      ssrc: 0xDEAD_BEEF, rtpTimestamp: 0,
+      packetsSent: 0, octetsSent: 0)
+    #expect(sr[4] == 0xDE)
+    #expect(sr[5] == 0xAD)
+    #expect(sr[6] == 0xBE)
+    #expect(sr[7] == 0xEF)
+  }
+
+  @Test("RTP timestamp is encoded big-endian at bytes 16-19")
+  func rtpTimestampEncoding() {
+    let sr = CameraStreamSession.buildRTCPSenderReport(
+      ssrc: 0, rtpTimestamp: 0x00AB_CDEF,
+      packetsSent: 0, octetsSent: 0)
+    #expect(sr[16] == 0x00)
+    #expect(sr[17] == 0xAB)
+    #expect(sr[18] == 0xCD)
+    #expect(sr[19] == 0xEF)
+  }
+
+  @Test("Packet and octet counts at bytes 20-27")
+  func countsEncoding() {
+    let sr = CameraStreamSession.buildRTCPSenderReport(
+      ssrc: 0, rtpTimestamp: 0,
+      packetsSent: 256, octetsSent: 65536)
+    // packetsSent = 256 = 0x00000100
+    #expect(sr[20] == 0x00)
+    #expect(sr[21] == 0x00)
+    #expect(sr[22] == 0x01)
+    #expect(sr[23] == 0x00)
+    // octetsSent = 65536 = 0x00010000
+    #expect(sr[24] == 0x00)
+    #expect(sr[25] == 0x01)
+    #expect(sr[26] == 0x00)
+    #expect(sr[27] == 0x00)
+  }
+
+  @Test("NTP timestamp is non-zero for a known date")
+  func ntpTimestamp() {
+    // 2024-01-01 00:00:00 UTC
+    let date = Date(timeIntervalSince1970: 1_704_067_200)
+    let sr = CameraStreamSession.buildRTCPSenderReport(
+      ssrc: 0, rtpTimestamp: 0,
+      packetsSent: 0, octetsSent: 0, now: date)
+    // NTP seconds at bytes 8-11 should be non-zero
+    let ntpSec =
+      UInt32(sr[8]) << 24 | UInt32(sr[9]) << 16
+      | UInt32(sr[10]) << 8 | UInt32(sr[11])
+    // 1704067200 + 2208988800 = 3913056000
+    #expect(ntpSec == 3_913_056_000)
+  }
+}
