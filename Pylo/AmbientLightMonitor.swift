@@ -30,14 +30,18 @@ final class AmbientLightMonitor {
   var onLuxUpdate: ((Float) -> Void)?
 
   private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "AmbientLight")
-  private let sessionLock = NSLock()
-  private var _captureSession: AVCaptureSession?
-  private var captureSession: AVCaptureSession? {
-    get { sessionLock.withLock { _captureSession } }
-    set { sessionLock.withLock { _captureSession = newValue } }
+  private let lock = NSLock()
+
+  private struct State {
+    var captureSession: AVCaptureSession?
+    var timer: Timer?
   }
-  private var timer: Timer?
-  private var activeDevice: AVCaptureDevice?
+  private var _state = State()
+
+  private var captureSession: AVCaptureSession? {
+    get { lock.withLock { _state.captureSession } }
+    set { lock.withLock { _state.captureSession = newValue } }
+  }
 
   // Calibration constant (incident-light meter constant)
   private let calibrationConstant: Float = 12.5
@@ -90,17 +94,17 @@ final class AmbientLightMonitor {
       session.addOutput(output)
     }
 
-    captureSession = session
-    activeDevice = camera
+    let newTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+      self?.sampleLux(from: camera, fNumber: fNumber)
+    }
+    lock.withLock {
+      _state.captureSession = session
+      _state.timer = newTimer
+    }
 
     // Start on a background queue to avoid blocking the main thread
     DispatchQueue.global(qos: .background).async {
       session.startRunning()
-    }
-
-    // Sample every 2 seconds on the main run loop
-    timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
-      self?.sampleLux(from: camera, fNumber: fNumber)
     }
 
     logger.info("Ambient light monitor started (f/\(fNumber))")
@@ -129,11 +133,15 @@ final class AmbientLightMonitor {
   }
 
   func stop() {
-    timer?.invalidate()
-    timer = nil
-
-    captureSession?.stopRunning()
-    captureSession = nil
+    let (oldTimer, oldSession): (Timer?, AVCaptureSession?) = lock.withLock {
+      let t = _state.timer
+      let s = _state.captureSession
+      _state.timer = nil
+      _state.captureSession = nil
+      return (t, s)
+    }
+    oldTimer?.invalidate()
+    oldSession?.stopRunning()
 
     logger.info("Ambient light monitor stopped")
   }
