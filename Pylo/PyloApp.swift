@@ -76,9 +76,26 @@ final class HAPViewModel {
   }
   var selectedStreamCamera: CameraOption? {
     didSet {
-      guard let selectedStreamCamera, oldValue?.id != selectedStreamCamera.id else { return }
-      UserDefaults.standard.set(selectedStreamCamera.id, forKey: "selectedStreamCameraID")
-      cameraAccessory?.selectedCameraID = selectedStreamCamera.id
+      guard oldValue?.id != selectedStreamCamera?.id else { return }
+      if let selectedStreamCamera {
+        UserDefaults.standard.set(selectedStreamCamera.id, forKey: "selectedStreamCameraID")
+        cameraAccessory?.selectedCameraID = selectedStreamCamera.id
+      } else {
+        UserDefaults.standard.set("none", forKey: "selectedStreamCameraID")
+        cameraAccessory?.selectedCameraID = nil
+      }
+    }
+  }
+  var motionEnabled: Bool = true {
+    didSet {
+      guard motionEnabled != oldValue else { return }
+      UserDefaults.standard.set(motionEnabled, forKey: "motionEnabled")
+      if motionEnabled {
+        motionMonitor?.start()
+      } else {
+        motionMonitor?.stop()
+        isMotionDetected = false
+      }
     }
   }
   var videoQuality: VideoQuality = .medium {
@@ -226,10 +243,14 @@ final class HAPViewModel {
       }
       if self.selectedStreamCamera == nil {
         let savedID = UserDefaults.standard.string(forKey: "selectedStreamCameraID")
-        self.selectedStreamCamera =
-          cameras.first(where: { $0.id == savedID })
-          ?? cameras.first { $0.name.localizedCaseInsensitiveContains("back") }
-          ?? cameras.first
+        if savedID == "none" {
+          // User explicitly chose "None" — leave selectedStreamCamera nil
+        } else {
+          self.selectedStreamCamera =
+            cameras.first(where: { $0.id == savedID })
+            ?? cameras.first { $0.name.localizedCaseInsensitiveContains("back") }
+            ?? cameras.first
+        }
       }
       self.cameraAccessory = camera
       camera.selectedCameraID = self.selectedStreamCamera?.id
@@ -289,8 +310,15 @@ final class HAPViewModel {
           monitor.start(with: self.selectedCamera)
         }
 
-        // Start motion monitoring
-        motion.start()
+        // Restore motion enabled preference (defaults to true if not set)
+        if UserDefaults.standard.object(forKey: "motionEnabled") != nil {
+          self.motionEnabled = UserDefaults.standard.bool(forKey: "motionEnabled")
+        }
+
+        // Start motion monitoring if enabled
+        if self.motionEnabled {
+          motion.start()
+        }
 
         // Restore keep-screen-awake preference
         self.keepScreenAwake = UserDefaults.standard.bool(forKey: "keepScreenAwake")
@@ -514,7 +542,13 @@ struct ContentView: View {
 
             GroupBox("Motion Sensor") {
               VStack(spacing: 8) {
-                if viewModel.isMotionAvailable {
+                if !viewModel.motionEnabled {
+                  Image(systemName: "figure.stand")
+                    .font(.system(size: 32))
+                    .foregroundColor(.secondary)
+                  Text("Disabled")
+                    .font(.headline)
+                } else if viewModel.isMotionAvailable {
                   Image(
                     systemName: viewModel.isMotionDetected ? "figure.walk.motion" : "figure.stand"
                   )
@@ -535,6 +569,8 @@ struct ContentView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                 }
+
+                Toggle("Enabled", isOn: $viewModel.motionEnabled)
               }
               .frame(maxWidth: .infinity)
             }
@@ -550,6 +586,20 @@ struct ContentView: View {
                   Text("A camera is required for HomeKit streaming")
                     .font(.caption)
                     .foregroundColor(.secondary)
+                } else if viewModel.selectedStreamCamera == nil {
+                  Image(systemName: "video.slash")
+                    .font(.system(size: 32))
+                    .foregroundColor(.secondary)
+                  Text("Disabled")
+                    .font(.headline)
+
+                  Picker("Camera", selection: $viewModel.selectedStreamCamera) {
+                    Text("None").tag(CameraOption?.none)
+                    ForEach(viewModel.availableCameras) { camera in
+                      Text(camera.name).tag(Optional(camera))
+                    }
+                  }
+                  .pickerStyle(.menu)
                 } else {
                   Image(systemName: viewModel.isCameraStreaming ? "video.fill" : "video")
                     .font(.system(size: 32))
@@ -557,14 +607,13 @@ struct ContentView: View {
                   Text(viewModel.isCameraStreaming ? "Streaming" : "Idle")
                     .font(.headline)
 
-                  if viewModel.availableCameras.count > 1 {
-                    Picker("Camera", selection: $viewModel.selectedStreamCamera) {
-                      ForEach(viewModel.availableCameras) { camera in
-                        Text(camera.name).tag(Optional(camera))
-                      }
+                  Picker("Camera", selection: $viewModel.selectedStreamCamera) {
+                    Text("None").tag(CameraOption?.none)
+                    ForEach(viewModel.availableCameras) { camera in
+                      Text(camera.name).tag(Optional(camera))
                     }
-                    .pickerStyle(.menu)
                   }
+                  .pickerStyle(.menu)
 
                   Picker("Quality", selection: $viewModel.videoQuality) {
                     ForEach(VideoQuality.allCases) { quality in
@@ -573,7 +622,7 @@ struct ContentView: View {
                   }
                   .pickerStyle(.segmented)
 
-                  Text(viewModel.selectedStreamCamera?.name ?? "Camera via HomeKit")
+                  Text(viewModel.selectedStreamCamera?.name ?? "")
                     .font(.caption)
                     .foregroundColor(.secondary)
                 }
