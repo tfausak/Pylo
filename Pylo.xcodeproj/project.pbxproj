@@ -18,19 +18,11 @@
 			remoteGlobalIDString = 34EA21E12F4EA5FF00113A11;
 			remoteInfo = Pylo;
 		};
-		34EA21FA2F4EA60100113A11 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 34EA21DA2F4EA5FF00113A11 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 34EA21E12F4EA5FF00113A11;
-			remoteInfo = Pylo;
-		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		34EA21E22F4EA5FF00113A11 /* Pylo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Pylo.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		34EA21EF2F4EA60100113A11 /* PyloTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PyloTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		34EA21F92F4EA60100113A11 /* PyloUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PyloUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -70,13 +62,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		34EA21F62F4EA60100113A11 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -93,7 +78,6 @@
 			children = (
 				34EA21E22F4EA5FF00113A11 /* Pylo.app */,
 				34EA21EF2F4EA60100113A11 /* PyloTests.xctest */,
-				34EA21F92F4EA60100113A11 /* PyloUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -144,26 +128,6 @@
 			productReference = 34EA21EF2F4EA60100113A11 /* PyloTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		34EA21F82F4EA60100113A11 /* PyloUITests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 34EA22092F4EA60100113A11 /* Build configuration list for PBXNativeTarget "PyloUITests" */;
-			buildPhases = (
-				34EA21F52F4EA60100113A11 /* Sources */,
-				34EA21F62F4EA60100113A11 /* Frameworks */,
-				34EA21F72F4EA60100113A11 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				34EA21FB2F4EA60100113A11 /* PBXTargetDependency */,
-			);
-			name = PyloUITests;
-			packageProductDependencies = (
-			);
-			productName = PyloUITests;
-			productReference = 34EA21F92F4EA60100113A11 /* PyloUITests.xctest */;
-			productType = "com.apple.product-type.bundle.ui-testing";
-		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -179,10 +143,6 @@
 						LastSwiftMigration = 2620;
 					};
 					34EA21EE2F4EA60100113A11 = {
-						CreatedOnToolsVersion = 26.2;
-						TestTargetID = 34EA21E12F4EA5FF00113A11;
-					};
-					34EA21F82F4EA60100113A11 = {
 						CreatedOnToolsVersion = 26.2;
 						TestTargetID = 34EA21E12F4EA5FF00113A11;
 					};
@@ -207,7 +167,6 @@
 			targets = (
 				34EA21E12F4EA5FF00113A11 /* Pylo */,
 				34EA21EE2F4EA60100113A11 /* PyloTests */,
-				34EA21F82F4EA60100113A11 /* PyloUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -221,13 +180,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		34EA21ED2F4EA60100113A11 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		34EA21F72F4EA60100113A11 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -251,13 +203,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		34EA21F52F4EA60100113A11 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -265,11 +210,6 @@
 			isa = PBXTargetDependency;
 			target = 34EA21E12F4EA5FF00113A11 /* Pylo */;
 			targetProxy = 34EA21F02F4EA60100113A11 /* PBXContainerItemProxy */;
-		};
-		34EA21FB2F4EA60100113A11 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 34EA21E12F4EA5FF00113A11 /* Pylo */;
-			targetProxy = 34EA21FA2F4EA60100113A11 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -512,46 +452,6 @@
 			};
 			name = Release;
 		};
-		34EA220A2F4EA60100113A11 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 6BNF6ECP6F;
-				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = me.fausak.taylor.PyloUITests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = Pylo;
-			};
-			name = Debug;
-		};
-		34EA220B2F4EA60100113A11 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 6BNF6ECP6F;
-				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = me.fausak.taylor.PyloUITests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = Pylo;
-			};
-			name = Release;
-		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -578,15 +478,6 @@
 			buildConfigurations = (
 				34EA22072F4EA60100113A11 /* Debug */,
 				34EA22082F4EA60100113A11 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		34EA22092F4EA60100113A11 /* Build configuration list for PBXNativeTarget "PyloUITests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				34EA220A2F4EA60100113A11 /* Debug */,
-				34EA220B2F4EA60100113A11 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
