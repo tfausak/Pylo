@@ -1478,7 +1478,8 @@ final class CameraStreamSession {
       guard let base = buf.baseAddress else { return }
       withUnsafePointer(to: &addr) { addrPtr in
         addrPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
-          _ = sendto(videoSocketFD, base, buf.count, 0, sockPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
+          _ = sendto(
+            videoSocketFD, base, buf.count, 0, sockPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
         }
       }
     }
@@ -1959,7 +1960,8 @@ final class CameraStreamSession {
       guard let base = buf.baseAddress else { return }
       withUnsafePointer(to: &addr) { addrPtr in
         addrPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
-          _ = sendto(audioSocketFD, base, buf.count, 0, sockPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
+          _ = sendto(
+            audioSocketFD, base, buf.count, 0, sockPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
         }
       }
     }
@@ -1993,7 +1995,8 @@ final class CameraStreamSession {
 
     // SRTP unprotect
     guard let rtpPacket = ctx.unprotect(srtpData) else {
-      logger.warning("Failed to unprotect incoming audio SRTP packet (#\(self.incomingAudioPacketCount))")
+      logger.warning(
+        "Failed to unprotect incoming audio SRTP packet (#\(self.incomingAudioPacketCount))")
       return
     }
 

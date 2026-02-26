@@ -1085,9 +1085,12 @@ struct SRTPTests {
       0x6D, 0x38, 0xBA, 0xA4,
     ])
 
-    let ck = SRTPContext.deriveKey(masterKey: testKey, masterSalt: testSalt, label: 0x00, length: 16)
-    let cs = SRTPContext.deriveKey(masterKey: testKey, masterSalt: testSalt, label: 0x02, length: 14)
-    let ak = SRTPContext.deriveKey(masterKey: testKey, masterSalt: testSalt, label: 0x01, length: 20)
+    let ck = SRTPContext.deriveKey(
+      masterKey: testKey, masterSalt: testSalt, label: 0x00, length: 16)
+    let cs = SRTPContext.deriveKey(
+      masterKey: testKey, masterSalt: testSalt, label: 0x02, length: 14)
+    let ak = SRTPContext.deriveKey(
+      masterKey: testKey, masterSalt: testSalt, label: 0x01, length: 20)
 
     #expect(ck == expectedCipherKey)
     #expect(cs == expectedSalt)
@@ -1125,7 +1128,8 @@ struct SRTPTests {
     let sender = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
     let receiver = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
 
-    let rtp = Self.makeRTPPacket(seq: 1, ssrc: 0xDEADBEEF, payload: Data(repeating: 0x42, count: 160))
+    let rtp = Self.makeRTPPacket(
+      seq: 1, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0x42, count: 160))
     let srtp = sender.protect(rtp)
 
     // SRTP adds 10-byte auth tag
@@ -1140,7 +1144,8 @@ struct SRTPTests {
     let sender = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
     let receiver = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
 
-    let rtp = Self.makeRTPPacket(seq: 1, ssrc: 0xDEADBEEF, payload: Data(repeating: 0xAA, count: 100))
+    let rtp = Self.makeRTPPacket(
+      seq: 1, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0xAA, count: 100))
     var srtp = sender.protect(rtp)
 
     // Tamper with encrypted payload (flip a byte in the middle)
@@ -1158,7 +1163,7 @@ struct SRTPTests {
     let sender = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
     let receiver = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
 
-    let rtp = Self.makeRTPPacket(seq: 1, ssrc: 0x12345678, payload: Data())
+    let rtp = Self.makeRTPPacket(seq: 1, ssrc: 0x1234_5678, payload: Data())
     let srtp = sender.protect(rtp)
 
     // Header-only: 12 bytes + 10-byte auth tag
@@ -1175,7 +1180,7 @@ struct SRTPTests {
 
     for seq: UInt16 in 1...10 {
       let rtp = Self.makeRTPPacket(
-        seq: seq, ssrc: 0xCAFEBABE, payload: Data(repeating: UInt8(seq), count: 80))
+        seq: seq, ssrc: 0xCAFE_BABE, payload: Data(repeating: UInt8(seq), count: 80))
       let srtp = sender.protect(rtp)
       let recovered = receiver.unprotect(srtp)
       #expect(recovered == rtp, "Failed at seq \(seq)")
