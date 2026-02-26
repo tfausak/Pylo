@@ -261,10 +261,10 @@ final class HAPConnection {
   // MARK: - EVENT Notifications
 
   /// Send an EVENT/1.0 200 OK notification to this connection for a characteristic change.
-  func sendEvent(aid: Int, iid: Int, value: Any) {
+  func sendEvent(aid: Int, iid: Int, value: HAPValue) {
     guard let ctx = encryptionContext else { return }
 
-    let characteristic: [String: Any] = ["aid": aid, "iid": iid, "value": value]
+    let characteristic: [String: Any] = ["aid": aid, "iid": iid, "value": value.jsonValue]
     let body: [String: Any] = ["characteristics": [characteristic]]
     guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return }
 

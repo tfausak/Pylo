@@ -19,7 +19,7 @@
 - [x] **Replace `objc_setAssociatedObject` for delegate retention** (`HAPCameraAccessory.swift:1190, 1200`) — Store delegates as regular properties on `CameraStreamSession` instead of ObjC associated objects.
 - [x] **Replace magic number IIDs with named constants** — Callbacks use bare numbers like `iid == 9` (`PyloApp.swift:156`) and `iid == 14` (`PyloApp.swift:187`). Reference named constants from the accessory classes.
 - [x] **Fix logger subsystem** — All loggers use `"com.example.hap"`. Should use `"me.fausak.taylor.Pylo"`.
-- [ ] **Type-safe characteristic values** — `HAPAccessoryProtocol` uses `Any` for `readCharacteristic`/`writeCharacteristic`. A `HAPValue` enum would provide type safety.
+- [x] **Type-safe characteristic values** — `HAPAccessoryProtocol` uses `Any` for `readCharacteristic`/`writeCharacteristic`. A `HAPValue` enum would provide type safety.
 
 ## App Store Review Risks
 

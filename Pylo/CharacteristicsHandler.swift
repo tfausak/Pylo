@@ -35,7 +35,7 @@ enum CharacteristicsHandler {
       if let accessory = server.accessory(aid: aid),
         let value = accessory.readCharacteristic(iid: iid)
       {
-        entry["value"] = value
+        entry["value"] = value.jsonValue
         entry["status"] = 0
       } else {
         entry["status"] = -70409  // Resource does not exist
@@ -80,7 +80,7 @@ enum CharacteristicsHandler {
       }
 
       // Handle value write
-      if let value = char["value"] {
+      if let rawValue = char["value"], let value = HAPValue(fromJSON: rawValue) {
         let success =
           server.accessory(aid: aid)?.writeCharacteristic(iid: iid, value: value) ?? false
         if !success {

@@ -367,6 +367,59 @@ struct HTTPResponseTests {
 
 // MARK: - HAP Accessory (Lightbulb) Tests
 
+@Suite("HAPValue Type-safe Values")
+struct HAPValueTests {
+
+  @Test("fromJSON converts bool correctly")
+  func fromJSONBool() throws {
+    let jsonTrue =
+      try JSONSerialization.jsonObject(
+        with: Data("{\"v\":true}".utf8)) as! [String: Any]
+    let jsonFalse =
+      try JSONSerialization.jsonObject(
+        with: Data("{\"v\":false}".utf8)) as! [String: Any]
+    #expect(HAPValue(fromJSON: jsonTrue["v"]!) == .bool(true))
+    #expect(HAPValue(fromJSON: jsonFalse["v"]!) == .bool(false))
+  }
+
+  @Test("fromJSON converts int correctly")
+  func fromJSONInt() {
+    let json =
+      try! JSONSerialization.jsonObject(
+        with: Data("{\"v\":42}".utf8)) as! [String: Any]
+    #expect(HAPValue(fromJSON: json["v"]!) == .int(42))
+  }
+
+  @Test("fromJSON converts string correctly")
+  func fromJSONString() {
+    let json =
+      try! JSONSerialization.jsonObject(
+        with: Data("{\"v\":\"hello\"}".utf8)) as! [String: Any]
+    #expect(HAPValue(fromJSON: json["v"]!) == .string("hello"))
+  }
+
+  @Test("fromJSON distinguishes bool from int")
+  func fromJSONBoolVsInt() {
+    let json =
+      try! JSONSerialization.jsonObject(
+        with: Data("{\"b\":true,\"i\":1}".utf8)) as! [String: Any]
+    #expect(HAPValue(fromJSON: json["b"]!) == .bool(true))
+    #expect(HAPValue(fromJSON: json["i"]!) == .int(1))
+  }
+
+  @Test("jsonValue round-trips through JSONSerialization")
+  func jsonValueRoundTrip() {
+    let values: [HAPValue] = [.bool(true), .int(42), .float(3.14), .string("test")]
+    for value in values {
+      let dict: [String: Any] = ["v": value.jsonValue]
+      let data = try! JSONSerialization.data(withJSONObject: dict)
+      #expect(data.count > 0)
+    }
+  }
+}
+
+// MARK: - HAP Lightbulb Accessory Tests
+
 @Suite("HAP Lightbulb Accessory")
 struct HAPAccessoryTests {
 
@@ -387,18 +440,18 @@ struct HAPAccessoryTests {
       serialNumber: "SN-123",
       firmwareRevision: "2.0.0"
     )
-    #expect(accessory.readCharacteristic(iid: 3) as? String == "Test Maker")
-    #expect(accessory.readCharacteristic(iid: 4) as? String == "Test Model")
-    #expect(accessory.readCharacteristic(iid: 5) as? String == "Test Light")
-    #expect(accessory.readCharacteristic(iid: 6) as? String == "SN-123")
-    #expect(accessory.readCharacteristic(iid: 7) as? String == "2.0.0")
+    #expect(accessory.readCharacteristic(iid: 3) == .string("Test Maker"))
+    #expect(accessory.readCharacteristic(iid: 4) == .string("Test Model"))
+    #expect(accessory.readCharacteristic(iid: 5) == .string("Test Light"))
+    #expect(accessory.readCharacteristic(iid: 6) == .string("SN-123"))
+    #expect(accessory.readCharacteristic(iid: 7) == .string("2.0.0"))
   }
 
   @Test("Read lightbulb state characteristics")
   func readLightbulbState() {
     let accessory = HAPAccessory(aid: 2)
-    #expect(accessory.readCharacteristic(iid: 9) as? Bool == false)
-    #expect(accessory.readCharacteristic(iid: 10) as? Int == 100)
+    #expect(accessory.readCharacteristic(iid: 9) == .bool(false))
+    #expect(accessory.readCharacteristic(iid: 10) == .int(100))
   }
 
   @Test("Read unknown iid returns nil")
@@ -410,56 +463,56 @@ struct HAPAccessoryTests {
   @Test("Write on/off as bool")
   func writeOnBool() {
     let accessory = HAPAccessory(aid: 2)
-    #expect(accessory.writeCharacteristic(iid: 9, value: true))
+    #expect(accessory.writeCharacteristic(iid: 9, value: .bool(true)))
     #expect(accessory.isOn == true)
-    #expect(accessory.writeCharacteristic(iid: 9, value: false))
+    #expect(accessory.writeCharacteristic(iid: 9, value: .bool(false)))
     #expect(accessory.isOn == false)
   }
 
   @Test("Write on/off coerces int to bool")
   func writeOnInt() {
     let accessory = HAPAccessory(aid: 2)
-    #expect(accessory.writeCharacteristic(iid: 9, value: 1))
+    #expect(accessory.writeCharacteristic(iid: 9, value: .int(1)))
     #expect(accessory.isOn == true)
-    #expect(accessory.writeCharacteristic(iid: 9, value: 0))
+    #expect(accessory.writeCharacteristic(iid: 9, value: .int(0)))
     #expect(accessory.isOn == false)
   }
 
   @Test("Write on/off rejects invalid type")
   func writeOnInvalidType() {
     let accessory = HAPAccessory(aid: 2)
-    #expect(accessory.writeCharacteristic(iid: 9, value: "yes") == false)
+    #expect(accessory.writeCharacteristic(iid: 9, value: .string("yes")) == false)
   }
 
   @Test("Write brightness clamps to 0-100")
   func writeBrightnessClamped() {
     let accessory = HAPAccessory(aid: 2)
-    #expect(accessory.writeCharacteristic(iid: 10, value: 50))
+    #expect(accessory.writeCharacteristic(iid: 10, value: .int(50)))
     #expect(accessory.brightness == 50)
 
-    #expect(accessory.writeCharacteristic(iid: 10, value: 150))
+    #expect(accessory.writeCharacteristic(iid: 10, value: .int(150)))
     #expect(accessory.brightness == 100)
 
-    #expect(accessory.writeCharacteristic(iid: 10, value: -10))
+    #expect(accessory.writeCharacteristic(iid: 10, value: .int(-10)))
     #expect(accessory.brightness == 0)
   }
 
   @Test("Write brightness rejects non-int")
   func writeBrightnessInvalidType() {
     let accessory = HAPAccessory(aid: 2)
-    #expect(accessory.writeCharacteristic(iid: 10, value: "50") == false)
+    #expect(accessory.writeCharacteristic(iid: 10, value: .string("50")) == false)
   }
 
   @Test("Write to unknown iid returns false")
   func writeUnknownIID() {
     let accessory = HAPAccessory(aid: 2)
-    #expect(accessory.writeCharacteristic(iid: 99, value: true) == false)
+    #expect(accessory.writeCharacteristic(iid: 99, value: .bool(true)) == false)
   }
 
   @Test("Write identify (iid 2) succeeds")
   func writeIdentify() {
     let accessory = HAPAccessory(aid: 2)
-    #expect(accessory.writeCharacteristic(iid: 2, value: true))
+    #expect(accessory.writeCharacteristic(iid: 2, value: .bool(true)))
   }
 
   @Test("State change callback fires on write")
@@ -473,7 +526,7 @@ struct HAPAccessoryTests {
       receivedAid = aid
       receivedIid = iid
     }
-    accessory.writeCharacteristic(iid: 9, value: true)
+    accessory.writeCharacteristic(iid: 9, value: .bool(true))
     #expect(callbackCalled)
     #expect(receivedAid == 2)
     #expect(receivedIid == 9)
@@ -669,24 +722,24 @@ struct HAPBridgeInfoTests {
       serialNumber: "BR-001",
       firmwareRevision: "1.0"
     )
-    #expect(bridge.readCharacteristic(iid: 3) as? String == "Acme")
-    #expect(bridge.readCharacteristic(iid: 4) as? String == "Test")
-    #expect(bridge.readCharacteristic(iid: 5) as? String == "My Bridge")
-    #expect(bridge.readCharacteristic(iid: 6) as? String == "BR-001")
-    #expect(bridge.readCharacteristic(iid: 7) as? String == "1.0")
+    #expect(bridge.readCharacteristic(iid: 3) == .string("Acme"))
+    #expect(bridge.readCharacteristic(iid: 4) == .string("Test"))
+    #expect(bridge.readCharacteristic(iid: 5) == .string("My Bridge"))
+    #expect(bridge.readCharacteristic(iid: 6) == .string("BR-001"))
+    #expect(bridge.readCharacteristic(iid: 7) == .string("1.0"))
   }
 
   @Test("Bridge identify write succeeds")
   func identifyWrite() {
     let bridge = HAPBridgeInfo()
-    #expect(bridge.writeCharacteristic(iid: 2, value: true))
+    #expect(bridge.writeCharacteristic(iid: 2, value: .bool(true)))
   }
 
   @Test("Bridge rejects writes to non-identify characteristics")
   func rejectNonIdentifyWrite() {
     let bridge = HAPBridgeInfo()
-    #expect(bridge.writeCharacteristic(iid: 3, value: "foo") == false)
-    #expect(bridge.writeCharacteristic(iid: 99, value: true) == false)
+    #expect(bridge.writeCharacteristic(iid: 3, value: .string("foo")) == false)
+    #expect(bridge.writeCharacteristic(iid: 99, value: .bool(true)) == false)
   }
 
   @Test("Bridge toJSON has single service")
@@ -715,18 +768,18 @@ struct HAPLightSensorTests {
     let sensor = HAPLightSensorAccessory(aid: 4)
     sensor.updateAmbientLight(500.0)
     #expect(sensor.ambientLightLevel == 500.0)
-    #expect(sensor.readCharacteristic(iid: 9) as? Float == 500.0)
+    #expect(sensor.readCharacteristic(iid: 9) == .float(500.0))
   }
 
   @Test("Update fires state change callback")
   func updateCallback() {
     let sensor = HAPLightSensorAccessory(aid: 4)
-    var receivedValue: Float?
+    var receivedValue: HAPValue?
     sensor.onStateChange = { _, iid, value in
-      if iid == 9 { receivedValue = value as? Float }
+      if iid == 9 { receivedValue = value }
     }
     sensor.updateAmbientLight(42.5)
-    #expect(receivedValue == 42.5)
+    #expect(receivedValue == .float(42.5))
   }
 
   @Test("toJSON includes lux range constraints")
@@ -760,7 +813,7 @@ struct HAPMotionSensorTests {
     let sensor = HAPMotionSensorAccessory(aid: 5)
     sensor.updateMotionDetected(true)
     #expect(sensor.isMotionDetected == true)
-    #expect(sensor.readCharacteristic(iid: 9) as? Bool == true)
+    #expect(sensor.readCharacteristic(iid: 9) == .bool(true))
 
     sensor.updateMotionDetected(false)
     #expect(sensor.isMotionDetected == false)
@@ -769,12 +822,12 @@ struct HAPMotionSensorTests {
   @Test("Update fires state change callback")
   func updateCallback() {
     let sensor = HAPMotionSensorAccessory(aid: 5)
-    var receivedValue: Bool?
+    var receivedValue: HAPValue?
     sensor.onStateChange = { _, iid, value in
-      if iid == 9 { receivedValue = value as? Bool }
+      if iid == 9 { receivedValue = value }
     }
     sensor.updateMotionDetected(true)
-    #expect(receivedValue == true)
+    #expect(receivedValue == .bool(true))
   }
 
   @Test("toJSON has motion sensor service")

@@ -165,7 +165,7 @@ final class HAPServer {
   }
 
   /// Notify all subscribed connections of a characteristic change.
-  func notifySubscribers(aid: Int, iid: Int, value: Any) {
+  func notifySubscribers(aid: Int, iid: Int, value: HAPValue) {
     let charID = CharacteristicID(aid: aid, iid: iid)
     for conn in connections.values {
       guard conn.eventSubscriptions.contains(charID) else { continue }

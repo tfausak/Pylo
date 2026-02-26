@@ -19,7 +19,7 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
   let manufacturer: String
   let serialNumber: String
   let firmwareRevision: String
-  var onStateChange: ((_ aid: Int, _ iid: Int, _ value: Any) -> Void)?
+  var onStateChange: ((_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
 
   /// Called before/after snapshot capture so the host can pause other capture sessions
   /// (e.g. the ambient light monitor) that would conflict with the snapshot session.
@@ -98,28 +98,28 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
 
   // MARK: - Read Characteristic
 
-  func readCharacteristic(iid: Int) -> Any? {
+  func readCharacteristic(iid: Int) -> HAPValue? {
     switch iid {
-    case AccessoryInfoIID.manufacturer: return manufacturer
-    case AccessoryInfoIID.model: return model
-    case AccessoryInfoIID.name: return name
-    case AccessoryInfoIID.serialNumber: return serialNumber
-    case AccessoryInfoIID.firmwareRevision: return firmwareRevision
+    case AccessoryInfoIID.manufacturer: return .string(manufacturer)
+    case AccessoryInfoIID.model: return .string(model)
+    case AccessoryInfoIID.name: return .string(name)
+    case AccessoryInfoIID.serialNumber: return .string(serialNumber)
+    case AccessoryInfoIID.firmwareRevision: return .string(firmwareRevision)
     case Self.iidSupportedVideoConfig:
-      return Self.supportedVideoConfig().base64()
+      return .string(Self.supportedVideoConfig().base64())
     case Self.iidSupportedAudioConfig:
-      return Self.supportedAudioConfig().base64()
+      return .string(Self.supportedAudioConfig().base64())
     case Self.iidSupportedRTPConfig:
-      return Self.supportedRTPConfig().base64()
+      return .string(Self.supportedRTPConfig().base64())
     case Self.iidSetupEndpoints:
-      return setupEndpointsResponse.base64EncodedString()
+      return .string(setupEndpointsResponse.base64EncodedString())
     case Self.iidSelectedRTPStreamConfig:
-      return ""  // write-only effectively
+      return .string("")  // write-only effectively
     case Self.iidStreamingStatus:
-      return streamingStatusTLV().base64EncodedString()
-    case Self.iidMicrophoneMute: return isMuted
-    case Self.iidSpeakerMute: return speakerMuted
-    case Self.iidSpeakerVolume: return speakerVolume
+      return .string(streamingStatusTLV().base64EncodedString())
+    case Self.iidMicrophoneMute: return .bool(isMuted)
+    case Self.iidSpeakerMute: return .bool(speakerMuted)
+    case Self.iidSpeakerVolume: return .int(speakerVolume)
     default: return nil
     }
   }
@@ -127,7 +127,7 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
   // MARK: - Write Characteristic
 
   @discardableResult
-  func writeCharacteristic(iid: Int, value: Any) -> Bool {
+  func writeCharacteristic(iid: Int, value: HAPValue) -> Bool {
     switch iid {
     case AccessoryInfoIID.identify:
       identify()
@@ -137,31 +137,33 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
     case Self.iidSelectedRTPStreamConfig:
       return handleSelectedRTPStreamConfig(value)
     case Self.iidMicrophoneMute:
-      if let v = value as? Bool {
+      switch value {
+      case .bool(let v):
         isMuted = v
         streamSession?.isMuted = v
         return true
-      }
-      if let v = value as? Int {
+      case .int(let v):
         isMuted = v != 0
         streamSession?.isMuted = (v != 0)
         return true
+      default:
+        return false
       }
-      return false
     case Self.iidSpeakerMute:
-      if let v = value as? Bool {
+      switch value {
+      case .bool(let v):
         speakerMuted = v
         streamSession?.speakerMuted = v
         return true
-      }
-      if let v = value as? Int {
+      case .int(let v):
         speakerMuted = v != 0
         streamSession?.speakerMuted = (v != 0)
         return true
+      default:
+        return false
       }
-      return false
     case Self.iidSpeakerVolume:
-      if let v = value as? Int {
+      if case .int(let v) = value {
         speakerVolume = max(0, min(100, v))
         streamSession?.speakerVolume = speakerVolume
         return true
@@ -256,8 +258,8 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
 
   // MARK: - Setup Endpoints
 
-  private func handleSetupEndpoints(_ value: Any) -> Bool {
-    guard let b64 = value as? String, let data = Data(base64Encoded: b64) else { return false }
+  private func handleSetupEndpoints(_ value: HAPValue) -> Bool {
+    guard case .string(let b64) = value, let data = Data(base64Encoded: b64) else { return false }
     let tlvs = TLV8.decode(data) as [(UInt8, Data)]
 
     var sessionID = Data()
@@ -379,8 +381,8 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
 
   // MARK: - Selected RTP Stream Configuration (START/STOP/RECONFIGURE)
 
-  private func handleSelectedRTPStreamConfig(_ value: Any) -> Bool {
-    guard let b64 = value as? String, let data = Data(base64Encoded: b64) else { return false }
+  private func handleSelectedRTPStreamConfig(_ value: HAPValue) -> Bool {
+    guard case .string(let b64) = value, let data = Data(base64Encoded: b64) else { return false }
     let tlvs = TLV8.decode(data) as [(UInt8, Data)]
 
     // Parse session control
@@ -526,13 +528,15 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
       width: width, height: height, fps: fps, bitrate: effectiveBitrate, payloadType: payloadType,
       audioPayloadType: audioPayloadType, camera: camera, rotationAngle: rotation.angle,
       swapDimensions: rotation.swapDimensions)
-    onStateChange?(aid, Self.iidStreamingStatus, streamingStatusTLV().base64EncodedString())
+    onStateChange?(
+      aid, Self.iidStreamingStatus, .string(streamingStatusTLV().base64EncodedString()))
   }
 
   private func stopStreaming() {
     streamSession?.stopStreaming()
     streamSession = nil
-    onStateChange?(aid, Self.iidStreamingStatus, streamingStatusTLV().base64EncodedString())
+    onStateChange?(
+      aid, Self.iidStreamingStatus, .string(streamingStatusTLV().base64EncodedString()))
   }
 
   // MARK: - Utility

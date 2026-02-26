@@ -23,6 +23,43 @@ enum HAPAccessoryCategory: Int {
   case ipCamera = 17
 }
 
+// MARK: - Type-safe Characteristic Value
+
+/// Type-safe wrapper for HAP characteristic values, replacing untyped `Any`.
+enum HAPValue: Equatable {
+  case bool(Bool)
+  case int(Int)
+  case float(Float)
+  case string(String)
+
+  /// Convert to a JSON-serializable value for `JSONSerialization`.
+  var jsonValue: Any {
+    switch self {
+    case .bool(let v): return v
+    case .int(let v): return v
+    case .float(let v): return v
+    case .string(let v): return v
+    }
+  }
+
+  /// Create from a JSON-deserialized value (from `JSONSerialization`).
+  init?(fromJSON value: Any) {
+    if let s = value as? String {
+      self = .string(s)
+      return
+    }
+    if let n = value as? NSNumber {
+      if CFGetTypeID(n) == CFBooleanGetTypeID() {
+        self = .bool(n.boolValue)
+      } else {
+        self = .int(n.intValue)
+      }
+      return
+    }
+    return nil
+  }
+}
+
 // MARK: - HAP Accessory Protocol
 
 /// Common interface for all accessories served by the HAP server.
@@ -33,9 +70,9 @@ protocol HAPAccessoryProtocol: AnyObject {
   var manufacturer: String { get }
   var serialNumber: String { get }
   var firmwareRevision: String { get }
-  var onStateChange: ((_ aid: Int, _ iid: Int, _ value: Any) -> Void)? { get set }
-  func readCharacteristic(iid: Int) -> Any?
-  @discardableResult func writeCharacteristic(iid: Int, value: Any) -> Bool
+  var onStateChange: ((_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)? { get set }
+  func readCharacteristic(iid: Int) -> HAPValue?
+  @discardableResult func writeCharacteristic(iid: Int, value: HAPValue) -> Bool
   func identify()
   func toJSON() -> [String: Any]
 }
@@ -121,7 +158,7 @@ final class HAPAccessory: HAPAccessoryProtocol {
   }
 
   /// Callback for notifying the server of state changes (for EVENT notifications).
-  var onStateChange: ((_ aid: Int, _ iid: Int, _ value: Any) -> Void)?
+  var onStateChange: ((_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
 
   init(
     aid: Int,
@@ -165,15 +202,15 @@ final class HAPAccessory: HAPAccessoryProtocol {
 
   // MARK: - Read Characteristic
 
-  func readCharacteristic(iid: Int) -> Any? {
+  func readCharacteristic(iid: Int) -> HAPValue? {
     switch iid {
-    case AccessoryInfoIID.manufacturer: return manufacturer
-    case AccessoryInfoIID.model: return model
-    case AccessoryInfoIID.name: return name
-    case AccessoryInfoIID.serialNumber: return serialNumber
-    case AccessoryInfoIID.firmwareRevision: return firmwareRevision
-    case Self.iidOn: return isOn
-    case Self.iidBrightness: return brightness
+    case AccessoryInfoIID.manufacturer: return .string(manufacturer)
+    case AccessoryInfoIID.model: return .string(model)
+    case AccessoryInfoIID.name: return .string(name)
+    case AccessoryInfoIID.serialNumber: return .string(serialNumber)
+    case AccessoryInfoIID.firmwareRevision: return .string(firmwareRevision)
+    case Self.iidOn: return .bool(isOn)
+    case Self.iidBrightness: return .int(brightness)
     default: return nil
     }
   }
@@ -182,27 +219,29 @@ final class HAPAccessory: HAPAccessoryProtocol {
 
   /// Returns true if the write was accepted.
   @discardableResult
-  func writeCharacteristic(iid: Int, value: Any) -> Bool {
+  func writeCharacteristic(iid: Int, value: HAPValue) -> Bool {
     switch iid {
     case AccessoryInfoIID.identify:
       identify()
       return true
     case Self.iidOn:
-      if let v = value as? Bool {
+      switch value {
+      case .bool(let v):
         isOn = v
-        onStateChange?(aid, iid, v)
+        onStateChange?(aid, iid, .bool(v))
         logger.info("Light \(v ? "ON" : "OFF")")
         return true
-      } else if let v = value as? Int {
+      case .int(let v):
         isOn = (v != 0)
-        onStateChange?(aid, iid, isOn)
+        onStateChange?(aid, iid, .bool(isOn))
         return true
+      default:
+        return false
       }
-      return false
     case Self.iidBrightness:
-      if let v = value as? Int {
+      if case .int(let v) = value {
         brightness = max(0, min(100, v))
-        onStateChange?(aid, iid, brightness)
+        onStateChange?(aid, iid, .int(brightness))
         logger.info("Brightness: \(self.brightness)%")
         return true
       }
@@ -319,7 +358,7 @@ final class HAPBridgeInfo: HAPAccessoryProtocol {
   let manufacturer: String
   let serialNumber: String
   let firmwareRevision: String
-  var onStateChange: ((_ aid: Int, _ iid: Int, _ value: Any) -> Void)?
+  var onStateChange: ((_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
 
   init(
     name: String = "Pylo Bridge",
@@ -335,19 +374,19 @@ final class HAPBridgeInfo: HAPAccessoryProtocol {
     self.firmwareRevision = firmwareRevision
   }
 
-  func readCharacteristic(iid: Int) -> Any? {
+  func readCharacteristic(iid: Int) -> HAPValue? {
     switch iid {
-    case AccessoryInfoIID.manufacturer: return manufacturer
-    case AccessoryInfoIID.model: return model
-    case AccessoryInfoIID.name: return name
-    case AccessoryInfoIID.serialNumber: return serialNumber
-    case AccessoryInfoIID.firmwareRevision: return firmwareRevision
+    case AccessoryInfoIID.manufacturer: return .string(manufacturer)
+    case AccessoryInfoIID.model: return .string(model)
+    case AccessoryInfoIID.name: return .string(name)
+    case AccessoryInfoIID.serialNumber: return .string(serialNumber)
+    case AccessoryInfoIID.firmwareRevision: return .string(firmwareRevision)
     default: return nil
     }
   }
 
   @discardableResult
-  func writeCharacteristic(iid: Int, value: Any) -> Bool {
+  func writeCharacteristic(iid: Int, value: HAPValue) -> Bool {
     if iid == AccessoryInfoIID.identify {
       identify()
       return true
@@ -380,7 +419,7 @@ final class HAPLightSensorAccessory: HAPAccessoryProtocol {
   let manufacturer: String
   let serialNumber: String
   let firmwareRevision: String
-  var onStateChange: ((_ aid: Int, _ iid: Int, _ value: Any) -> Void)?
+  var onStateChange: ((_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
 
   private(set) var ambientLightLevel: Float = 1.0
 
@@ -408,23 +447,23 @@ final class HAPLightSensorAccessory: HAPAccessoryProtocol {
 
   func updateAmbientLight(_ lux: Float) {
     ambientLightLevel = lux
-    onStateChange?(aid, Self.iidAmbientLightLevel, lux)
+    onStateChange?(aid, Self.iidAmbientLightLevel, .float(lux))
   }
 
-  func readCharacteristic(iid: Int) -> Any? {
+  func readCharacteristic(iid: Int) -> HAPValue? {
     switch iid {
-    case AccessoryInfoIID.manufacturer: return manufacturer
-    case AccessoryInfoIID.model: return model
-    case AccessoryInfoIID.name: return name
-    case AccessoryInfoIID.serialNumber: return serialNumber
-    case AccessoryInfoIID.firmwareRevision: return firmwareRevision
-    case Self.iidAmbientLightLevel: return ambientLightLevel
+    case AccessoryInfoIID.manufacturer: return .string(manufacturer)
+    case AccessoryInfoIID.model: return .string(model)
+    case AccessoryInfoIID.name: return .string(name)
+    case AccessoryInfoIID.serialNumber: return .string(serialNumber)
+    case AccessoryInfoIID.firmwareRevision: return .string(firmwareRevision)
+    case Self.iidAmbientLightLevel: return .float(ambientLightLevel)
     default: return nil
     }
   }
 
   @discardableResult
-  func writeCharacteristic(iid: Int, value: Any) -> Bool {
+  func writeCharacteristic(iid: Int, value: HAPValue) -> Bool {
     if iid == AccessoryInfoIID.identify {
       identify()
       return true
@@ -468,7 +507,7 @@ final class HAPMotionSensorAccessory: HAPAccessoryProtocol {
   let manufacturer: String
   let serialNumber: String
   let firmwareRevision: String
-  var onStateChange: ((_ aid: Int, _ iid: Int, _ value: Any) -> Void)?
+  var onStateChange: ((_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
 
   private(set) var isMotionDetected: Bool = false
 
@@ -496,23 +535,23 @@ final class HAPMotionSensorAccessory: HAPAccessoryProtocol {
 
   func updateMotionDetected(_ detected: Bool) {
     isMotionDetected = detected
-    onStateChange?(aid, Self.iidMotionDetected, detected)
+    onStateChange?(aid, Self.iidMotionDetected, .bool(detected))
   }
 
-  func readCharacteristic(iid: Int) -> Any? {
+  func readCharacteristic(iid: Int) -> HAPValue? {
     switch iid {
-    case AccessoryInfoIID.manufacturer: return manufacturer
-    case AccessoryInfoIID.model: return model
-    case AccessoryInfoIID.name: return name
-    case AccessoryInfoIID.serialNumber: return serialNumber
-    case AccessoryInfoIID.firmwareRevision: return firmwareRevision
-    case Self.iidMotionDetected: return isMotionDetected
+    case AccessoryInfoIID.manufacturer: return .string(manufacturer)
+    case AccessoryInfoIID.model: return .string(model)
+    case AccessoryInfoIID.name: return .string(name)
+    case AccessoryInfoIID.serialNumber: return .string(serialNumber)
+    case AccessoryInfoIID.firmwareRevision: return .string(firmwareRevision)
+    case Self.iidMotionDetected: return .bool(isMotionDetected)
     default: return nil
     }
   }
 
   @discardableResult
-  func writeCharacteristic(iid: Int, value: Any) -> Bool {
+  func writeCharacteristic(iid: Int, value: HAPValue) -> Bool {
     if iid == AccessoryInfoIID.identify {
       identify()
       return true

@@ -159,12 +159,10 @@ final class HAPViewModel {
       lightbulb.onStateChange = { [weak self] aid, iid, value in
         Task { @MainActor in
           guard let self else { return }
-          if iid == HAPAccessory.iidOn, let on = value as? Bool {
+          if iid == HAPAccessory.iidOn, case .bool(let on) = value {
             self.isLightOn = on
-          } else if iid == HAPAccessory.iidBrightness,
-            let brightness = value as? Int
-          {
-            self.brightness = brightness
+          } else if iid == HAPAccessory.iidBrightness, case .int(let b) = value {
+            self.brightness = b
           }
           self.server?.notifySubscribers(aid: aid, iid: iid, value: value)
         }
@@ -174,7 +172,7 @@ final class HAPViewModel {
         Task { @MainActor in
           guard let self else { return }
           if iid == HAPLightSensorAccessory.iidAmbientLightLevel,
-            let lux = value as? Float
+            case .float(let lux) = value
           {
             self.ambientLux = lux
           }
@@ -186,7 +184,7 @@ final class HAPViewModel {
         Task { @MainActor in
           guard let self else { return }
           if iid == HAPMotionSensorAccessory.iidMotionDetected,
-            let detected = value as? Bool
+            case .bool(let detected) = value
           {
             self.isMotionDetected = detected
           }
@@ -197,11 +195,11 @@ final class HAPViewModel {
       camera.onStateChange = { [weak self] aid, iid, value in
         Task { @MainActor in
           guard let self else { return }
-          if iid == HAPCameraAccessory.iidStreamingStatus {
-            // Check if streaming (base64 TLV8 with status byte)
-            if let b64 = value as? String, let data = Data(base64Encoded: b64), data.count >= 3 {
-              self.isCameraStreaming = data[data.startIndex + 2] == 1
-            }
+          if iid == HAPCameraAccessory.iidStreamingStatus,
+            case .string(let b64) = value,
+            let data = Data(base64Encoded: b64), data.count >= 3
+          {
+            self.isCameraStreaming = data[data.startIndex + 2] == 1
           }
           self.server?.notifySubscribers(aid: aid, iid: iid, value: value)
         }
