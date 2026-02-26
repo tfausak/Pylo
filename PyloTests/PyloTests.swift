@@ -954,6 +954,37 @@ struct EncryptionContextTests {
     // Same plaintext, different nonces → different ciphertext
     #expect(msg1 != msg2)
   }
+
+  @Test("Failed decrypt does not desync subsequent frames")
+  func failedDecryptDoesNotDesync() {
+    let readKey = SymmetricKey(size: .bits256)
+    let writeKey = SymmetricKey(size: .bits256)
+
+    let encryptor = EncryptionContext(readKey: readKey, writeKey: writeKey)
+    let decryptor = EncryptionContext(readKey: writeKey, writeKey: readKey)
+
+    // Encrypt two messages
+    let frame1 = encryptor.encrypt(plaintext: Data("hello".utf8))
+    let frame2 = encryptor.encrypt(plaintext: Data("world".utf8))
+
+    // Feed garbage to the decryptor — should fail but NOT advance the counter
+    let garbage = Data(repeating: 0xAA, count: 32)
+    let garbageLen = Data([UInt8(16), 0x00])  // claim 16 bytes payload
+    let badResult = decryptor.decrypt(lengthBytes: garbageLen, ciphertext: garbage)
+    #expect(badResult == nil)
+
+    // Now decrypt the real frame1 — should succeed because counter didn't advance
+    let len1 = frame1[0..<2]
+    let ct1 = frame1[2...]
+    let result1 = decryptor.decrypt(lengthBytes: len1, ciphertext: ct1)
+    #expect(result1 == Data("hello".utf8))
+
+    // And frame2 should also work
+    let len2 = frame2[0..<2]
+    let ct2 = frame2[2...]
+    let result2 = decryptor.decrypt(lengthBytes: len2, ciphertext: ct2)
+    #expect(result2 == Data("world".utf8))
+  }
 }
 
 // MARK: - SRP Server Tests
@@ -1909,5 +1940,62 @@ struct BatteryServiceTests {
     #expect(BatteryIID.batteryLevel == 101)
     #expect(BatteryIID.chargingState == 102)
     #expect(BatteryIID.statusLowBattery == 103)
+  }
+}
+
+// MARK: - BatteryState Thread Safety Tests
+
+@Suite("BatteryState Thread Safety")
+struct BatteryStateTests {
+
+  @Test("Concurrent reads and writes do not crash")
+  func concurrentAccess() async {
+    let state = BatteryState()
+
+    await withTaskGroup(of: Void.self) { group in
+      // Writer
+      group.addTask {
+        for i in 0..<1000 {
+          state.level = i % 101
+          state.chargingState = i % 3
+          state.statusLowBattery = i % 2
+        }
+      }
+      // Reader
+      group.addTask {
+        for _ in 0..<1000 {
+          _ = state.level
+          _ = state.chargingState
+          _ = state.statusLowBattery
+        }
+      }
+    }
+
+    // If we get here without crashing, thread safety works
+    #expect(state.level >= 0)
+  }
+}
+
+// MARK: - PairSetupThrottle Thread Safety Tests
+
+@Suite("PairSetupThrottle Thread Safety")
+struct PairSetupThrottleThreadTests {
+
+  @Test("Concurrent recordFailure calls do not crash or lose counts")
+  func concurrentRecordFailure() async {
+    let throttle = PairSetupThrottle()
+    let iterations = 100
+
+    await withTaskGroup(of: Void.self) { group in
+      for _ in 0..<4 {
+        group.addTask {
+          for _ in 0..<iterations {
+            throttle.recordFailure()
+          }
+        }
+      }
+    }
+
+    #expect(throttle.failedAttempts == 4 * iterations)
   }
 }
