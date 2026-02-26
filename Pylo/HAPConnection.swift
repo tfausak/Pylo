@@ -411,7 +411,7 @@ final class HAPConnection {
 
 // MARK: - Characteristic ID (for event subscriptions)
 
-struct CharacteristicID: Hashable, Sendable {
+nonisolated struct CharacteristicID: Hashable, Sendable {
   let aid: Int
   let iid: Int
 }
