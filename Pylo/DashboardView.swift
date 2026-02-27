@@ -14,6 +14,7 @@ struct DashboardView: View {
             Circle()
               .fill(.green)
               .frame(width: 8, height: 8)
+              .accessibilityHidden(true)
             Text("Running")
               .font(.caption)
               .foregroundStyle(.secondary)
