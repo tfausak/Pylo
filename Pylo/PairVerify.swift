@@ -98,7 +98,7 @@ enum PairVerifyHandler {
       session.accessoryEphemeralPrivateKey = accessoryPrivateKey
       session.controllerEphemeralPublicKey = controllerPublicKey
       session.sharedSecret = sharedSecret
-      session.sessionKey = sessionKey.withUnsafeBytes { Data($0) }
+      session.sessionKey = sessionKey
       connection.pairVerifyState = session
 
       // Respond with M2
@@ -127,7 +127,7 @@ enum PairVerifyHandler {
   {
     guard let encryptedData = tlv[.encryptedData],
       let session = connection.pairVerifyState,
-      let sessionKeyData = session.sessionKey,
+      let sessionKey = session.sessionKey,
       let sharedSecret = session.sharedSecret,
       let controllerPublicKey = session.controllerEphemeralPublicKey,
       let accessoryPrivateKey = session.accessoryEphemeralPrivateKey
@@ -136,7 +136,6 @@ enum PairVerifyHandler {
     }
 
     do {
-      let sessionKey = SymmetricKey(data: sessionKeyData)
 
       // Decrypt the sub-TLV
       guard encryptedData.count > 16 else {

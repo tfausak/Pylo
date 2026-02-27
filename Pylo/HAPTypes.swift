@@ -340,7 +340,7 @@ final class PairVerifySession {
   var sharedSecret: SharedSecret?
   var accessoryEphemeralPrivateKey: Curve25519.KeyAgreement.PrivateKey?
   var controllerEphemeralPublicKey: Curve25519.KeyAgreement.PublicKey?
-  var sessionKey: Data?  // Derived encryption key for verifying signatures
+  var sessionKey: SymmetricKey?  // Derived encryption key for verifying signatures
 }
 
 // MARK: - HKDF Convenience
