@@ -73,12 +73,16 @@ nonisolated enum TLV8 {
 
   /// Convenience: decode a single-record TLV8 blob as a dictionary keyed by Tag.
   /// Only suitable for messages that contain a single logical record (no separators).
-  /// If duplicate tags exist (separated by a separator), only the last value is kept.
-  /// For multi-record TLV8, use `decodeRecords(_:)` instead.
+  /// Returns an empty dictionary if the blob contains separator tags (use
+  /// `decodeRecords(_:)` for multi-record TLV8).
   static func decode(_ data: Data) -> [Tag: Data] {
     let pairs: [(UInt8, Data)] = decode(data)
     var dict: [Tag: Data] = [:]
     for (rawTag, value) in pairs {
+      if rawTag == Tag.separator.rawValue {
+        // Separator in a single-record decode — reject to prevent tag shadowing.
+        return [:]
+      }
       if let tag = Tag(rawValue: rawTag) {
         dict[tag] = value
       }

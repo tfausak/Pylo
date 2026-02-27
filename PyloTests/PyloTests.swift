@@ -96,6 +96,21 @@ struct TLV8Tests {
     #expect(dict[.error] == nil)
   }
 
+  @Test("Dictionary decode rejects blobs containing separators")
+  func decodeDictionaryRejectsSeparators() {
+    // A multi-record blob with a separator should return empty from the
+    // dictionary overload to prevent tag shadowing attacks.
+    let encoded = TLV8.encode([
+      (.identifier, Data("A".utf8)),
+      (.publicKey, Data([0xAA])),
+      (.separator, Data()),
+      (.identifier, Data("B".utf8)),
+      (.publicKey, Data([0xBB])),
+    ])
+    let dict: [TLV8.Tag: Data] = TLV8.decode(encoded)
+    #expect(dict.isEmpty)
+  }
+
   @Test("Decode multi-record TLV8 with separators")
   func decodeRecords() {
     // Two records separated by 0xFF:
