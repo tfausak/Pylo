@@ -96,7 +96,7 @@ struct AccessoryConfig: Equatable {
 
 // MARK: - View Model
 
-@Observable
+@Observable @MainActor
 final class HAPViewModel {
 
   var isRunning = false
