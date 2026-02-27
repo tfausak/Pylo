@@ -238,24 +238,35 @@ final class HAPConnection {
     case ("POST", "/pair-verify"):
       return handlePairVerify(request, server: server)
 
-    case ("GET", "/accessories"):
-      return handleGetAccessories(server: server)
-
-    case ("GET", let path) where path.starts(with: "/characteristics"):
-      return handleGetCharacteristics(request, server: server)
-
-    case ("PUT", "/characteristics"):
-      return handlePutCharacteristics(request, server: server)
-
     case ("POST", "/identify"):
       return handleIdentify(server: server)
 
-    case ("POST", "/pairings"):
-      return handlePairings(request, server: server)
+    case ("GET", "/accessories"),
+      ("GET", _) where request.path.starts(with: "/characteristics"),
+      ("PUT", "/characteristics"),
+      ("POST", "/resource"),
+      ("POST", "/pairings"):
+      // All post-verification endpoints require an encrypted session (HAP §5.13.1)
+      guard encryptionContext != nil else {
+        logger.warning("Rejected \(request.method) \(request.path) — session not verified")
+        return HTTPResponse(status: 470, body: nil, contentType: "application/hap+json")
+      }
 
-    case ("POST", "/resource"):
-      handleResource(request, server: server)
-      return nil
+      switch (request.method, request.path) {
+      case ("GET", "/accessories"):
+        return handleGetAccessories(server: server)
+      case ("GET", _):
+        return handleGetCharacteristics(request, server: server)
+      case ("PUT", _):
+        return handlePutCharacteristics(request, server: server)
+      case ("POST", "/pairings"):
+        return handlePairings(request, server: server)
+      case ("POST", "/resource"):
+        handleResource(request, server: server)
+        return nil
+      default:
+        fatalError("unreachable")
+      }
 
     default:
       logger.warning("Unknown route: \(request.method) \(request.path)")
