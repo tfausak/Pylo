@@ -275,13 +275,12 @@ enum PairSetupHandler {
 
     do {
       // Derive the key used to decrypt M5
-      let decryptKey = HKDF<SHA512>.deriveKey(
+      let symmetricKey = HKDF<SHA512>.deriveSymmetricKey(
         inputKeyMaterial: sessionKey,
         salt: Data("Pair-Setup-Encrypt-Salt".utf8),
         info: Data("Pair-Setup-Encrypt-Info".utf8),
         outputByteCount: 32
       )
-      let symmetricKey = SymmetricKey(data: decryptKey)
 
       // Decrypt
       guard encryptedData.count > 16 else {

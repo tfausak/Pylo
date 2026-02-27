@@ -346,7 +346,7 @@ final class PairVerifySession {
 // MARK: - HKDF Convenience
 
 extension HKDF<SHA512> {
-  /// Derive a key using HKDF-SHA512 (as required by HAP).
+  /// Derive raw bytes using HKDF-SHA512 — use for non-key material (e.g. signature payloads).
   static func deriveKey(
     inputKeyMaterial: Data,
     salt: Data,
@@ -361,5 +361,21 @@ extension HKDF<SHA512> {
       outputByteCount: outputByteCount
     )
     return derived.withUnsafeBytes { Data($0) }
+  }
+
+  /// Derive a SymmetricKey directly — avoids exposing key material through Data.
+  static func deriveSymmetricKey(
+    inputKeyMaterial: Data,
+    salt: Data,
+    info: Data,
+    outputByteCount: Int = 32
+  ) -> SymmetricKey {
+    let ikm = SymmetricKey(data: inputKeyMaterial)
+    return Self.deriveKey(
+      inputKeyMaterial: ikm,
+      salt: salt,
+      info: info,
+      outputByteCount: outputByteCount
+    )
   }
 }

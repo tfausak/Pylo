@@ -101,14 +101,14 @@ final class HAPDataStream {
     let hkdfSalt = controllerKeySalt + accessoryKeySalt
     let sharedSecretData = sharedSecret.withUnsafeBytes { Data($0) }
 
-    let readKey = HKDF<SHA512>.deriveKey(
+    let readKey = HKDF<SHA512>.deriveSymmetricKey(
       inputKeyMaterial: sharedSecretData,
       salt: hkdfSalt,
       info: Data("HDS-Read-Encryption-Key".utf8),
       outputByteCount: 32
     )
 
-    let writeKey = HKDF<SHA512>.deriveKey(
+    let writeKey = HKDF<SHA512>.deriveSymmetricKey(
       inputKeyMaterial: sharedSecretData,
       salt: hkdfSalt,
       info: Data("HDS-Write-Encryption-Key".utf8),
@@ -121,8 +121,8 @@ final class HAPDataStream {
 
     // Set up encryption on the pending connection
     connection?.setupEncryption(
-      readKey: SymmetricKey(data: readKey),
-      writeKey: SymmetricKey(data: writeKey)
+      readKey: readKey,
+      writeKey: writeKey
     )
     connection?.start()
 
