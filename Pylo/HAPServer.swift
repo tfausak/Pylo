@@ -18,6 +18,7 @@ nonisolated final class HAPServer: @unchecked Sendable {
   private let listener: NWListener
   private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "Server")
   private let queue = DispatchQueue(label: "me.fausak.taylor.Pylo.server")
+  private static let queueKey = DispatchSpecificKey<Bool>()
 
   /// Active connections keyed by a unique ID.
   private var connections: [String: HAPConnection] = [:]
@@ -48,6 +49,8 @@ nonisolated final class HAPServer: @unchecked Sendable {
     self.bridge = bridge
     self.pairingStore = pairingStore
     self.deviceIdentity = deviceIdentity
+
+    queue.setSpecific(key: Self.queueKey, value: true)
 
     // Register bridge and all sub-accessories
     self.accessories[bridge.aid] = bridge
@@ -126,10 +129,16 @@ nonisolated final class HAPServer: @unchecked Sendable {
     // stateUpdateHandler(.cancelled) on this same serial queue, which
     // calls removeConnection() — a re-entrant dispatch that deadlocks
     // if we're inside queue.sync.
-    let snapshot = queue.sync { () -> [HAPConnection] in
+    let snapshotBlock = { [self] () -> [HAPConnection] in
       let conns = Array(connections.values)
       connections.removeAll()
       return conns
+    }
+    let snapshot: [HAPConnection]
+    if DispatchQueue.getSpecific(key: Self.queueKey) != nil {
+      snapshot = snapshotBlock()
+    } else {
+      snapshot = queue.sync(execute: snapshotBlock)
     }
     listener.cancel()
     for conn in snapshot {
