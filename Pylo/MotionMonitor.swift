@@ -14,7 +14,10 @@ nonisolated final class MotionMonitor: @unchecked Sendable {
   private let motionManager = CMMotionManager()
 
   /// Acceleration delta from gravity (in g) required to trigger motion detected.
-  var threshold: Double = 0.15
+  var threshold: Double {
+    get { state.withLock { $0.threshold } }
+    set { state.withLock { $0.threshold = newValue } }
+  }
 
   /// Seconds of calm required before reporting no motion.
   private let cooldown: TimeInterval = 3.0
@@ -23,6 +26,7 @@ nonisolated final class MotionMonitor: @unchecked Sendable {
   private struct State {
     var isMotionDetected = false
     var lastMotionDate = Date.distantPast
+    var threshold: Double = 0.15
   }
 
   private let state = OSAllocatedUnfairLock(initialState: State())
@@ -54,34 +58,38 @@ nonisolated final class MotionMonitor: @unchecked Sendable {
       let magnitude = sqrt(accel.x * accel.x + accel.y * accel.y + accel.z * accel.z)
       let delta = abs(magnitude - 1.0)
 
-      if delta > self.threshold {
-        let shouldNotify = self.state.withLock { state in
+      enum MotionEvent {
+        case detected
+        case cleared(TimeInterval)
+      }
+
+      let event: MotionEvent? = self.state.withLock { state in
+        if delta > state.threshold {
           state.lastMotionDate = Date()
           if !state.isMotionDetected {
             state.isMotionDetected = true
-            return true
+            return .detected
           }
-          return false
-        }
-        if shouldNotify {
-          self.logger.debug("Motion detected (delta=\(delta, format: .fixed(precision: 3))g)")
-          self.onMotionChange?(true)
-        }
-      } else {
-        let elapsed: TimeInterval? = self.state.withLock { state in
-          guard state.isMotionDetected else { return nil }
+        } else if state.isMotionDetected {
           let elapsed = Date().timeIntervalSince(state.lastMotionDate)
           if elapsed >= self.cooldown {
             state.isMotionDetected = false
-            return elapsed
+            return .cleared(elapsed)
           }
-          return nil
         }
-        if let elapsed {
-          self.logger.debug(
-            "Motion cleared after \(elapsed, format: .fixed(precision: 1))s cooldown")
-          self.onMotionChange?(false)
-        }
+        return nil
+      }
+
+      switch event {
+      case .detected:
+        self.logger.debug("Motion detected (delta=\(delta, format: .fixed(precision: 3))g)")
+        self.onMotionChange?(true)
+      case .cleared(let elapsed):
+        self.logger.debug(
+          "Motion cleared after \(elapsed, format: .fixed(precision: 1))s cooldown")
+        self.onMotionChange?(false)
+      case nil:
+        break
       }
     }
 
