@@ -213,6 +213,7 @@ final class HAPViewModel {
   @ObservationIgnored private var motionMonitor: MotionMonitor?
   @ObservationIgnored private var batteryMonitor: BatteryMonitor?
   @ObservationIgnored private var cameraAccessory: HAPCameraAccessory?
+  @ObservationIgnored private var monitoringSession: MonitoringCaptureSession?
   @ObservationIgnored private var fragmentWriter: FragmentedMP4Writer?
   @ObservationIgnored private var dataStreamHandler: HAPDataStream?
 
@@ -318,6 +319,7 @@ final class HAPViewModel {
       // monitors — all on MainActor.
       self.server = setup.server
       self.lightMonitor = setup.lightMonitor
+      self.monitoringSession = setup.monitoringSession
       self.motionMonitor = setup.motionMonitor
       self.cameraAccessory = config.selectedStreamCameraID != nil ? setup.camera : nil
       self.fragmentWriter = setup.fmp4Writer
@@ -458,6 +460,8 @@ final class HAPViewModel {
     batteryMonitor = nil
     motionMonitor?.stop()
     motionMonitor = nil
+    monitoringSession?.stop()
+    monitoringSession = nil
     lightMonitor?.stop()
     lightMonitor = nil
     dataStreamHandler?.stop()
@@ -515,6 +519,7 @@ private struct ServerSetup: @unchecked Sendable {
   let fmp4Writer: FragmentedMP4Writer?
   let dataStream: HAPDataStream?
   let lightMonitor: AmbientLightMonitor
+  let monitoringSession: MonitoringCaptureSession?
   let motionMonitor: MotionMonitor
   let isMotionAvailable: Bool
 }
@@ -612,13 +617,49 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     lightSensor?.updateAmbientLight(lux)
   }
 
-  // Pause/resume the light monitor around snapshot captures so only
-  // one AVCaptureSession is active at a time (iOS limitation).
-  camera.onSnapshotWillCapture = { [weak lightMonitor] in
+  // Monitoring capture session for HKSV idle motion detection + fMP4 pre-buffering
+  var monitoringSession: MonitoringCaptureSession?
+  if config.selectedStreamCameraID != nil {
+    let monitoring = MonitoringCaptureSession()
+    monitoring.fragmentWriter = fmp4Writer
+    monitoringSession = monitoring
+
+    camera.onMonitoringCaptureNeeded = {
+      [weak monitoring, weak camera, weak lightMonitor] needed in
+      guard let camera else { return }
+      if needed {
+        monitoring?.videoMotionDetector = camera.videoMotionDetector
+        lightMonitor?.pauseSession()  // camera hardware contention
+        if let device = camera.resolvedCamera {
+          monitoring?.start(camera: device)
+        }
+      } else {
+        monitoring?.stop()
+        // Only resume light monitor if no live stream is active
+        if camera.streamSession == nil {
+          lightMonitor?.resumeSession()
+        }
+      }
+    }
+  }
+
+  // Pause/resume the light monitor and monitoring session around snapshot captures
+  // so only one AVCaptureSession is active at a time (iOS limitation).
+  camera.onSnapshotWillCapture = { [weak lightMonitor, weak monitoringSession] in
+    monitoringSession?.stop()
     lightMonitor?.pauseSession()
   }
-  camera.onSnapshotDidCapture = { [weak lightMonitor] in
-    lightMonitor?.resumeSession()
+  camera.onSnapshotDidCapture = {
+    [weak lightMonitor, weak monitoringSession, weak camera] in
+    // Resume monitoring if recording armed + no live stream; otherwise resume light monitor
+    if let camera, camera.recordingActive != 0, camera.streamSession == nil,
+      let device = camera.resolvedCamera
+    {
+      monitoringSession?.videoMotionDetector = camera.videoMotionDetector
+      monitoringSession?.start(camera: device)
+    } else {
+      lightMonitor?.resumeSession()
+    }
   }
 
   let motionMonitor = MotionMonitor()
@@ -631,7 +672,8 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     bridge: bridge, lightbulb: lightbulb, camera: camera,
     lightSensor: lightSensor, motionSensor: motionSensor,
     server: server, fmp4Writer: fmp4Writer, dataStream: dataStream,
-    lightMonitor: lightMonitor, motionMonitor: motionMonitor,
+    lightMonitor: lightMonitor, monitoringSession: monitoringSession,
+    motionMonitor: motionMonitor,
     isMotionAvailable: motionMonitor.isAvailable
   )
 }

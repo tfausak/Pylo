@@ -37,6 +37,10 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
   var onSnapshotWillCapture: (() -> Void)?
   var onSnapshotDidCapture: (() -> Void)?
 
+  /// Called when monitoring capture should start (recording armed, no live stream)
+  /// or stop (live stream started, or recording disarmed).
+  var onMonitoringCaptureNeeded: ((_ needed: Bool) -> Void)?
+
   /// Called when video-based motion detection fires (replaces accelerometer for HKSV).
   var onVideoMotionChange: ((Bool) -> Void)?
 
@@ -365,6 +369,14 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
         let isActive = v != 0
         onRecordingConfigChange?(isActive)
         onStateChange?(aid, iid, .int(v))
+        // Signal monitoring capture: needed when recording armed + no live stream
+        if isActive {
+          if streamSession == nil {
+            onMonitoringCaptureNeeded?(true)
+          }
+        } else {
+          onMonitoringCaptureNeeded?(false)
+        }
         return true
       }
       return false
@@ -863,6 +875,9 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
     #endif
   }
 
+  /// The resolved camera device for external callers (e.g. MonitoringCaptureSession).
+  var resolvedCamera: AVCaptureDevice? { resolveCamera() }
+
   /// Resolve the selected camera device, falling back to the default back wide-angle.
   private func resolveCamera() -> AVCaptureDevice? {
     if let id = selectedCameraID, let device = AVCaptureDevice(uniqueID: id) {
@@ -894,6 +909,9 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
       self?.cachedSnapshot = jpeg
     }
 
+    // Stop monitoring capture — live stream takes over motion detection + fMP4 feeding
+    onMonitoringCaptureNeeded?(false)
+
     let effectiveBitrate = max(bitrate, minimumBitrate)
     let rotation = currentRotation()
     logger.info(
@@ -912,6 +930,10 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
     streamSession = nil
     onStateChange?(
       aid, Self.iidStreamingStatus, .string(streamingStatusTLV().base64EncodedString()))
+    // Resume monitoring capture if recording is still armed
+    if recordingActive != 0 {
+      onMonitoringCaptureNeeded?(true)
+    }
   }
 
   // MARK: - Utility
