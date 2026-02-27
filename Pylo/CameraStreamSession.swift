@@ -82,6 +82,14 @@ final class CameraStreamSession {
   }
   private let audioFlags = OSAllocatedUnfairLock(initialState: AudioFlags())
 
+  // Audio RTP stats — written on captureQueue, read on rtpQueue for RTCP SR.
+  private struct AudioRTPStats {
+    var timestamp: UInt32 = 0
+    var packetsSent: Int = 0
+    var octetsSent: Int = 0
+  }
+  private let audioRTPStats = OSAllocatedUnfairLock(initialState: AudioRTPStats())
+
   var isMuted: Bool {
     get { audioFlags.withLock { $0.isMuted } }
     set { audioFlags.withLock { $0.isMuted = newValue } }
@@ -1036,6 +1044,14 @@ final class CameraStreamSession {
 
     audioPacketsSent += 1
     audioOctetsSent += payload.count
+    let ts = audioRTPTimestamp
+    let pkts = audioPacketsSent
+    let octets = audioOctetsSent
+    audioRTPStats.withLock {
+      $0.timestamp = ts
+      $0.packetsSent = pkts
+      $0.octetsSent = octets
+    }
     sendAudioUDP(rtpPacket)
   }
 
@@ -1054,13 +1070,14 @@ final class CameraStreamSession {
   private func sendAudioRTCPSenderReport() {
     guard let ctx = audioSRTPContext else { return }
 
+    let stats = audioRTPStats.withLock { $0 }
     let sr = Self.buildRTCPSenderReport(
-      ssrc: audioSSRC, rtpTimestamp: audioRTPTimestamp,
-      packetsSent: audioPacketsSent, octetsSent: audioOctetsSent)
+      ssrc: audioSSRC, rtpTimestamp: stats.timestamp,
+      packetsSent: stats.packetsSent, octetsSent: stats.octetsSent)
     let srtcpPacket = ctx.protectRTCP(sr)
     sendAudioUDP(srtcpPacket)
     logger.debug(
-      "Sent audio RTCP-SR: packets=\(self.audioPacketsSent) octets=\(self.audioOctetsSent)"
+      "Sent audio RTCP-SR: packets=\(stats.packetsSent) octets=\(stats.octetsSent)"
     )
   }
 
