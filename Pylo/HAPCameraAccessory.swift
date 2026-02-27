@@ -820,11 +820,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
   /// The camera sensor's native orientation is landscape-left, so portrait requires a 90° rotation.
   private func currentRotation() -> (angle: Int, swapDimensions: Bool) {
     #if os(iOS)
-      // UIDevice.current.orientation is backed by an atomic internal property
-      // and is safe to read from any thread. Avoid DispatchQueue.main.sync here
-      // because it deadlocks if the main thread is blocked on the server queue.
-      let orientation = UIDevice.current.orientation
-      switch orientation {
+      switch DeviceOrientation.current {
       case .landscapeLeft: return (0, false)
       case .landscapeRight: return (180, false)
       case .portraitUpsideDown: return (270, true)
@@ -1266,3 +1262,35 @@ private nonisolated final class FrameGrabber: NSObject, AVCaptureVideoDataOutput
     semaphore.signal()
   }
 }
+
+// MARK: - Device Orientation Cache
+
+/// Thread-safe cache for UIDevice orientation, updated via NotificationCenter.
+/// UIDevice.current.orientation is safe to read from any thread (backed by an
+/// atomic internal property), but UIKit marks it @MainActor. Rather than
+/// suppressing the warning, we observe orientation-change notifications on
+/// MainActor and cache the value atomically for any-thread reads.
+#if os(iOS)
+  private nonisolated enum DeviceOrientation {
+    private static let state = OSAllocatedUnfairLock(
+      initialState: Int(UIDeviceOrientation.portrait.rawValue)
+    )
+
+    private static let token: NSObjectProtocol =
+      NotificationCenter.default.addObserver(
+        forName: UIDevice.orientationDidChangeNotification,
+        object: nil,
+        queue: .main
+      ) { _ in
+        let raw = MainActor.assumeIsolated { UIDevice.current.orientation.rawValue }
+        state.withLock { $0 = raw }
+      }
+
+    /// Current device orientation, safe to read from any thread.
+    /// Lazily registers a notification observer on first access.
+    static var current: UIDeviceOrientation {
+      _ = token
+      return UIDeviceOrientation(rawValue: state.withLock { $0 }) ?? .portrait
+    }
+  }
+#endif
