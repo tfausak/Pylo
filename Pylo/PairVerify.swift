@@ -95,7 +95,7 @@ nonisolated enum PairVerifyHandler {
 
       // Save session state
       let session = PairVerifySession()
-      session.accessoryEphemeralPrivateKey = accessoryPrivateKey
+      session.accessoryEphemeralPublicKeyBytes = Data(accessoryPublicKey.rawRepresentation)
       session.controllerEphemeralPublicKey = controllerPublicKey
       session.sharedSecret = sharedSecret
       session.sessionKey = sessionKey
@@ -130,7 +130,7 @@ nonisolated enum PairVerifyHandler {
       let sessionKey = session.sessionKey,
       let sharedSecret = session.sharedSecret,
       let controllerPublicKey = session.controllerEphemeralPublicKey,
-      let accessoryPrivateKey = session.accessoryEphemeralPrivateKey
+      let accessoryPublicKeyBytes = session.accessoryEphemeralPublicKeyBytes
     else {
       return errorResponse(state: 0x04, .authentication)
     }
@@ -168,7 +168,7 @@ nonisolated enum PairVerifyHandler {
       var controllerInfo = Data()
       controllerInfo.append(controllerPublicKey.rawRepresentation)
       controllerInfo.append(controllerIdentifier)
-      controllerInfo.append(accessoryPrivateKey.publicKey.rawRepresentation)
+      controllerInfo.append(accessoryPublicKeyBytes)
 
       guard controllerLTPK.isValidSignature(Data(controllerSignature), for: controllerInfo) else {
         logger.error("Controller signature verification failed")

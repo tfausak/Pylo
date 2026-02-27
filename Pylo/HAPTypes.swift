@@ -365,7 +365,10 @@ nonisolated final class PairSetupSession: @unchecked Sendable {
 /// Tracks in-progress pair-verify state for a connection.
 nonisolated final class PairVerifySession: @unchecked Sendable {
   var sharedSecret: SharedSecret?
-  var accessoryEphemeralPrivateKey: Curve25519.KeyAgreement.PrivateKey?
+  /// Raw bytes of the accessory's ephemeral public key (sent in M2).
+  /// Only the public key is retained — the private key is discarded after
+  /// deriving the shared secret in M1 to minimize key material exposure.
+  var accessoryEphemeralPublicKeyBytes: Data?
   var controllerEphemeralPublicKey: Curve25519.KeyAgreement.PublicKey?
   var sessionKey: SymmetricKey?  // Derived encryption key for verifying signatures
 }
