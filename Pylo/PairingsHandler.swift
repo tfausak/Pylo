@@ -109,15 +109,10 @@ enum PairingsHandler {
     server.pairingStore.removePairing(identifier: id)
 
     // HAP spec §5.11: terminate sessions for the removed controller.
-    // If the requesting controller is removing itself, defer termination
-    // so the M2 success response can be sent before the session is torn down.
-    if id == connection.verifiedControllerID {
-      DispatchQueue.global().asyncAfter(deadline: .now() + 0.1) {
-        server.terminateSessions(forController: id)
-      }
-    } else {
-      server.terminateSessions(forController: id)
-    }
+    // terminateSessions dispatches to the server queue via queue.async,
+    // so it runs after the current request handler returns and the M2
+    // response has been enqueued by sendResponse.
+    server.terminateSessions(forController: id)
 
     // If no pairings remain, update advertisement
     if !server.pairingStore.isPaired {
