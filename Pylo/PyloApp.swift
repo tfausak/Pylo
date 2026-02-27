@@ -70,23 +70,20 @@ struct PyloApp: App {
 struct AccessoryConfig: Equatable {
   var flashlightEnabled: Bool
   var cameraEnabled: Bool
-  var lightSensorEnabled: Bool
   var motionEnabled: Bool
 
   init(
     flashlightEnabled: Bool, cameraEnabled: Bool,
-    lightSensorEnabled: Bool, motionEnabled: Bool
+    motionEnabled: Bool
   ) {
     self.flashlightEnabled = flashlightEnabled
     self.cameraEnabled = cameraEnabled
-    self.lightSensorEnabled = lightSensorEnabled
     self.motionEnabled = motionEnabled
   }
 
   init(from vm: HAPViewModel) {
     flashlightEnabled = vm.flashlightEnabled
     cameraEnabled = vm.selectedStreamCamera != nil
-    lightSensorEnabled = vm.selectedCamera != nil
     motionEnabled = vm.motionEnabled
   }
 }
@@ -107,24 +104,11 @@ final class HAPViewModel {
   var isPaired = false
   var statusMessage = "Tap Start to begin"
   var setupCode = PairSetupHandler.setupCode
-  var ambientLux: Float = 1.0
   var isMotionDetected = false
   var isMotionAvailable = false
   var isCameraStreaming = false
   var hasPairings = false
   var availableCameras: [CameraOption] = []
-  var selectedCamera: CameraOption? {
-    didSet {
-      guard !isRestoring, oldValue?.id != selectedCamera?.id else { return }
-      if let selectedCamera {
-        UserDefaults.standard.set(selectedCamera.id, forKey: "selectedCameraID")
-        lightMonitor?.restart(with: selectedCamera)
-      } else {
-        UserDefaults.standard.set("none", forKey: "selectedCameraID")
-        lightMonitor?.stop()
-      }
-    }
-  }
   var selectedStreamCamera: CameraOption? {
     didSet {
       guard !isRestoring, oldValue?.id != selectedStreamCamera?.id else { return }
@@ -209,7 +193,6 @@ final class HAPViewModel {
   @ObservationIgnored private var startTask: Task<Void, Never>?
   @ObservationIgnored private var startGeneration = 0
   @ObservationIgnored private var server: HAPServer?
-  @ObservationIgnored private var lightMonitor: AmbientLightMonitor?
   @ObservationIgnored private var motionMonitor: MotionMonitor?
   @ObservationIgnored private var batteryMonitor: BatteryMonitor?
   @ObservationIgnored private var cameraAccessory: HAPCameraAccessory?
@@ -243,18 +226,9 @@ final class HAPViewModel {
     let savedDelay = UserDefaults.standard.double(forKey: "screenSaverDelay")
     if savedDelay > 0 { screenSaverDelay = savedDelay }
 
-    // Discover available cameras and restore selections
+    // Discover available cameras and restore stream camera selection
     let cameras = CameraOption.availableCameras()
     availableCameras = cameras
-    let savedCameraID = UserDefaults.standard.string(forKey: "selectedCameraID")
-    if savedCameraID == "none" {
-      selectedCamera = nil
-    } else {
-      selectedCamera =
-        cameras.first(where: { $0.id == savedCameraID })
-        ?? cameras.first { $0.name.localizedCaseInsensitiveContains("front") }
-        ?? cameras.first
-    }
     let savedStreamID = UserDefaults.standard.string(forKey: "selectedStreamCameraID")
     if savedStreamID == "none" {
       selectedStreamCamera = nil
@@ -284,7 +258,6 @@ final class HAPViewModel {
       serial: UIDevice.current.identifierForVendor?.uuidString ?? "000000",
       flashlightEnabled: flashlightEnabled,
       selectedStreamCameraID: selectedStreamCamera?.id,
-      selectedCameraOption: selectedCamera,
       motionEnabled: motionEnabled,
       motionThreshold: motionSensitivity.threshold,
       minimumBitrate: videoQuality.minimumBitrate
@@ -318,7 +291,6 @@ final class HAPViewModel {
       // Stage 3: Wire UI-updating callbacks, store references, and start
       // monitors — all on MainActor.
       self.server = setup.server
-      self.lightMonitor = setup.lightMonitor
       self.monitoringSession = setup.monitoringSession
       self.motionMonitor = setup.motionMonitor
       self.cameraAccessory = config.selectedStreamCameraID != nil ? setup.camera : nil
@@ -362,22 +334,6 @@ final class HAPViewModel {
         enabledAccessories.append(setup.camera)
       }
 
-      if config.selectedCameraOption != nil {
-        setup.lightSensor.onStateChange = {
-          [weak self, weak server = setup.server] aid, iid, value in
-          server?.notifySubscribers(aid: aid, iid: iid, value: value)
-          Task { @MainActor in
-            guard let self else { return }
-            if iid == HAPLightSensorAccessory.iidAmbientLightLevel,
-              case .float(let lux) = value
-            {
-              self.ambientLux = lux
-            }
-          }
-        }
-        enabledAccessories.append(setup.lightSensor)
-      }
-
       if config.motionEnabled {
         setup.motionSensor.onStateChange = {
           [weak self, weak server = setup.server] aid, iid, value in
@@ -407,7 +363,6 @@ final class HAPViewModel {
         let sharedBatteryState = battery.currentState()
         setup.lightbulb.batteryState = sharedBatteryState
         setup.camera.batteryState = sharedBatteryState
-        setup.lightSensor.batteryState = sharedBatteryState
         setup.motionSensor.batteryState = sharedBatteryState
 
         battery.onBatteryChange = { [weak server = setup.server] state in
@@ -440,9 +395,6 @@ final class HAPViewModel {
         "Advertising as '\(setup.bridge.name)'\nDevice ID: \(setup.server.deviceIdentity.deviceID)"
       UserDefaults.standard.set(true, forKey: "hasStartedBefore")
 
-      if config.selectedCameraOption != nil {
-        setup.lightMonitor.start(with: config.selectedCameraOption)
-      }
       if config.motionEnabled {
         setup.motionMonitor.start()
       }
@@ -462,8 +414,6 @@ final class HAPViewModel {
     motionMonitor = nil
     monitoringSession?.stop()
     monitoringSession = nil
-    lightMonitor?.stop()
-    lightMonitor = nil
     dataStreamHandler?.stop()
     dataStreamHandler = nil
     fragmentWriter?.stop()
@@ -502,7 +452,6 @@ private struct StartConfig: Sendable {
   let serial: String
   let flashlightEnabled: Bool
   let selectedStreamCameraID: String?
-  let selectedCameraOption: CameraOption?
   let motionEnabled: Bool
   let motionThreshold: Double
   let minimumBitrate: Int
@@ -513,12 +462,10 @@ private struct ServerSetup: @unchecked Sendable {
   let bridge: HAPBridgeInfo
   let lightbulb: HAPAccessory
   let camera: HAPCameraAccessory
-  let lightSensor: HAPLightSensorAccessory
   let motionSensor: HAPMotionSensorAccessory
   let server: HAPServer
   let fmp4Writer: FragmentedMP4Writer?
   let dataStream: HAPDataStream?
-  let lightMonitor: AmbientLightMonitor
   let monitoringSession: MonitoringCaptureSession?
   let motionMonitor: MotionMonitor
   let isMotionAvailable: Bool
@@ -541,11 +488,6 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
   let camera = HAPCameraAccessory(
     aid: 3, name: "Pylo Camera", model: "HAP-PoC", manufacturer: "DIY",
     serialNumber: config.serial + "-cam", firmwareRevision: "0.1.0"
-  )
-
-  let lightSensor = HAPLightSensorAccessory(
-    aid: 4, name: "Pylo Light Sensor", model: "HAP-PoC", manufacturer: "DIY",
-    serialNumber: config.serial + "-lux", firmwareRevision: "0.1.0"
   )
 
   let motionSensor = HAPMotionSensorAccessory(
@@ -587,7 +529,6 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     dataStream = ds
   }
 
-  if config.selectedCameraOption != nil { enabledAccessories.append(lightSensor) }
   if config.motionEnabled { enabledAccessories.append(motionSensor) }
 
   // NWListener creation — also benefits from being off MainActor
@@ -611,12 +552,6 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     }
   }
 
-  // Wire non-UI callbacks between monitors and accessories
-  let lightMonitor = AmbientLightMonitor()
-  lightMonitor.onLuxUpdate = { [weak lightSensor] lux in
-    lightSensor?.updateAmbientLight(lux)
-  }
-
   // Monitoring capture session for HKSV idle motion detection + fMP4 pre-buffering
   var monitoringSession: MonitoringCaptureSession?
   if config.selectedStreamCameraID != nil {
@@ -624,41 +559,31 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     monitoring.fragmentWriter = fmp4Writer
     monitoringSession = monitoring
 
-    camera.onMonitoringCaptureNeeded = {
-      [weak monitoring, weak camera, weak lightMonitor] needed in
+    camera.onMonitoringCaptureNeeded = { [weak monitoring, weak camera] needed in
       guard let camera else { return }
       if needed {
         monitoring?.videoMotionDetector = camera.videoMotionDetector
-        lightMonitor?.pauseSession()  // camera hardware contention
         if let device = camera.resolvedCamera {
           monitoring?.start(camera: device)
         }
       } else {
         monitoring?.stop()
-        // Only resume light monitor if no live stream is active
-        if camera.streamSession == nil {
-          lightMonitor?.resumeSession()
-        }
       }
     }
   }
 
-  // Pause/resume the light monitor and monitoring session around snapshot captures
+  // Pause/resume the monitoring session around snapshot captures
   // so only one AVCaptureSession is active at a time (iOS limitation).
-  camera.onSnapshotWillCapture = { [weak lightMonitor, weak monitoringSession] in
+  camera.onSnapshotWillCapture = { [weak monitoringSession] in
     monitoringSession?.stop()
-    lightMonitor?.pauseSession()
   }
-  camera.onSnapshotDidCapture = {
-    [weak lightMonitor, weak monitoringSession, weak camera] in
-    // Resume monitoring if recording armed + no live stream; otherwise resume light monitor
+  camera.onSnapshotDidCapture = { [weak monitoringSession, weak camera] in
+    // Resume monitoring if recording armed + no live stream
     if let camera, camera.recordingActive != 0, camera.streamSession == nil,
       let device = camera.resolvedCamera
     {
       monitoringSession?.videoMotionDetector = camera.videoMotionDetector
       monitoringSession?.start(camera: device)
-    } else {
-      lightMonitor?.resumeSession()
     }
   }
 
@@ -670,9 +595,9 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
 
   return ServerSetup(
     bridge: bridge, lightbulb: lightbulb, camera: camera,
-    lightSensor: lightSensor, motionSensor: motionSensor,
+    motionSensor: motionSensor,
     server: server, fmp4Writer: fmp4Writer, dataStream: dataStream,
-    lightMonitor: lightMonitor, monitoringSession: monitoringSession,
+    monitoringSession: monitoringSession,
     motionMonitor: motionMonitor,
     isMotionAvailable: motionMonitor.isAvailable
   )

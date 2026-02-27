@@ -15,7 +15,6 @@ extension HAPViewModel {
     motionEnabled: Bool = true,
     motionDetected: Bool = false,
     cameraStreaming: Bool = false,
-    ambientLux: Float = 12.3,
     needsRestart: Bool = false,  // simulated by mismatching startedConfig
     screenSaverEnabled: Bool = false,
     screenSaverDelay: TimeInterval = 60,
@@ -33,13 +32,11 @@ extension HAPViewModel {
     vm.isMotionDetected = motionDetected
     vm.isMotionAvailable = true
     vm.isCameraStreaming = cameraStreaming
-    vm.ambientLux = ambientLux
     vm.screenSaverEnabled = screenSaverEnabled
     vm.screenSaverDelay = screenSaverDelay
     vm.keepScreenAwake = keepScreenAwake
     vm.setupCode = "123-45-678"
     vm.statusMessage = running ? "Advertising as 'Pylo Bridge'" : "Tap Start to begin"
-    vm.selectedCamera = CameraOption(id: "preview-front", name: "Front Camera", fNumber: 2.2)
     vm.selectedStreamCamera = CameraOption(id: "preview-back", name: "Back Camera", fNumber: 1.8)
     vm.availableCameras = [
       CameraOption(id: "preview-front", name: "Front Camera", fNumber: 2.2),
@@ -52,7 +49,6 @@ extension HAPViewModel {
         vm.startedConfig = AccessoryConfig(
           flashlightEnabled: !flashlightEnabled,
           cameraEnabled: vm.selectedStreamCamera != nil,
-          lightSensorEnabled: vm.selectedCamera != nil,
           motionEnabled: motionEnabled
         )
       } else {

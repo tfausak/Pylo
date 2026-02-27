@@ -25,18 +25,6 @@ struct AccessoryConfigSection: View {
         .pickerStyle(.segmented)
       }
 
-      // Ambient Light
-      Toggle(isOn: lightSensorEnabled) {
-        Label("Ambient Light", systemImage: "sun.max.fill")
-      }
-      if viewModel.selectedCamera != nil {
-        Picker("Camera", selection: lightCameraBinding) {
-          ForEach(viewModel.availableCameras) { camera in
-            Text(camera.name).tag(camera)
-          }
-        }
-      }
-
       // Camera
       Toggle(isOn: cameraEnabled) {
         Label("Camera", systemImage: "camera.fill")
@@ -56,7 +44,6 @@ struct AccessoryConfigSection: View {
       }
     }
     .animation(.default, value: viewModel.motionEnabled)
-    .animation(.default, value: viewModel.selectedCamera?.id)
     .animation(.default, value: viewModel.selectedStreamCamera?.id)
   }
 
@@ -76,22 +63,6 @@ struct AccessoryConfigSection: View {
     )
   }
 
-  /// Binding that maps selectedCamera (optional) to a Bool toggle.
-  private var lightSensorEnabled: Binding<Bool> {
-    Binding(
-      get: { viewModel.selectedCamera != nil },
-      set: { enabled in
-        if enabled {
-          viewModel.selectedCamera =
-            viewModel.availableCameras.first { $0.name.localizedCaseInsensitiveContains("front") }
-            ?? viewModel.availableCameras.first
-        } else {
-          viewModel.selectedCamera = nil
-        }
-      }
-    )
-  }
-
   /// Non-optional binding for the stream camera picker (only used when non-nil).
   private var streamCameraBinding: Binding<CameraOption> {
     Binding(
@@ -103,16 +74,6 @@ struct AccessoryConfigSection: View {
     )
   }
 
-  /// Non-optional binding for the light sensor camera picker (only used when non-nil).
-  private var lightCameraBinding: Binding<CameraOption> {
-    Binding(
-      get: {
-        viewModel.selectedCamera ?? viewModel.availableCameras.first
-          ?? CameraOption(id: "", name: "None", fNumber: 0)
-      },
-      set: { viewModel.selectedCamera = $0 }
-    )
-  }
 }
 
 // MARK: - Configure View

@@ -4,6 +4,30 @@ import Foundation
 @preconcurrency import UIKit
 import os
 
+// MARK: - Camera Option
+
+/// A camera that can be used for video streaming.
+struct CameraOption: Identifiable, Hashable, Sendable {
+  let id: String  // AVCaptureDevice.uniqueID
+  let name: String
+  let fNumber: Float
+
+  static func availableCameras() -> [CameraOption] {
+    let discovery = AVCaptureDevice.DiscoverySession(
+      deviceTypes: [.builtInWideAngleCamera, .builtInUltraWideCamera, .builtInTelephotoCamera],
+      mediaType: .video,
+      position: .unspecified
+    )
+    return discovery.devices.map { device in
+      CameraOption(
+        id: device.uniqueID,
+        name: device.localizedName,
+        fNumber: device.lensAperture
+      )
+    }
+  }
+}
+
 // MARK: - Camera Accessory
 
 /// HAP camera sub-accessory exposing CameraRTPStreamManagement.
@@ -33,7 +57,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
   }
 
   /// Called before/after snapshot capture so the host can pause other capture sessions
-  /// (e.g. the ambient light monitor) that would conflict with the snapshot session.
+  /// (e.g. the monitoring session) that would conflict with the snapshot session.
   var onSnapshotWillCapture: (() -> Void)?
   var onSnapshotDidCapture: (() -> Void)?
 
@@ -1009,7 +1033,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
       return cachedSnapshot
     }
 
-    // Pause other capture sessions (e.g. ambient light monitor) — iOS only
+    // Pause other capture sessions (e.g. monitoring session) — iOS only
     // allows one AVCaptureSession at a time per camera, and even sessions on
     // different cameras can interfere with each other.
     onSnapshotWillCapture?()

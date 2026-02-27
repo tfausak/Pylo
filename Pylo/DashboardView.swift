@@ -41,15 +41,6 @@ struct DashboardView: View {
           )
         }
 
-        if viewModel.selectedCamera != nil {
-          StatusCard(
-            icon: "sun.max.fill",
-            iconColor: .orange,
-            title: "Light",
-            value: String(format: "%.1f lux", viewModel.ambientLux)
-          )
-        }
-
         if viewModel.selectedStreamCamera != nil {
           StatusCard(
             icon: viewModel.isCameraStreaming ? "video.fill" : "video",
@@ -101,7 +92,7 @@ private struct StatusCard: View {
 #Preview("Dashboard - Streaming") {
   NavigationStack {
     DashboardView(
-      viewModel: .preview(running: true, paired: true, cameraStreaming: true, ambientLux: 350.0)
+      viewModel: .preview(running: true, paired: true, cameraStreaming: true)
     )
     .navigationTitle("Pylo")
   }

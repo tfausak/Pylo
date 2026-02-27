@@ -755,14 +755,11 @@ struct AccessoryInfoServiceTests {
     let bridge = HAPBridgeInfo(
       name: "L", model: "M", manufacturer: "MF",
       serialNumber: "SN", firmwareRevision: "1.0")
-    let sensor = HAPLightSensorAccessory(
-      aid: 4, name: "L", model: "M", manufacturer: "MF",
-      serialNumber: "SN", firmwareRevision: "1.0")
     let motion = HAPMotionSensorAccessory(
       aid: 5, name: "L", model: "M", manufacturer: "MF",
       serialNumber: "SN", firmwareRevision: "1.0")
 
-    let accessories: [any HAPAccessoryProtocol] = [light, bridge, sensor, motion]
+    let accessories: [any HAPAccessoryProtocol] = [light, bridge, motion]
     let jsons = accessories.map { $0.accessoryInformationServiceJSON() }
 
     // All should have same structure
@@ -796,21 +793,6 @@ struct AccessoryIIDConstantsTests {
     let chars = lightService["characteristics"] as! [[String: Any]]
     #expect(chars[0]["iid"] as? Int == HAPAccessory.iidOn)
     #expect(chars[1]["iid"] as? Int == HAPAccessory.iidBrightness)
-  }
-
-  @Test("Light sensor IIDs match toJSON output")
-  func lightSensorIIDs() {
-    let sensor = HAPLightSensorAccessory(aid: 4)
-    let json = sensor.toJSON()
-    let services = json["services"] as! [[String: Any]]
-    let sensorService = services[1]
-    #expect(
-      sensorService["iid"] as? Int
-        == HAPLightSensorAccessory.iidLightSensorService)
-    let chars = sensorService["characteristics"] as! [[String: Any]]
-    #expect(
-      chars[0]["iid"] as? Int
-        == HAPLightSensorAccessory.iidAmbientLightLevel)
   }
 
   @Test("Motion sensor IIDs match toJSON output")
@@ -924,51 +906,6 @@ struct HAPBridgeInfoTests {
     let services = json["services"] as! [[String: Any]]
     #expect(services.count == 1)
     #expect(services[0]["type"] as? String == "3E")
-  }
-}
-
-// MARK: - HAP Light Sensor Tests
-
-@Suite("HAP Light Sensor Accessory")
-struct HAPLightSensorTests {
-
-  @Test("Initial light level is 1.0 lux")
-  func initialLevel() {
-    let sensor = HAPLightSensorAccessory(aid: 4)
-    #expect(sensor.ambientLightLevel == 1.0)
-  }
-
-  @Test("Update ambient light level")
-  func updateLevel() {
-    let sensor = HAPLightSensorAccessory(aid: 4)
-    sensor.updateAmbientLight(500.0)
-    #expect(sensor.ambientLightLevel == 500.0)
-    #expect(sensor.readCharacteristic(iid: 9) == .float(500.0))
-  }
-
-  @Test("Update fires state change callback")
-  func updateCallback() {
-    let sensor = HAPLightSensorAccessory(aid: 4)
-    var receivedValue: HAPValue?
-    sensor.onStateChange = { _, iid, value in
-      if iid == 9 { receivedValue = value }
-    }
-    sensor.updateAmbientLight(42.5)
-    #expect(receivedValue == .float(42.5))
-  }
-
-  @Test("toJSON includes lux range constraints")
-  func toJSONConstraints() {
-    let sensor = HAPLightSensorAccessory(aid: 4)
-    let json = sensor.toJSON()
-    let services = json["services"] as! [[String: Any]]
-    let lightService = services[1]
-    let chars = lightService["characteristics"] as! [[String: Any]]
-    let luxChar = chars[0]
-    #expect(luxChar["format"] as? String == "float")
-    #expect(luxChar["unit"] as? String == "lux")
-    #expect(luxChar["minValue"] as? Float == Float(0.0001))
-    #expect(luxChar["maxValue"] as? Float == Float(100000))
   }
 }
 
@@ -2138,33 +2075,6 @@ struct BatteryServiceTests {
     #expect(services.count == 2)
   }
 
-  @Test("Light sensor toJSON includes battery service when batteryState is set")
-  func lightSensorWithBattery() {
-    let sensor = HAPLightSensorAccessory(aid: 4)
-    let state = BatteryState()
-    state.level = 15
-    state.chargingState = 0
-    state.statusLowBattery = 1
-    sensor.batteryState = state
-
-    let json = sensor.toJSON()
-    let services = json["services"] as! [[String: Any]]
-    #expect(services.count == 3)
-    #expect(services[2]["type"] as? String == BatteryUUID.service)
-
-    let chars = services[2]["characteristics"] as! [[String: Any]]
-    #expect(chars[0]["value"] as? Int == 15)
-    #expect(chars[2]["value"] as? Int == 1)  // low battery
-  }
-
-  @Test("Light sensor toJSON omits battery service when batteryState is nil")
-  func lightSensorWithoutBattery() {
-    let sensor = HAPLightSensorAccessory(aid: 4)
-    let json = sensor.toJSON()
-    let services = json["services"] as! [[String: Any]]
-    #expect(services.count == 2)
-  }
-
   @Test("Motion sensor toJSON includes battery service when batteryState is set")
   func motionSensorWithBattery() {
     let sensor = HAPMotionSensorAccessory(aid: 5)
@@ -2241,13 +2151,13 @@ struct BatteryServiceTests {
     state.level = 80
 
     let light = HAPAccessory(aid: 2)
-    let sensor = HAPLightSensorAccessory(aid: 4)
+    let motion = HAPMotionSensorAccessory(aid: 5)
     light.batteryState = state
-    sensor.batteryState = state
+    motion.batteryState = state
 
     // Both read the same level
     #expect(light.readCharacteristic(iid: BatteryIID.batteryLevel) == .int(80))
-    #expect(sensor.readCharacteristic(iid: BatteryIID.batteryLevel) == .int(80))
+    #expect(motion.readCharacteristic(iid: BatteryIID.batteryLevel) == .int(80))
 
     // Update the shared state
     state.level = 30
@@ -2255,9 +2165,9 @@ struct BatteryServiceTests {
 
     // Both see the new values
     #expect(light.readCharacteristic(iid: BatteryIID.batteryLevel) == .int(30))
-    #expect(sensor.readCharacteristic(iid: BatteryIID.batteryLevel) == .int(30))
+    #expect(motion.readCharacteristic(iid: BatteryIID.batteryLevel) == .int(30))
     #expect(light.readCharacteristic(iid: BatteryIID.statusLowBattery) == .int(1))
-    #expect(sensor.readCharacteristic(iid: BatteryIID.statusLowBattery) == .int(1))
+    #expect(motion.readCharacteristic(iid: BatteryIID.statusLowBattery) == .int(1))
   }
 
   @Test("Battery IIDs do not collide with existing accessory IIDs")
