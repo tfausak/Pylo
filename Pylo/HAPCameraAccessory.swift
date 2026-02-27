@@ -70,13 +70,14 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
     set { snapshotLock.withLock { _cachedSnapshot = newValue } }
   }
 
-  /// Whether the microphone is muted.
-  private var isMuted: Bool = false
-
-  /// Whether the speaker is muted.
-  private var speakerMuted: Bool = false
-  /// Speaker volume (0-100).
-  private var speakerVolume: Int = 100
+  /// Audio settings accessed from the server queue (read/write characteristics)
+  /// and from CameraStreamSession (on capture/rtp queues).
+  private struct AudioSettings {
+    var isMuted: Bool = false
+    var speakerMuted: Bool = false
+    var speakerVolume: Int = 100
+  }
+  private let audioSettings = OSAllocatedUnfairLock(initialState: AudioSettings())
 
   // MARK: - HKSV State
 
@@ -224,9 +225,9 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
       return .string("")  // write-only effectively
     case Self.iidStreamingStatus:
       return .string(streamingStatusTLV().base64EncodedString())
-    case Self.iidMicrophoneMute: return .bool(isMuted)
-    case Self.iidSpeakerMute: return .bool(speakerMuted)
-    case Self.iidSpeakerVolume: return .int(speakerVolume)
+    case Self.iidMicrophoneMute: return .bool(audioSettings.withLock { $0.isMuted })
+    case Self.iidSpeakerMute: return .bool(audioSettings.withLock { $0.speakerMuted })
+    case Self.iidSpeakerVolume: return .int(audioSettings.withLock { $0.speakerVolume })
     // Camera Operating Mode
     case Self.iidHomeKitCameraActive: return .bool(homeKitCameraActive)
     case Self.iidEventSnapshotsActive: return .bool(eventSnapshotsActive)
@@ -274,12 +275,13 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
     case Self.iidMicrophoneMute:
       switch value {
       case .bool(let v):
-        isMuted = v
+        audioSettings.withLock { $0.isMuted = v }
         streamSession?.isMuted = v
         return true
       case .int(let v):
-        isMuted = v != 0
-        streamSession?.isMuted = (v != 0)
+        let muted = v != 0
+        audioSettings.withLock { $0.isMuted = muted }
+        streamSession?.isMuted = muted
         return true
       default:
         return false
@@ -287,20 +289,22 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
     case Self.iidSpeakerMute:
       switch value {
       case .bool(let v):
-        speakerMuted = v
+        audioSettings.withLock { $0.speakerMuted = v }
         streamSession?.speakerMuted = v
         return true
       case .int(let v):
-        speakerMuted = v != 0
-        streamSession?.speakerMuted = (v != 0)
+        let muted = v != 0
+        audioSettings.withLock { $0.speakerMuted = muted }
+        streamSession?.speakerMuted = muted
         return true
       default:
         return false
       }
     case Self.iidSpeakerVolume:
       if case .int(let v) = value {
-        speakerVolume = max(0, min(100, v))
-        streamSession?.speakerVolume = speakerVolume
+        let vol = max(0, min(100, v))
+        audioSettings.withLock { $0.speakerVolume = vol }
+        streamSession?.speakerVolume = vol
         return true
       }
       return false
@@ -853,9 +857,10 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
       return
     }
 
-    session.isMuted = isMuted
-    session.speakerMuted = speakerMuted
-    session.speakerVolume = speakerVolume
+    let settings = audioSettings.withLock { $0 }
+    session.isMuted = settings.isMuted
+    session.speakerMuted = settings.speakerMuted
+    session.speakerVolume = settings.speakerVolume
     session.videoMotionDetector = videoMotionDetector
     session.onSnapshotFrame = { [weak self] jpeg in
       self?.cachedSnapshot = jpeg
@@ -1079,7 +1084,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
           [
             "iid": Self.iidMicrophoneMute,
             "type": Self.uuidMute, "format": "bool",
-            "perms": ["pr", "pw", "ev"], "value": isMuted,
+            "perms": ["pr", "pw", "ev"], "value": audioSettings.withLock { $0.isMuted },
           ]
         ],
       ],
@@ -1091,12 +1096,12 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
           [
             "iid": Self.iidSpeakerMute,
             "type": Self.uuidMute, "format": "bool",
-            "perms": ["pr", "pw", "ev"], "value": speakerMuted,
+            "perms": ["pr", "pw", "ev"], "value": audioSettings.withLock { $0.speakerMuted },
           ],
           [
             "iid": Self.iidSpeakerVolume,
             "type": Self.uuidVolume, "format": "uint8",
-            "perms": ["pr", "pw", "ev"], "value": speakerVolume,
+            "perms": ["pr", "pw", "ev"], "value": audioSettings.withLock { $0.speakerVolume },
             "minValue": 0, "maxValue": 100, "minStep": 1,
           ],
         ],
