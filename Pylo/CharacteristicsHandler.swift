@@ -86,20 +86,22 @@ nonisolated enum CharacteristicsHandler {
         continue
       }
 
-      // Validate the characteristic exists before processing
-      guard server.accessory(aid: aid)?.readCharacteristic(iid: iid) != nil else {
-        allOK = false
-        results.append(["aid": aid, "iid": iid, "status": -70409])
-        continue
-      }
-
-      // Handle value write first, then apply event subscription only on success
+      // Handle value write first, then apply event subscription only on success.
+      // writeCharacteristic returns false for unknown iids, so it doubles as an
+      // existence check for write-only characteristics (HAP spec §6.7.2.2).
       if let rawValue = char["value"], let value = HAPValue(fromJSON: rawValue) {
         let success =
           server.accessory(aid: aid)?.writeCharacteristic(iid: iid, value: value) ?? false
         if !success {
           allOK = false
           results.append(["aid": aid, "iid": iid, "status": -70402])
+          continue
+        }
+      } else {
+        // No value to write — validate the characteristic exists (for ev-only PUTs).
+        guard server.accessory(aid: aid)?.readCharacteristic(iid: iid) != nil else {
+          allOK = false
+          results.append(["aid": aid, "iid": iid, "status": -70409])
           continue
         }
       }
