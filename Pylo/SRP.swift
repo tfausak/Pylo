@@ -133,13 +133,16 @@ nonisolated final class SRPServer {
     self.clientPublicKey = clientA
 
     // 4. Compute u = H(PAD(A) | PAD(B))
+    // RFC 5054 §2.5.4: abort if u == 0
     var uData = Data()
     uData.append(Self.pad(clientA))
     uData.append(self.publicKey)
-    self.u = BigUInt(Data(SHA512.hash(data: uData)))
+    let computedU = BigUInt(Data(SHA512.hash(data: uData)))
+    guard computedU != 0 else { return false }
+    self.u = computedU
 
     // 5. Compute S = (A * v^u)^b mod N
-    guard let u = self.u else { return false }
+    let u = computedU
     let vu = self.verifier.power(u, modulus: Self.prime)
     let avu = (clientA * vu) % Self.prime
     let s = avu.power(self.privateKey, modulus: Self.prime)
