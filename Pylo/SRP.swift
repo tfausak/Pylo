@@ -226,18 +226,17 @@ nonisolated final class SRPServer {
     return Data(zip(lhs, rhs).map { $0 ^ $1 })
   }
 
-  /// Constant-time comparison to prevent timing attacks
+  /// Constant-time comparison to prevent timing attacks.
+  /// Uses the platform's timingsafe_bcmp which is immune to compiler optimizations.
   private static func constantTimeCompare(_ lhs: Data, _ rhs: Data) -> Bool {
     guard lhs.count == rhs.count else {
       return false
     }
-
-    var result: UInt8 = 0
-    for (a, b) in zip(lhs, rhs) {
-      result |= a ^ b
+    return lhs.withUnsafeBytes { lhsPtr in
+      rhs.withUnsafeBytes { rhsPtr in
+        timingsafe_bcmp(lhsPtr.baseAddress, rhsPtr.baseAddress, lhs.count) == 0
+      }
     }
-
-    return result == 0
   }
 }
 
