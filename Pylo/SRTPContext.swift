@@ -192,8 +192,12 @@ nonisolated final class SRTPContext {
         return (s.incomingROC, seq, false)
       }
       var roc = s.incomingROC
-      if seq < s.incomingLastSeq && (s.incomingLastSeq - seq) > 0x8000 {
-        roc += 1
+      if s.incomingLastSeq < 0x8000 && seq > (s.incomingLastSeq &+ 0x8000) {
+        // Late packet from previous ROC period (RFC 3711 §3.3.1 v = ROC-1)
+        roc &-= 1
+      } else if seq < s.incomingLastSeq && (s.incomingLastSeq &- seq) > 0x8000 {
+        // Forward rollover (RFC 3711 §3.3.1 v = ROC+1)
+        roc &+= 1
       }
       return (roc, seq, true)
     }
@@ -208,10 +212,16 @@ nonisolated final class SRTPContext {
       return nil
     }
 
-    // Authentication passed — now commit the state update
+    // Authentication passed — commit state only if this packet advances
+    // the highest-seen sequence (RFC 3711 §3.3.1: update s_l only when
+    // the packet index is higher than the previously stored one).
     state.withLock { s in
-      s.incomingROC = candidateROC
-      s.incomingLastSeq = candidateSeq
+      let candidateIndex = UInt64(candidateROC) << 16 | UInt64(candidateSeq)
+      let currentIndex = UInt64(s.incomingROC) << 16 | UInt64(s.incomingLastSeq)
+      if !wasInitialized || candidateIndex > currentIndex {
+        s.incomingROC = candidateROC
+        s.incomingLastSeq = candidateSeq
+      }
       if !wasInitialized { s.incomingInitialized = true }
     }
 

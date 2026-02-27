@@ -1719,6 +1719,46 @@ struct SRTPTests {
     let result = ctx.unprotect(shortData)
     #expect(result == nil)
   }
+
+  @Test("Sequence number rollover across ROC boundary")
+  func sequenceRollover() {
+    let sender = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+    let receiver = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+
+    // Send packets near the rollover boundary (0xFFFD, 0xFFFE, 0xFFFF, 0x0000, 0x0001)
+    let sequences: [UInt16] = [0xFFFD, 0xFFFE, 0xFFFF, 0x0000, 0x0001]
+    for seq in sequences {
+      let rtp = Self.makeRTPPacket(
+        seq: seq, ssrc: 0xCAFE_BABE, payload: Data(repeating: UInt8(seq & 0xFF), count: 40))
+      let srtp = sender.protect(rtp)
+      let recovered = receiver.unprotect(srtp)
+      #expect(recovered == rtp, "Failed at seq \(seq)")
+    }
+  }
+
+  @Test("Out-of-order packet before ROC rollover still decrypts")
+  func outOfOrderBeforeRollover() {
+    let sender = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+    let receiver = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+
+    // Send seq 1..5 in order, then send seq 3 again (out of order)
+    var srtpPackets: [UInt16: Data] = [:]
+    for seq: UInt16 in 1...5 {
+      let rtp = Self.makeRTPPacket(
+        seq: seq, ssrc: 0xBEEF_CAFE, payload: Data(repeating: UInt8(seq), count: 40))
+      srtpPackets[seq] = sender.protect(rtp)
+    }
+
+    // Receive 1, 2, 4, 5 in order (skip 3)
+    for seq: UInt16 in [1, 2, 4, 5] {
+      let recovered = receiver.unprotect(srtpPackets[seq]!)
+      #expect(recovered != nil, "Failed to unprotect seq \(seq)")
+    }
+
+    // Now receive late packet seq 3
+    let late = receiver.unprotect(srtpPackets[3]!)
+    #expect(late != nil, "Failed to unprotect late packet seq 3")
+  }
 }
 
 // MARK: - Pair Setup Throttle Tests
