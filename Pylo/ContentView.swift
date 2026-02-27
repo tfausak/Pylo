@@ -71,8 +71,7 @@ struct ContentView: View {
           .onTapGesture { resetDimTimer() }
       }
     }
-    .animation(.default, value: viewModel.isRunning)
-    .animation(.default, value: viewModel.hasPairings)
+    .animation(.default, value: isScreenDimmed)
     .onChange(of: viewModel.isRunning) {
       if viewModel.isRunning {
         resetDimTimer()

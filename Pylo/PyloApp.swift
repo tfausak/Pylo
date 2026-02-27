@@ -454,7 +454,7 @@ final class HAPViewModel {
 
       pairingStore.onChange = { [weak self] in
         Task { @MainActor in
-          self?.hasPairings = pairingStore.isPaired
+          withAnimation { self?.hasPairings = pairingStore.isPaired }
         }
       }
 
@@ -468,7 +468,7 @@ final class HAPViewModel {
         hapServer.start()
         self.server = hapServer
         self.hasPairings = pairingStore.isPaired
-        self.isRunning = true
+        withAnimation { self.isRunning = true }
         self.isStarting = false
         self.statusMessage = "Advertising as '\(bridge.name)'\nDevice ID: \(identity.deviceID)"
         UserDefaults.standard.set(true, forKey: "hasStartedBefore")
@@ -503,7 +503,7 @@ final class HAPViewModel {
     cameraAccessory = nil
     server?.stop()
     server = nil
-    isRunning = false
+    withAnimation { isRunning = false }
     startedConfig = nil
     UIApplication.shared.isIdleTimerDisabled = false
     statusMessage = "Stopped"
@@ -523,7 +523,7 @@ final class HAPViewModel {
     } else {
       PairingStore().removeAll()
     }
-    hasPairings = false
+    withAnimation { hasPairings = false }
   }
 }
 
