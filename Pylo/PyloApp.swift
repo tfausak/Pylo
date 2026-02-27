@@ -512,17 +512,26 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     camera.minimumBitrate = config.minimumBitrate
     camera.hksvEnabled = true
     camera.videoMotionEnabled = true
+
+    // Restore recordingActive from previous session so the hub doesn't
+    // need to re-send the write after an app restart.
+    let savedRecordingActive = UInt8(UserDefaults.standard.integer(forKey: "recordingActive"))
+    if savedRecordingActive != 0 {
+      camera.restoreRecordingActive(savedRecordingActive)
+    }
     camera.onVideoMotionChange = { [weak camera] detected in
       camera?.updateMotionDetected(detected)
     }
     camera.onRecordingConfigChange = { [weak camera] active in
       if active { camera?.videoMotionEnabled = true }
+      UserDefaults.standard.set(active ? 1 : 0, forKey: "recordingActive")
     }
     enabledAccessories.append(camera)
 
     let writer = FragmentedMP4Writer()
     writer.configure(width: 1920, height: 1080, fps: 30)
     fmp4Writer = writer
+    camera.fragmentWriter = writer
 
     let ds = HAPDataStream()
     ds.fragmentWriter = writer
@@ -568,14 +577,24 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
         }
       } else {
         monitoring?.stop()
+        camera.videoMotionDetector?.reset()
+      }
+    }
+
+    // Auto-start monitoring if recordingActive was restored from a previous session
+    if camera.recordingActive != 0, camera.streamSession == nil {
+      monitoring.videoMotionDetector = camera.videoMotionDetector
+      if let device = camera.resolvedCamera {
+        monitoring.start(camera: device)
       }
     }
   }
 
   // Pause/resume the monitoring session around snapshot captures
   // so only one AVCaptureSession is active at a time (iOS limitation).
-  camera.onSnapshotWillCapture = { [weak monitoringSession] in
+  camera.onSnapshotWillCapture = { [weak monitoringSession, weak camera] in
     monitoringSession?.stop()
+    camera?.videoMotionDetector?.reset()
   }
   camera.onSnapshotDidCapture = { [weak monitoringSession, weak camera] in
     // Resume monitoring if recording armed + no live stream

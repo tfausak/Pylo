@@ -147,6 +147,16 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
   private(set) var recordingAudioActive: UInt8 = 0
   private(set) var selectedRecordingConfig = Data()
 
+  /// Restores `recordingActive` from persisted state without triggering callbacks.
+  /// Must be called before wiring `onRecordingConfigChange` / `onMonitoringCaptureNeeded`.
+  func restoreRecordingActive(_ value: UInt8) {
+    recordingActive = value
+  }
+
+  /// Shared fMP4 writer for HKSV pre-buffering.  Set by the host so it can be
+  /// forwarded to `CameraStreamSession` during live streams.
+  var fragmentWriter: FragmentedMP4Writer?
+
   /// Motion sensor state (linked to this camera accessory)
   private let _isMotionDetected = OSAllocatedUnfairLock(initialState: false)
   var isMotionDetected: Bool {
@@ -929,6 +939,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
     session.speakerMuted = settings.speakerMuted
     session.speakerVolume = settings.speakerVolume
     session.videoMotionDetector = videoMotionDetector
+    session.fragmentWriter = fragmentWriter
     session.onSnapshotFrame = { [weak self] jpeg in
       self?.cachedSnapshot = jpeg
     }
