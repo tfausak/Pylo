@@ -580,6 +580,11 @@ nonisolated struct HTTPRequest {
         let key = line[line.startIndex..<colonIndex].trimmingCharacters(in: .whitespaces)
           .lowercased()
         let value = line[line.index(after: colonIndex)...].trimmingCharacters(in: .whitespaces)
+        // Reject duplicate Content-Length with differing values (RFC 7230 §3.3.2).
+        if key == "content-length", let existing = headers[key], existing != value {
+          buffer.removeAll()
+          return .malformed
+        }
         headers[key] = value
       }
     }

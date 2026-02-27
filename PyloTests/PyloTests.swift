@@ -400,6 +400,30 @@ struct HTTPRequestTests {
     }
   }
 
+  @Test("parseAndConsume returns malformed for duplicate differing Content-Length")
+  func rejectsDuplicateContentLength() {
+    let raw =
+      "POST /pair-setup HTTP/1.1\r\nContent-Length: 5\r\nContent-Length: 10\r\n\r\nhello"
+    var buffer = Data(raw.utf8)
+    if case .malformed = HTTPRequest.parseAndConsume(&buffer) {
+      #expect(buffer.isEmpty)
+    } else {
+      Issue.record("Expected .malformed for duplicate differing Content-Length")
+    }
+  }
+
+  @Test("parseAndConsume accepts duplicate identical Content-Length")
+  func acceptsIdenticalContentLength() {
+    let raw =
+      "POST /pair-setup HTTP/1.1\r\nContent-Length: 5\r\nContent-Length: 5\r\n\r\nhello"
+    var buffer = Data(raw.utf8)
+    if case .request(let req) = HTTPRequest.parseAndConsume(&buffer) {
+      #expect(req.body == Data("hello".utf8))
+    } else {
+      Issue.record("Expected .request for duplicate identical Content-Length")
+    }
+  }
+
   @Test("parse works correctly with Data slices (non-zero startIndex)")
   func parseDataSlice() {
     let prefix = Data(repeating: 0xAA, count: 10)
