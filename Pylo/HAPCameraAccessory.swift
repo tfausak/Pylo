@@ -41,10 +41,14 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
   var onVideoMotionChange: ((Bool) -> Void)?
 
   /// Whether video motion detection is active on the streaming session.
-  var videoMotionEnabled: Bool = false {
-    didSet {
+  /// Protected by streamLock so the Bool storage itself is synchronized.
+  private var _videoMotionEnabled: Bool = false
+  var videoMotionEnabled: Bool {
+    get { streamLock.withLock { _videoMotionEnabled } }
+    set {
       streamLock.withLock {
-        if videoMotionEnabled {
+        _videoMotionEnabled = newValue
+        if newValue {
           let detector = VideoMotionDetector()
           detector.onMotionChange = { [weak self] detected in
             self?.onVideoMotionChange?(detected)
