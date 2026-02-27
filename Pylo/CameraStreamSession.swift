@@ -323,6 +323,10 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     captureSession?.stopRunning()
     captureSession = nil
 
+    // Drain in-flight captureQueue blocks so no concurrent encodeFrame or
+    // encodeAndSendAudioFrame call is mid-execution when we dispose resources.
+    captureQueue.sync {}
+
     if let cs = compressionSession {
       // Flush in-flight async encodes before invalidating (undefined behavior otherwise)
       VTCompressionSessionCompleteFrames(cs, untilPresentationTimeStamp: .positiveInfinity)
