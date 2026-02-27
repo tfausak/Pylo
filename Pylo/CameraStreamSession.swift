@@ -45,7 +45,8 @@ final class CameraStreamSession {
   // RTP state
   private var sequenceNumber: UInt16 = 0
   private var rtpTimestamp: UInt32 = 0
-  private var frameCount: Int = 0
+  private var encodeFrameCount: Int = 0  // captureQueue only
+  private var rtpFrameCount: Int = 0  // rtpQueue only
   private var packetsSent: Int = 0
   private var octetsSent: Int = 0
   private var targetFPS: Int = 30
@@ -527,7 +528,7 @@ final class CameraStreamSession {
   private func encodeFrame(_ pixelBuffer: CVPixelBuffer, pts: CMTime) {
     guard let cs = compressionSession else { return }
 
-    frameCount += 1
+    encodeFrameCount += 1
 
     // Periodically cache a JPEG for snapshot requests while streaming.
     snapshotFrameCounter += 1
@@ -544,7 +545,7 @@ final class CameraStreamSession {
 
     // Force keyframe on first frame
     let props: CFDictionary? =
-      frameCount == 1
+      encodeFrameCount == 1
       ? [kVTEncodeFrameOptionKey_ForceKeyFrame: true] as CFDictionary
       : nil
 
@@ -595,8 +596,9 @@ final class CameraStreamSession {
       as? [[CFString: Any]]
     let isKeyframe = !(attachments?.first?[kCMSampleAttachmentKey_NotSync] as? Bool ?? false)
 
-    if isKeyframe || frameCount % 300 == 1 {
-      logger.debug("Frame \(self.frameCount) encoded: \(totalLength) bytes, keyframe=\(isKeyframe)")
+    rtpFrameCount += 1
+    if isKeyframe || rtpFrameCount % 300 == 1 {
+      logger.debug("Frame \(self.rtpFrameCount) encoded: \(totalLength) bytes, keyframe=\(isKeyframe)")
     }
 
     if isKeyframe, let formatDesc = CMSampleBufferGetFormatDescription(sampleBuffer) {
