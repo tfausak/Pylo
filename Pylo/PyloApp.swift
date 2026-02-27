@@ -206,6 +206,7 @@ final class HAPViewModel {
   @ObservationIgnored var isRestoring = false
 
   @ObservationIgnored private var startTask: Task<Void, Never>?
+  @ObservationIgnored private var startGeneration = 0
   @ObservationIgnored private var server: HAPServer?
   @ObservationIgnored private var lightMonitor: AmbientLightMonitor?
   @ObservationIgnored private var motionMonitor: MotionMonitor?
@@ -287,6 +288,7 @@ final class HAPViewModel {
       minimumBitrate: videoQuality.minimumBitrate
     )
 
+    let myGeneration = startGeneration
     startTask = Task { @MainActor in
       // Stage 2: Create server and all accessories off MainActor.
       // PairingStore (file I/O), DeviceIdentity (Keychain), and NWListener
@@ -297,14 +299,17 @@ final class HAPViewModel {
           try createServerSetup(config: config)
         }.value
       } catch {
-        self.isStarting = false
-        self.statusMessage = "Failed to start: \(error.localizedDescription)"
+        // Only update state if this generation is still current (a newer
+        // start() hasn't been launched by restart()).
+        if self.startGeneration == myGeneration {
+          self.isStarting = false
+          self.statusMessage = "Failed to start: \(error.localizedDescription)"
+        }
         return
       }
 
-      guard !Task.isCancelled else {
+      guard !Task.isCancelled, self.startGeneration == myGeneration else {
         setup.server.stop()
-        self.isStarting = false
         return
       }
 
@@ -444,6 +449,7 @@ final class HAPViewModel {
 
   @MainActor
   func stop() {
+    startGeneration += 1
     startTask?.cancel()
     startTask = nil
     isStarting = false
