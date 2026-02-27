@@ -386,9 +386,9 @@ final class HAPViewModel {
         enabledAccessories.append(setup.motionSensor)
       }
 
-      setup.server.pairingStore.onChange = { [weak self] in
+      setup.server.pairingStore.onChange = { [weak self, weak server = setup.server] in
         Task { @MainActor in
-          withAnimation { self?.hasPairings = setup.server.pairingStore.isPaired }
+          withAnimation { self?.hasPairings = server?.pairingStore.isPaired ?? false }
         }
       }
 
