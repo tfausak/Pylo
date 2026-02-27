@@ -19,11 +19,21 @@ nonisolated enum KeychainHelper {
       kSecClass as String: kSecClassGenericPassword,
       kSecAttrService as String: service,
       kSecAttrAccount as String: key,
+    ]
+    let attributes: [String: Any] = [
       kSecAttrAccessible as String: accessible,
       kSecValueData as String: data,
     ]
-    SecItemDelete(query as CFDictionary)
-    let status = SecItemAdd(query as CFDictionary, nil)
+    let addQuery = query.merging(attributes) { _, new in new }
+    let status = SecItemAdd(addQuery as CFDictionary, nil)
+    if status == errSecDuplicateItem {
+      let updateStatus = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+      if updateStatus != errSecSuccess {
+        logger.error("Keychain update failed for '\(key)': OSStatus \(updateStatus)")
+        return false
+      }
+      return true
+    }
     if status != errSecSuccess {
       logger.error("Keychain save failed for '\(key)': OSStatus \(status)")
       return false
