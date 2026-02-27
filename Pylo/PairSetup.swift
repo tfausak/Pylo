@@ -42,10 +42,16 @@ nonisolated final class PairSetupThrottle {
   /// Record a pair-setup attempt (successful or not).
   /// Counts towards the throttle threshold so that an attacker cannot
   /// start unlimited M1 sessions without triggering rate limiting.
+  /// Does NOT update lastFailureDate — only `recordFailure()` slides
+  /// the throttle window, preventing an attacker from resetting it
+  /// with repeated M1 requests.
   func recordAttempt(now: Date = Date()) {
     lock.withLock { state in
       state.failedAttempts += 1
-      if state.failedAttempts >= Self.maxAttempts {
+      // Set lastFailureDate only on the exact threshold crossing, so
+      // the throttle becomes active. Subsequent slides happen via
+      // recordFailure() only.
+      if state.failedAttempts == Self.maxAttempts {
         state.lastFailureDate = now
       }
     }

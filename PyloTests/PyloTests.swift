@@ -1866,6 +1866,29 @@ struct PairSetupThrottleTests {
     #expect(throttle.failedAttempts == PairSetupThrottle.maxAttempts)
     #expect(throttle.isThrottled(now: now))
   }
+
+  @Test("recordAttempt does not reset throttle window for already-throttled state")
+  func recordAttemptDoesNotResetWindow() {
+    let throttle = PairSetupThrottle()
+    let t0 = Date()
+
+    // Reach the throttle threshold
+    for _ in 0..<PairSetupThrottle.maxAttempts {
+      throttle.recordFailure(now: t0)
+    }
+    #expect(throttle.isThrottled(now: t0))
+
+    // 20 seconds later (still within the 30s window), send another M1 attempt
+    let t1 = t0.addingTimeInterval(20)
+    throttle.recordAttempt(now: t1)
+    #expect(throttle.isThrottled(now: t1))
+
+    // At t0+31 seconds, the original window should have expired.
+    // Before the fix, recordAttempt at t1 would have reset lastFailureDate
+    // to t1, making the window expire at t1+30 = t0+50 instead of t0+30.
+    let t2 = t0.addingTimeInterval(PairSetupThrottle.throttleDuration + 1)
+    #expect(!throttle.isThrottled(now: t2))
+  }
 }
 
 // MARK: - RTCP Sender Report Tests
