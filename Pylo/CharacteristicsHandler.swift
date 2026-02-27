@@ -94,6 +94,12 @@ nonisolated enum CharacteristicsHandler {
 
       // Apply event subscription (only reached if no write or write succeeded)
       if let ev = char["ev"] as? Bool {
+        // Validate the characteristic exists before subscribing
+        guard server.accessory(aid: aid)?.readCharacteristic(iid: iid) != nil else {
+          allOK = false
+          results.append(["aid": aid, "iid": iid, "status": -70409])
+          continue
+        }
         let charID = CharacteristicID(aid: aid, iid: iid)
         if ev {
           connection.subscribe(to: charID)
