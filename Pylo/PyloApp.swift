@@ -403,9 +403,10 @@ final class HAPViewModel {
         setup.motionSensor.batteryState = sharedBatteryState
 
         battery.onBatteryChange = { [weak server = setup.server] state in
-          sharedBatteryState.level = state.level
-          sharedBatteryState.chargingState = state.chargingState
-          sharedBatteryState.statusLowBattery = state.statusLowBattery
+          sharedBatteryState.update(
+            level: state.level,
+            chargingState: state.chargingState,
+            statusLowBattery: state.statusLowBattery)
           guard let server else { return }
           for accessory in enabledAccessories {
             server.notifySubscribers(

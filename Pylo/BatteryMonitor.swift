@@ -28,6 +28,16 @@ nonisolated final class BatteryState {
     get { lock.withLock { $0.statusLowBattery } }
     set { lock.withLock { $0.statusLowBattery = newValue } }
   }
+
+  /// Atomically update all three fields so concurrent reads never observe
+  /// a partially-updated state.
+  func update(level: Int, chargingState: Int, statusLowBattery: Int) {
+    lock.withLock { s in
+      s.level = level
+      s.chargingState = chargingState
+      s.statusLowBattery = statusLowBattery
+    }
+  }
 }
 
 /// Monitors the host device's battery level and charging state via UIDevice notifications.

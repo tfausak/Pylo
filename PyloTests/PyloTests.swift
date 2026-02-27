@@ -2229,6 +2229,15 @@ struct BatteryStateTests {
     // If we get here without crashing, thread safety works
     #expect(state.level >= 0)
   }
+
+  @Test("Bulk update is atomic — all three fields change together")
+  func bulkUpdate() {
+    let state = BatteryState()
+    state.update(level: 75, chargingState: 1, statusLowBattery: 0)
+    #expect(state.level == 75)
+    #expect(state.chargingState == 1)
+    #expect(state.statusLowBattery == 0)
+  }
 }
 
 // MARK: - PairSetupThrottle Thread Safety Tests
