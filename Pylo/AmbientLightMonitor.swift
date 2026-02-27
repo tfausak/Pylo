@@ -32,6 +32,8 @@ final class AmbientLightMonitor {
   private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "AmbientLight")
   private let lock = NSLock()
   private let timerQueue = DispatchQueue(label: "me.fausak.taylor.Pylo.lightTimer")
+  /// Serial queue for AVCaptureSession start/stop — these are not thread-safe.
+  private let sessionQueue = DispatchQueue(label: "me.fausak.taylor.Pylo.lightSession")
 
   private struct State {
     var captureSession: AVCaptureSession?
@@ -106,8 +108,8 @@ final class AmbientLightMonitor {
     }
     newTimer.resume()
 
-    // Start on a background queue to avoid blocking the main thread
-    DispatchQueue.global(qos: .background).async {
+    // Start on the session queue to avoid blocking the main thread
+    sessionQueue.async {
       session.startRunning()
     }
 
@@ -123,14 +125,16 @@ final class AmbientLightMonitor {
   /// fully released before this method returns.  Used when another
   /// capture session needs exclusive camera access (e.g. snapshot).
   func pauseSession() {
-    captureSession?.stopRunning()
+    sessionQueue.sync {
+      captureSession?.stopRunning()
+    }
     logger.debug("Ambient light session paused")
   }
 
   /// Restart a previously paused session.
   func resumeSession() {
     guard let session = captureSession, !session.isRunning else { return }
-    DispatchQueue.global(qos: .background).async {
+    sessionQueue.async {
       session.startRunning()
     }
     logger.debug("Ambient light session resumed")
@@ -145,7 +149,9 @@ final class AmbientLightMonitor {
       return (t, s)
     }
     oldTimer?.cancel()
-    oldSession?.stopRunning()
+    sessionQueue.sync {
+      oldSession?.stopRunning()
+    }
 
     logger.info("Ambient light monitor stopped")
   }
