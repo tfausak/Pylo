@@ -118,7 +118,8 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
 
     // Check if we need to start a new fragment
     if !isStarted {
-      startNewFragment(at: pts)
+      let fmt = CMSampleBufferGetFormatDescription(sampleBuffer)
+      startNewFragment(at: pts, formatDescription: fmt)
     }
 
     // Check if the current fragment has reached the target duration
@@ -133,7 +134,8 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
 
         if isKeyframe {
           finishCurrentFragment()
-          startNewFragment(at: pts)
+          let fmt = CMSampleBufferGetFormatDescription(sampleBuffer)
+          startNewFragment(at: pts, formatDescription: fmt)
         }
       }
     }
@@ -158,20 +160,16 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
 
   // MARK: - Fragment Lifecycle
 
-  private func startNewFragment(at time: CMTime) {
+  private func startNewFragment(at time: CMTime, formatDescription: CMFormatDescription? = nil) {
     let filename = "fragment-\(ProcessInfo.processInfo.globallyUniqueString).mp4"
     let url = Self.tempDir.appendingPathComponent(filename)
 
     do {
       let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
 
-      // Video input — pass-through H.264 (no re-encoding)
-      let videoSettings: [String: Any] = [
-        AVVideoCodecKey: AVVideoCodecType.h264,
-        AVVideoWidthKey: videoWidth,
-        AVVideoHeightKey: videoHeight,
-      ]
-      let vInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
+      // Video input — pass-through pre-encoded H.264 (outputSettings: nil)
+      let vInput = AVAssetWriterInput(
+        mediaType: .video, outputSettings: nil, sourceFormatHint: formatDescription)
       vInput.expectsMediaDataInRealTime = true
       if writer.canAdd(vInput) { writer.add(vInput) }
 
