@@ -75,9 +75,14 @@ nonisolated enum CharacteristicsHandler {
       guard let aid = char["aid"] as? Int,
         let iid = char["iid"] as? Int
       else {
-        // HAP spec §6.7.2.2: every entry must produce a result
+        // HAP spec §6.7.2.2: every entry must include aid/iid for correlation.
+        // Include whatever was parsed; use 0 as fallback for missing fields.
         allOK = false
-        results.append(["status": -70409])
+        results.append([
+          "aid": (char["aid"] as? Int) ?? 0,
+          "iid": (char["iid"] as? Int) ?? 0,
+          "status": -70409,
+        ])
         continue
       }
 
