@@ -12,13 +12,13 @@ import os
 // MARK: - Pair Setup Rate Limiting
 // HAP spec §5.6.1: After 100 failed attempts, only process attempts every 30 seconds.
 
-final class PairSetupThrottle {
+nonisolated final class PairSetupThrottle {
 
   /// Number of failed attempts before throttling kicks in.
-  nonisolated static let maxAttempts = 100
+  static let maxAttempts = 100
 
   /// Minimum seconds between attempts once throttled.
-  nonisolated static let throttleDuration: TimeInterval = 30
+  static let throttleDuration: TimeInterval = 30
 
   private struct State {
     var failedAttempts: Int = 0

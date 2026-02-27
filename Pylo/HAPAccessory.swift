@@ -4,7 +4,7 @@ import os
 
 // MARK: - Accessory Category (Table 12-3 in HAP R2 spec)
 
-enum HAPAccessoryCategory: Int {
+nonisolated enum HAPAccessoryCategory: Int {
   case other = 1
   case bridge = 2
   case fan = 3
@@ -26,7 +26,7 @@ enum HAPAccessoryCategory: Int {
 // MARK: - Type-safe Characteristic Value
 
 /// Type-safe wrapper for HAP characteristic values, replacing untyped `Any`.
-enum HAPValue: Equatable {
+nonisolated enum HAPValue: Equatable {
   case bool(Bool)
   case int(Int)
   case float(Float)
@@ -65,7 +65,7 @@ enum HAPValue: Equatable {
 // MARK: - HAP Accessory Protocol
 
 /// Common interface for all accessories served by the HAP server.
-protocol HAPAccessoryProtocol: AnyObject {
+nonisolated protocol HAPAccessoryProtocol: AnyObject {
   var aid: Int { get }
   var name: String { get }
   var model: String { get }
@@ -82,7 +82,7 @@ protocol HAPAccessoryProtocol: AnyObject {
 // MARK: - Shared Accessory Information IIDs
 
 /// Instance IDs for the Accessory Information service, shared by all accessories.
-enum AccessoryInfoIID {
+nonisolated enum AccessoryInfoIID {
   static let service = 1
   static let identify = 2
   static let manufacturer = 3
@@ -96,7 +96,7 @@ enum AccessoryInfoIID {
 
 /// Instance IDs for the Battery Service, shared by all accessories.
 /// IIDs 100-103 are safely above all current accessory IIDs.
-enum BatteryIID {
+nonisolated enum BatteryIID {
   static let service = 100
   static let batteryLevel = 101
   static let chargingState = 102
@@ -104,14 +104,14 @@ enum BatteryIID {
 }
 
 /// HAP short-form UUIDs for the Battery Service and its characteristics.
-enum BatteryUUID {
+nonisolated enum BatteryUUID {
   static let service = "96"
   static let level = "68"
   static let chargingState = "8F"
   static let lowBattery = "79"
 }
 
-extension HAPAccessoryProtocol {
+nonisolated extension HAPAccessoryProtocol {
   /// Builds the Accessory Information service JSON (iid 1, characteristics 2-7).
   /// Shared by all accessories to avoid duplicating this boilerplate.
   func accessoryInformationServiceJSON() -> [String: Any] {
@@ -187,7 +187,7 @@ extension HAPAccessoryProtocol {
 
 // MARK: - HAP Accessory
 
-final class HAPAccessory: HAPAccessoryProtocol {
+nonisolated final class HAPAccessory: HAPAccessoryProtocol {
 
   let name: String
   let model: String
@@ -406,7 +406,7 @@ final class HAPAccessory: HAPAccessoryProtocol {
 
 /// Lightweight accessory representing the bridge itself (aid=1).
 /// Only exposes the Accessory Information service.
-final class HAPBridgeInfo: HAPAccessoryProtocol {
+nonisolated final class HAPBridgeInfo: HAPAccessoryProtocol {
 
   let aid: Int = 1
   let name: String
@@ -467,7 +467,7 @@ final class HAPBridgeInfo: HAPAccessoryProtocol {
 // MARK: - Light Sensor Accessory
 
 /// Standalone light sensor accessory for the bridge.
-final class HAPLightSensorAccessory: HAPAccessoryProtocol {
+nonisolated final class HAPLightSensorAccessory: HAPAccessoryProtocol {
 
   let aid: Int
   let name: String
@@ -562,7 +562,7 @@ final class HAPLightSensorAccessory: HAPAccessoryProtocol {
 // MARK: - Motion Sensor Accessory
 
 /// Standalone motion sensor accessory for the bridge.
-final class HAPMotionSensorAccessory: HAPAccessoryProtocol {
+nonisolated final class HAPMotionSensorAccessory: HAPAccessoryProtocol {
 
   let aid: Int
   let name: String

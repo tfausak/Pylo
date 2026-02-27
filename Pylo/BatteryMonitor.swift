@@ -4,7 +4,7 @@ import os
 /// Shared mutable container for battery state, referenced by all accessories.
 /// Thread-safe: written on the main thread by BatteryMonitor, read on the
 /// HAP server queue by accessory characteristic handlers.
-final class BatteryState {
+nonisolated final class BatteryState {
   private struct State {
     var level: Int = 0
     var chargingState: Int = 0

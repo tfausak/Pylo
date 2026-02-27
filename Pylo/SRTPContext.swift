@@ -6,7 +6,7 @@ import os
 
 /// Minimal SRTP implementation using AES-128-ICM + HMAC-SHA1-80.
 /// Handles key derivation and per-packet encryption/authentication per RFC 3711.
-final class SRTPContext {
+nonisolated final class SRTPContext {
 
   private let masterKey: Data  // 16 bytes
   private let masterSalt: Data  // 14 bytes

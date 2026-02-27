@@ -116,7 +116,7 @@ final class DeviceIdentity {
 // MARK: - Pairing Store
 // Stores paired controllers (their Ed25519 public keys and identifiers).
 
-final class PairingStore {
+nonisolated final class PairingStore {
 
   struct Pairing: Codable {
     let identifier: String  // Controller's pairing ID (UUID string)
@@ -219,7 +219,7 @@ final class PairingStore {
 // After pair-verify succeeds, this handles encrypting/decrypting HAP frames
 // using ChaCha20-Poly1305 with incrementing nonce counters.
 
-final class EncryptionContext {
+nonisolated final class EncryptionContext {
 
   private let readKey: SymmetricKey  // Controller-to-Accessory
   private let writeKey: SymmetricKey  // Accessory-to-Controller
