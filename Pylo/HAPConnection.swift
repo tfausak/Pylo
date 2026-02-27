@@ -165,6 +165,14 @@ final class HAPConnection {
       }
 
       let frameLength = Int(data[0]) | (Int(data[1]) << 8)
+
+      // HAP spec §6.5: frames are capped at 1024 plaintext bytes.
+      guard frameLength <= 1024 else {
+        self.logger.error("Encrypted frame too large (\(frameLength) bytes), disconnecting")
+        self.cancel()
+        return
+      }
+
       let totalLength = frameLength + 16  // + Poly1305 auth tag
 
       // Now read the encrypted payload + tag
