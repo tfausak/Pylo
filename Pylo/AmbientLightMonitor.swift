@@ -31,12 +31,17 @@ nonisolated final class AmbientLightMonitor: @unchecked Sendable {
 
   private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "AmbientLight")
   private let lock = NSLock()
-  private let timerQueue = DispatchQueue(label: "me.fausak.taylor.Pylo.lightTimer")
+  private let timerQueue: DispatchQueue
+  private let timerQueueKey = DispatchSpecificKey<Bool>()
   /// Serial queue for AVCaptureSession start/stop — these are not thread-safe.
   private let sessionQueue: DispatchQueue
   private let sessionQueueKey = DispatchSpecificKey<Bool>()
 
   init() {
+    let tQueue = DispatchQueue(label: "me.fausak.taylor.Pylo.lightTimer")
+    tQueue.setSpecific(key: timerQueueKey, value: true)
+    self.timerQueue = tQueue
+
     let queue = DispatchQueue(label: "me.fausak.taylor.Pylo.lightSession")
     queue.setSpecific(key: sessionQueueKey, value: true)
     self.sessionQueue = queue
@@ -184,7 +189,9 @@ nonisolated final class AmbientLightMonitor: @unchecked Sendable {
     oldTimer?.cancel()
     // Drain timerQueue so any in-flight event handler finishes before we
     // stop the session — prevents reading device properties during teardown.
-    timerQueue.sync {}
+    if DispatchQueue.getSpecific(key: timerQueueKey) == nil {
+      timerQueue.sync {}
+    }
     // stopRunning() must execute on sessionQueue but we must avoid sync-on-self
     // deadlocks if the caller is already on sessionQueue.
     let stopBlock = { oldSession?.stopRunning() }
