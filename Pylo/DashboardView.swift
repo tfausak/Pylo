@@ -27,7 +27,7 @@ struct DashboardView: View {
             iconColor: viewModel.isLightOn ? .yellow : .gray,
             title: "Flashlight",
             value: viewModel.isLightOn
-              ? "ON\(viewModel.brightness < 100 ? " · \(viewModel.brightness)%" : "")" : "OFF"
+              ? "On\(viewModel.brightness < 100 ? " · \(viewModel.brightness)%" : "")" : "Off"
           )
         }
 
