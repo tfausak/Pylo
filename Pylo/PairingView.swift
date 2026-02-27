@@ -2,12 +2,7 @@ import SwiftUI
 
 struct PairingView: View {
   var viewModel: HAPViewModel
-  private let qrImage: UIImage?
-
-  init(viewModel: HAPViewModel) {
-    self.viewModel = viewModel
-    self.qrImage = generateQRCode(from: hapSetupURI(setupCode: viewModel.setupCode))
-  }
+  @State private var qrImage: UIImage?
 
   var body: some View {
     VStack(spacing: 24) {
@@ -47,6 +42,9 @@ struct PairingView: View {
         .multilineTextAlignment(.center)
     }
     .padding()
+    .task(id: viewModel.setupCode) {
+      qrImage = generateQRCode(from: hapSetupURI(setupCode: viewModel.setupCode))
+    }
   }
 }
 
