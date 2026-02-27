@@ -111,13 +111,18 @@ nonisolated final class HAPServer: @unchecked Sendable {
   /// Look up the pair-verify shared secret from any active verified connection.
   /// Used by HDS to derive its encryption keys.
   func sharedSecretForVerifiedConnection() -> SharedSecret? {
-    queue.sync {
+    let block = { [self] () -> SharedSecret? in
       for conn in connections.values {
         if let secret = conn.pairVerifySharedSecret {
           return secret
         }
       }
       return nil
+    }
+    if DispatchQueue.getSpecific(key: Self.queueKey) != nil {
+      return block()
+    } else {
+      return queue.sync(execute: block)
     }
   }
 
