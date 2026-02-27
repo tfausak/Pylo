@@ -172,12 +172,17 @@ nonisolated final class PairingStore: @unchecked Sendable {
 
   func addPairing(_ pairing: Pairing) {
     lock.withLock { $0[pairing.identifier] = pairing }
-    save()
+    if !save() {
+      // Roll back in-memory state so it stays consistent with disk.
+      lock.withLock { _ = $0.removeValue(forKey: pairing.identifier) }
+      return
+    }
     onChange?()
   }
 
   /// Atomically adds the first admin pairing only if no pairings exist yet.
-  /// Returns true if the pairing was added, false if the store was already paired.
+  /// Returns true if the pairing was added, false if the store was already paired
+  /// or if persisting to disk failed.
   @discardableResult
   func addPairingIfUnpaired(_ pairing: Pairing) -> Bool {
     let added = lock.withLock { state -> Bool in
@@ -185,16 +190,22 @@ nonisolated final class PairingStore: @unchecked Sendable {
       state[pairing.identifier] = pairing
       return true
     }
-    if added {
-      save()
-      onChange?()
+    guard added else { return false }
+    if !save() {
+      // Roll back — the pairing must not exist only in memory.
+      lock.withLock { _ = $0.removeValue(forKey: pairing.identifier) }
+      return false
     }
-    return added
+    onChange?()
+    return true
   }
 
   func removePairing(identifier: String) {
-    lock.withLock { _ = $0.removeValue(forKey: identifier) }
-    save()
+    let old = lock.withLock { $0.removeValue(forKey: identifier) }
+    if !save(), let old {
+      lock.withLock { $0[old.identifier] = old }
+      return
+    }
     onChange?()
   }
 
@@ -203,18 +214,28 @@ nonisolated final class PairingStore: @unchecked Sendable {
   }
 
   func removeAll() {
-    lock.withLock { $0.removeAll() }
-    save()
+    let snapshot = lock.withLock { state -> [String: Pairing] in
+      let copy = state
+      state.removeAll()
+      return copy
+    }
+    if !save() {
+      lock.withLock { $0 = snapshot }
+      return
+    }
     onChange?()
   }
 
-  private func save() {
+  @discardableResult
+  private func save() -> Bool {
     let snapshot = lock.withLock { $0 }
     do {
       let data = try JSONEncoder().encode(snapshot)
       try data.write(to: Self.storageURL, options: [.atomic, .completeFileProtection])
+      return true
     } catch {
       Self.logger.error("Failed to save pairings: \(error)")
+      return false
     }
   }
 }
