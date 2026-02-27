@@ -328,7 +328,7 @@ nonisolated final class EncryptionContext {
 // MARK: - Pair Setup Session State
 
 /// Tracks in-progress pair-setup state for a connection.
-nonisolated final class PairSetupSession {
+nonisolated final class PairSetupSession: @unchecked Sendable {
   // SRP session values — filled in progressively during the M1→M6 exchange.
   var salt: Data?
   var serverPublicKey: Data?  // B
@@ -342,7 +342,7 @@ nonisolated final class PairSetupSession {
 // MARK: - Pair Verify Session State
 
 /// Tracks in-progress pair-verify state for a connection.
-nonisolated final class PairVerifySession {
+nonisolated final class PairVerifySession: @unchecked Sendable {
   var sharedSecret: SharedSecret?
   var accessoryEphemeralPrivateKey: Curve25519.KeyAgreement.PrivateKey?
   var controllerEphemeralPublicKey: Curve25519.KeyAgreement.PublicKey?
