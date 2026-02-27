@@ -248,8 +248,10 @@ nonisolated enum PairSetupHandler {
       return errorResponse(state: 0x04, error: .authentication)
     }
 
-    // Store the shared session key for M5
+    // Store the shared session key for M5 and invalidate the SRP session
+    // to prevent a replayed M3 from mutating state mid-exchange.
     session.sessionKey = srpSession.sessionKey
+    session.srpSession = nil
 
     let responseTLV = TLV8.encode([
       (.state, Data([0x04])),
