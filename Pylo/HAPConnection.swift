@@ -154,7 +154,9 @@ nonisolated final class HAPConnection: @unchecked Sendable {
           return
         }
 
-        self.processHTTPBuffer()
+        if !self.processHTTPBuffer() {
+          return  // connection was cancelled (e.g. malformed request)
+        }
       }
 
       if isComplete {
@@ -165,8 +167,11 @@ nonisolated final class HAPConnection: @unchecked Sendable {
     }
   }
 
-  /// Process accumulated HTTP data, handling multiple requests if needed
-  private func processHTTPBuffer() {
+  /// Process accumulated HTTP data, handling multiple requests if needed.
+  /// Returns `true` if the connection is still alive and should continue receiving,
+  /// `false` if the connection was cancelled (e.g. malformed request).
+  @discardableResult
+  private func processHTTPBuffer() -> Bool {
     // Keep processing as long as we can extract complete requests
     while true {
       switch HTTPRequest.parseAndConsume(&receiveBuffer) {
@@ -176,12 +181,12 @@ nonisolated final class HAPConnection: @unchecked Sendable {
           sendResponse(response)
         }
       case .needsMoreData:
-        return
+        return true
       case .malformed:
         logger.warning("Malformed HTTP request, sending 400 and closing")
         sendResponse(HTTPResponse(status: 400, body: nil, contentType: "application/hap+json"))
         cancel()
-        return
+        return false
       }
     }
   }
