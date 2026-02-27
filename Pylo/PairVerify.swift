@@ -99,7 +99,7 @@ nonisolated enum PairVerifyHandler {
       session.controllerEphemeralPublicKey = controllerPublicKey
       session.sharedSecret = sharedSecret
       session.sessionKey = sessionKey
-      connection.pairVerifyState = session
+      connection.setPairVerifyState(session)
 
       // Respond with M2
       let responseTLV = TLV8.encode([
@@ -193,16 +193,16 @@ nonisolated enum PairVerifyHandler {
       )
 
       // Defer encryption until after the plaintext M4 response is sent
-      connection.pendingEncryptionContext = EncryptionContext(readKey: readKey, writeKey: writeKey)
+      connection.setPendingEncryptionContext(EncryptionContext(readKey: readKey, writeKey: writeKey))
 
       // Record which controller authenticated this session (for admin checks)
-      connection.verifiedControllerID = controllerID
+      connection.setVerifiedControllerID(controllerID)
 
       // Store the shared secret for HDS key derivation
-      connection.pairVerifySharedSecret = sharedSecret
+      connection.setPairVerifySharedSecret(sharedSecret)
 
       // Clean up verify session
-      connection.pairVerifyState = nil
+      connection.setPairVerifyState(nil)
 
       let responseTLV = TLV8.encode([
         (.state, Data([0x04]))

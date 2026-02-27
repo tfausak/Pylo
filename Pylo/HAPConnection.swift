@@ -16,31 +16,67 @@ nonisolated final class HAPConnection: @unchecked Sendable {
   private let queue: DispatchQueue
   private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "Connection")
 
+  // All mutable state below is accessed exclusively on `queue`. The properties
+  // use private(set) to enforce that external callers use the setter methods,
+  // which document the queue-affinity contract.
+
   /// After pair-verify, this holds the session encryption context.
-  var encryptionContext: EncryptionContext?
+  private(set) var encryptionContext: EncryptionContext?
 
   /// Set by pair-verify M3 handler; applied after the plaintext M4 response is sent.
-  var pendingEncryptionContext: EncryptionContext?
+  private(set) var pendingEncryptionContext: EncryptionContext?
 
   /// Characteristics this connection is subscribed to (for EVENT notifications).
-  var eventSubscriptions: Set<CharacteristicID> = []
+  private(set) var eventSubscriptions: Set<CharacteristicID> = []
 
   /// The pairing identifier of the controller that authenticated this session.
   /// Set after pair-verify M3 succeeds; used to check admin status for /pairings.
-  var verifiedControllerID: String?
+  private(set) var verifiedControllerID: String?
 
   /// The pairing session state (tracks in-progress pair-setup/verify).
-  var pairSetupState: PairSetupSession?
-  var pairVerifyState: PairVerifySession?
+  private(set) var pairSetupState: PairSetupSession?
+  private(set) var pairVerifyState: PairVerifySession?
 
   /// The Curve25519 shared secret from pair-verify, stored for HDS key derivation.
-  var pairVerifySharedSecret: SharedSecret?
+  private(set) var pairVerifySharedSecret: SharedSecret?
 
   init(id: String, connection: NWConnection, server: HAPServer, queue: DispatchQueue) {
     self.id = id
     self.connection = connection
     self.server = server
     self.queue = queue
+  }
+
+  // MARK: - Queue-Affine Mutators
+  // All callers must already be executing on `queue` (the connection's serial
+  // dispatch queue). These methods enforce the @unchecked Sendable contract.
+
+  func setPendingEncryptionContext(_ ctx: EncryptionContext) {
+    pendingEncryptionContext = ctx
+  }
+
+  func setVerifiedControllerID(_ id: String?) {
+    verifiedControllerID = id
+  }
+
+  func setPairSetupState(_ state: PairSetupSession?) {
+    pairSetupState = state
+  }
+
+  func setPairVerifyState(_ state: PairVerifySession?) {
+    pairVerifyState = state
+  }
+
+  func setPairVerifySharedSecret(_ secret: SharedSecret?) {
+    pairVerifySharedSecret = secret
+  }
+
+  func subscribe(to charID: CharacteristicID) {
+    eventSubscriptions.insert(charID)
+  }
+
+  func unsubscribe(from charID: CharacteristicID) {
+    eventSubscriptions.remove(charID)
   }
 
   func start() {

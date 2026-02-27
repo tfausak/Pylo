@@ -96,9 +96,9 @@ nonisolated enum CharacteristicsHandler {
       if let ev = char["ev"] as? Bool {
         let charID = CharacteristicID(aid: aid, iid: iid)
         if ev {
-          connection.eventSubscriptions.insert(charID)
+          connection.subscribe(to: charID)
         } else {
-          connection.eventSubscriptions.remove(charID)
+          connection.unsubscribe(from: charID)
         }
       }
 

@@ -201,7 +201,7 @@ nonisolated enum PairSetupHandler {
     let session = PairSetupSession()
     session.salt = srpSession.salt
     session.serverPublicKey = srpSession.publicKey  // B
-    connection.pairSetupState = session
+    connection.setPairSetupState(session)
 
     // We need to keep the SRP session around for M3.
     // Store it on the PairSetupSession (extend if needed) or use associated storage.
@@ -236,14 +236,14 @@ nonisolated enum PairSetupHandler {
     // Set the client's public key and verify the proof
     guard srpSession.setClientPublicKey(clientPublicKey) else {
       logger.error("Invalid client public key")
-      connection.pairSetupState = nil
+      connection.setPairSetupState(nil)
       return errorResponse(state: 0x04, error: .authentication)
     }
 
     guard let serverProof = srpSession.verifyClientProof(clientProof) else {
       logger.error("Client proof verification failed (wrong setup code?)")
       throttle.recordFailure()
-      connection.pairSetupState = nil
+      connection.setPairSetupState(nil)
       return errorResponse(state: 0x04, error: .authentication)
     }
 
@@ -383,7 +383,7 @@ nonisolated enum PairSetupHandler {
       throttle.reset()
 
       // Clean up
-      connection.pairSetupState = nil
+      connection.setPairSetupState(nil)
 
       // Update Bonjour to indicate we're now paired
       server.updateAdvertisement()
