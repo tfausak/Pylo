@@ -302,7 +302,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
       self?.readAudioSocket()
     }
     readSource.setCancelHandler {
-      // Socket will be closed in stopStreaming
+      close(fd)
     }
     readSource.resume()
     self.audioReadSource = readSource
@@ -354,7 +354,6 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     // Capture references to resources before nil-ing, then clean up
     // on rtpQueue to avoid data races with in-flight send/receive handlers.
     let readSource = audioReadSource
-    let audioFD = audioSocketFD
     let videoFD = videoSocketFD
     let decoder = audioDecoder
     let player = audioPlayerNode
@@ -362,13 +361,14 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     let incomingSRTP = incomingSRTPContext
 
     audioReadSource = nil
+    // The cancel handler on the read source owns closing audioSocketFD,
+    // ensuring no in-flight event handler reads from a closed FD.
     readSource?.cancel()
 
     rtpQueue.sync {
-      // By the time this executes, the cancelled read source and any
-      // in-flight sendVideoUDP/sendAudioUDP/readAudioSocket calls have drained.
+      // By the time this executes, the cancelled read source's cancel handler
+      // and any in-flight sendVideoUDP/sendAudioUDP/readAudioSocket calls have drained.
       if videoFD >= 0 { close(videoFD) }
-      if audioFD >= 0 { close(audioFD) }
       player?.stop()
       engine?.stop()
       if let dec = decoder { AudioConverterDispose(dec) }
