@@ -57,7 +57,15 @@ nonisolated final class AmbientLightMonitor: @unchecked Sendable {
   private let calibrationConstant: Float = 12.5
 
   func start(with camera: CameraOption? = nil) {
-    guard captureSession == nil else { return }
+    // Atomically check-and-mark to prevent concurrent start() from creating
+    // two capture sessions (TOCTOU race on captureSession == nil).
+    let alreadyRunning = lock.withLock { () -> Bool in
+      if _state.captureSession != nil { return true }
+      // Set a sentinel so a racing second call sees non-nil immediately.
+      _state.captureSession = AVCaptureSession()
+      return false
+    }
+    guard !alreadyRunning else { return }
 
     let device: AVCaptureDevice?
     let fNumber: Float
@@ -72,6 +80,7 @@ nonisolated final class AmbientLightMonitor: @unchecked Sendable {
 
     guard let camera = device else {
       logger.warning("No camera available")
+      lock.withLock { _state.captureSession = nil }
       return
     }
 
@@ -81,6 +90,7 @@ nonisolated final class AmbientLightMonitor: @unchecked Sendable {
       camera.unlockForConfiguration()
     } catch {
       logger.error("Failed to configure camera: \(error)")
+      lock.withLock { _state.captureSession = nil }
       return
     }
 
@@ -94,6 +104,7 @@ nonisolated final class AmbientLightMonitor: @unchecked Sendable {
       }
     } catch {
       logger.error("Failed to create capture input: \(error)")
+      lock.withLock { _state.captureSession = nil }
       return
     }
 
@@ -109,6 +120,7 @@ nonisolated final class AmbientLightMonitor: @unchecked Sendable {
     newTimer.setEventHandler { [weak self] in
       self?.sampleLux(from: camera, fNumber: fNumber)
     }
+    // Replace the sentinel with the real session.
     lock.withLock {
       _state.captureSession = session
       _state.timer = newTimer
