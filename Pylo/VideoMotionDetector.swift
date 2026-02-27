@@ -1,0 +1,172 @@
+import Accelerate
+import CoreVideo
+import os
+
+/// Detects motion by comparing consecutive video frames using vImage.
+/// Downscales each frame to a small grayscale thumbnail and computes the
+/// sum of squared differences against the previous frame.
+final class VideoMotionDetector {
+
+  var onMotionChange: ((Bool) -> Void)?
+
+  /// Fraction of pixels that must differ to trigger motion (0.0–1.0).
+  var threshold: Float = 0.02
+
+  /// Seconds of calm required before reporting no motion.
+  nonisolated(unsafe) var cooldown: TimeInterval = 3.0
+
+  private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "VideoMotion")
+
+  // Target thumbnail dimensions for comparison
+  private static let thumbWidth = 160
+  private static let thumbHeight = 120
+
+  // Previous frame's grayscale thumbnail (row-major UInt8 pixels)
+  private var previousFrame: [UInt8]?
+
+  // Thread-safe mutable state
+  private struct State {
+    var isMotionDetected = false
+    var lastMotionDate = Date.distantPast
+  }
+
+  private let state = OSAllocatedUnfairLock(initialState: State())
+
+  /// Process a pixel buffer for motion detection.
+  /// Call this from the capture delegate callback. The pixel buffer's base address
+  /// must already be locked by the caller (or by AVFoundation's delegate contract).
+  func processPixelBuffer(_ pixelBuffer: CVPixelBuffer) {
+    guard let grayscale = downsampleToGrayscale(pixelBuffer) else { return }
+
+    guard let previous = previousFrame else {
+      previousFrame = grayscale
+      return
+    }
+
+    let changeRatio = computeChangeRatio(previous: previous, current: grayscale)
+    previousFrame = grayscale
+
+    if changeRatio > threshold {
+      let shouldNotify = state.withLock { state in
+        state.lastMotionDate = Date()
+        if !state.isMotionDetected {
+          state.isMotionDetected = true
+          return true
+        }
+        return false
+      }
+      if shouldNotify {
+        logger.debug(
+          "Video motion detected (change=\(changeRatio, format: .fixed(precision: 4)))"
+        )
+        onMotionChange?(true)
+      }
+    } else {
+      let elapsed: TimeInterval? = state.withLock { state in
+        guard state.isMotionDetected else { return nil }
+        let elapsed = Date().timeIntervalSince(state.lastMotionDate)
+        if elapsed >= cooldown {
+          state.isMotionDetected = false
+          return elapsed
+        }
+        return nil
+      }
+      if let elapsed {
+        logger.debug(
+          "Video motion cleared after \(elapsed, format: .fixed(precision: 1))s"
+        )
+        onMotionChange?(false)
+      }
+    }
+  }
+
+  /// Reset state (call when stopping detection).
+  func reset() {
+    previousFrame = nil
+    state.withLock { state in
+      state.isMotionDetected = false
+      state.lastMotionDate = .distantPast
+    }
+  }
+
+  // MARK: - Frame Processing
+
+  /// Downsample a pixel buffer to a small grayscale image.
+  private func downsampleToGrayscale(_ pixelBuffer: CVPixelBuffer) -> [UInt8]? {
+    let srcWidth = CVPixelBufferGetWidth(pixelBuffer)
+    let srcHeight = CVPixelBufferGetHeight(pixelBuffer)
+    let format = CVPixelBufferGetPixelFormatType(pixelBuffer)
+
+    // Handle both common video pixel formats
+    switch format {
+    case kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+      kCVPixelFormatType_420YpCbCr8BiPlanarFullRange:
+      // NV12/NV21 — the Y plane is already grayscale
+      guard let yBase = CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, 0) else { return nil }
+      let yRowBytes = CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, 0)
+      return downsample(
+        base: yBase, width: srcWidth, height: srcHeight, rowBytes: yRowBytes, bytesPerPixel: 1,
+        channelOffset: 0)
+
+    case kCVPixelFormatType_32BGRA:
+      guard let base = CVPixelBufferGetBaseAddress(pixelBuffer) else { return nil }
+      let rowBytes = CVPixelBufferGetBytesPerRow(pixelBuffer)
+      // BGRA: approximate grayscale by sampling the green channel (offset 1)
+      return downsample(
+        base: base, width: srcWidth, height: srcHeight, rowBytes: rowBytes, bytesPerPixel: 4,
+        channelOffset: 1)
+
+    default:
+      return nil
+    }
+  }
+
+  /// Simple nearest-neighbor downsample to thumbWidth x thumbHeight.
+  private func downsample(
+    base: UnsafeRawPointer, width: Int, height: Int, rowBytes: Int,
+    bytesPerPixel: Int, channelOffset: Int
+  ) -> [UInt8] {
+    let tw = Self.thumbWidth
+    let th = Self.thumbHeight
+    var result = [UInt8](repeating: 0, count: tw * th)
+
+    for ty in 0..<th {
+      let sy = ty * height / th
+      let srcRow = base + sy * rowBytes
+      for tx in 0..<tw {
+        let sx = tx * width / tw
+        result[ty * tw + tx] = srcRow.load(
+          fromByteOffset: sx * bytesPerPixel + channelOffset, as: UInt8.self)
+      }
+    }
+
+    return result
+  }
+
+  /// Compute the fraction of pixels that differ significantly between frames.
+  private func computeChangeRatio(previous: [UInt8], current: [UInt8]) -> Float {
+    let count = min(previous.count, current.count)
+    guard count > 0 else { return 0 }
+
+    // Use vDSP for efficient comparison
+    var prevFloat = [Float](repeating: 0, count: count)
+    var currFloat = [Float](repeating: 0, count: count)
+    vDSP.convertElements(of: previous[0..<count], to: &prevFloat)
+    vDSP.convertElements(of: current[0..<count], to: &currFloat)
+
+    // Squared difference
+    var diff = [Float](repeating: 0, count: count)
+    vDSP.subtract(prevFloat, currFloat, result: &diff)
+    vDSP.square(diff, result: &diff)
+
+    // Count pixels where squared difference exceeds threshold (e.g., 25^2 = 625)
+    // A pixel value change of 25 out of 255 is considered significant
+    let pixelThreshold: Float = 625.0
+    var changedCount = 0
+    for i in 0..<count {
+      if diff[i] > pixelThreshold { changedCount += 1 }
+    }
+
+    return Float(changedCount) / Float(count)
+  }
+}

@@ -67,6 +67,12 @@ final class CameraStreamSession {
   private var audioPacketsSent: Int = 0
   private var audioOctetsSent: Int = 0
   private var audioRTCPTimer: DispatchSourceTimer?
+  /// Optional video motion detector — runs on every captured frame when set.
+  var videoMotionDetector: VideoMotionDetector?
+
+  /// Optional fMP4 writer for HKSV recording — feeds from the same encoded H.264 samples.
+  var fragmentWriter: FragmentedMP4Writer?
+
   // Audio flags — written from the server queue, read from captureQueue/rtpQueue.
   private struct AudioFlags {
     var isMuted: Bool = false
@@ -415,6 +421,7 @@ final class CameraStreamSession {
     ]
     output.alwaysDiscardsLateVideoFrames = true
     let delegate = VideoCaptureDelegate { [weak self] pixelBuffer, pts in
+      self?.videoMotionDetector?.processPixelBuffer(pixelBuffer)
       self?.encodeFrame(pixelBuffer, pts: pts)
     }
     output.setSampleBufferDelegate(delegate, queue: captureQueue)
@@ -555,6 +562,8 @@ final class CameraStreamSession {
           return
         }
         guard let sampleBuffer, let self else { return }
+        // Feed to fMP4 writer for HKSV prebuffering (if active)
+        self.fragmentWriter?.appendVideoSample(sampleBuffer)
         self.rtpQueue.async {
           self.processEncodedFrame(sampleBuffer)
         }

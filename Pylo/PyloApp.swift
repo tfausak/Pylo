@@ -210,6 +210,8 @@ final class HAPViewModel {
   @ObservationIgnored private var motionMonitor: MotionMonitor?
   @ObservationIgnored private var batteryMonitor: BatteryMonitor?
   @ObservationIgnored private var cameraAccessory: HAPCameraAccessory?
+  @ObservationIgnored private var fragmentWriter: FragmentedMP4Writer?
+  @ObservationIgnored private var dataStreamHandler: HAPDataStream?
 
   /// Restores persisted preferences so the configure screen shows saved state.
   /// Called once when the app launches, before the user presses Start.
@@ -360,7 +362,41 @@ final class HAPViewModel {
         self.cameraAccessory = camera
         camera.selectedCameraID = self.selectedStreamCamera?.id
         camera.minimumBitrate = self.videoQuality.minimumBitrate
+        camera.hksvEnabled = true
         enabledAccessories.append(camera)
+
+        // HKSV: Set up video motion detection on the camera
+        camera.onVideoMotionChange = { [weak camera] detected in
+          camera?.updateMotionDetected(detected)
+        }
+        camera.videoMotionEnabled = true
+
+        // HKSV: Set up fragmented MP4 writer for prebuffering
+        let fmp4Writer = FragmentedMP4Writer()
+        fmp4Writer.configure(width: 1920, height: 1080, fps: 30)
+        self.fragmentWriter = fmp4Writer
+
+        // HKSV: Set up HDS data stream
+        let dataStream = HAPDataStream()
+        dataStream.fragmentWriter = fmp4Writer
+        self.dataStreamHandler = dataStream
+
+        // Wire the DataStream setup callback
+        camera.onSetupDataStream = { [weak self, weak dataStream] requestData, respond in
+          guard let self, let dataStream else { return }
+          // Get the shared secret from the most recent verified connection
+          guard let secret = self.server?.sharedSecretForVerifiedConnection() else { return }
+          let responseData = dataStream.setupTransport(
+            requestTLV: requestData, sharedSecret: secret)
+          respond(responseData)
+        }
+
+        // Wire recording configuration changes
+        camera.onRecordingConfigChange = { [weak fmp4Writer, weak camera] active in
+          if active {
+            camera?.videoMotionEnabled = true
+          }
+        }
       }
 
       if self.selectedCamera != nil {
@@ -465,6 +501,11 @@ final class HAPViewModel {
           pairingStore: pairingStore,
           deviceIdentity: identity
         )
+        // Start HDS listener for HKSV data streaming
+        if let dataStream = self.dataStreamHandler {
+          try? dataStream.startListener()
+          hapServer.dataStream = dataStream
+        }
         hapServer.start()
         self.server = hapServer
         self.hasPairings = pairingStore.isPaired
@@ -500,6 +541,10 @@ final class HAPViewModel {
     motionMonitor = nil
     lightMonitor?.stop()
     lightMonitor = nil
+    dataStreamHandler?.stop()
+    dataStreamHandler = nil
+    fragmentWriter?.stop()
+    fragmentWriter = nil
     cameraAccessory = nil
     server?.stop()
     server = nil

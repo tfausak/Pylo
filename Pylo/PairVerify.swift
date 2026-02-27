@@ -199,6 +199,9 @@ enum PairVerifyHandler {
       // Record which controller authenticated this session (for admin checks)
       connection.verifiedControllerID = controllerID
 
+      // Store the shared secret for HDS key derivation
+      connection.pairVerifySharedSecret = sharedSecret
+
       // Clean up verify session
       connection.pairVerifyState = nil
 

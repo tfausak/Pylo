@@ -26,6 +26,29 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
   var onSnapshotWillCapture: (() -> Void)?
   var onSnapshotDidCapture: (() -> Void)?
 
+  /// Called when video-based motion detection fires (replaces accelerometer for HKSV).
+  var onVideoMotionChange: ((Bool) -> Void)?
+
+  /// Whether video motion detection is active on the streaming session.
+  var videoMotionEnabled: Bool = false {
+    didSet {
+      if videoMotionEnabled {
+        let detector = VideoMotionDetector()
+        detector.onMotionChange = { [weak self] detected in
+          self?.onVideoMotionChange?(detected)
+        }
+        videoMotionDetector = detector
+        streamSession?.videoMotionDetector = detector
+      } else {
+        videoMotionDetector?.reset()
+        videoMotionDetector = nil
+        streamSession?.videoMotionDetector = nil
+      }
+    }
+  }
+
+  private var videoMotionDetector: VideoMotionDetector?
+
   private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "Camera")
 
   /// Which camera to use for streaming and snapshots (nil = default back wide-angle).
@@ -54,6 +77,30 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
   private var speakerMuted: Bool = false
   /// Speaker volume (0-100).
   private var speakerVolume: Int = 100
+
+  // MARK: - HKSV State
+
+  /// Camera Operating Mode state
+  private(set) var homeKitCameraActive: Bool = true
+  private(set) var eventSnapshotsActive: Bool = true
+  private(set) var periodicSnapshotsActive: Bool = true
+
+  /// Camera Event Recording Management state
+  private(set) var recordingActive: UInt8 = 0  // 0=disabled, 1=enabled
+  private(set) var recordingAudioActive: UInt8 = 0
+  private(set) var selectedRecordingConfig = Data()
+
+  /// Motion sensor state (linked to this camera accessory)
+  private let _isMotionDetected = OSAllocatedUnfairLock(initialState: false)
+  var isMotionDetected: Bool {
+    _isMotionDetected.withLock { $0 }
+  }
+
+  /// Whether HKSV services are enabled on this accessory.
+  var hksvEnabled: Bool = false
+
+  /// Called when recording configuration changes.
+  var onRecordingConfigChange: ((_ active: Bool) -> Void)?
 
   // Pending setup endpoint response (written by controller, read back after)
   private var setupEndpointsResponse = Data()
@@ -89,6 +136,34 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
   static let iidSpeakerMute = 18
   static let iidSpeakerVolume = 19
 
+  // Camera Operating Mode Service (iid 20-22)
+  static let iidOperatingModeService = 20
+  static let iidHomeKitCameraActive = 21
+  static let iidEventSnapshotsActive = 22
+  static let iidPeriodicSnapshotsActive = 23
+
+  // Camera Event Recording Management Service (iid 30-35)
+  static let iidRecordingManagementService = 30
+  static let iidRecordingActive = 31
+  static let iidSupportedCameraRecordingConfig = 32
+  static let iidSupportedVideoRecordingConfig = 33
+  static let iidSupportedAudioRecordingConfig = 34
+  static let iidSelectedCameraRecordingConfig = 35
+  static let iidRecordingAudioActive = 36
+
+  // Active characteristic on CameraRTPStreamManagement (iid 37)
+  static let iidRTPStreamActive = 37
+
+  // Motion Sensor linked to camera (iid 50-51)
+  static let iidMotionSensorService = 50
+  static let iidMotionDetected = 51
+
+  // DataStream Transport Management Service (iid 60-62)
+  static let iidDataStreamService = 60
+  static let iidSupportedDataStreamConfig = 61
+  static let iidSetupDataStreamTransport = 62
+  static let iidDataStreamVersion = 63
+
   // MARK: - HAP UUIDs
 
   static let uuidCameraRTPStreamManagement = "110"
@@ -102,6 +177,31 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
   static let uuidSpeaker = "113"
   static let uuidMute = "11A"
   static let uuidVolume = "119"
+  static let uuidActive = "B0"
+
+  // Camera Operating Mode UUIDs
+  static let uuidCameraOperatingMode = "21A"
+  static let uuidHomeKitCameraActive = "21B"
+  static let uuidEventSnapshotsActive = "223"
+  static let uuidPeriodicSnapshotsActive = "225"
+
+  // Camera Event Recording Management UUIDs
+  static let uuidCameraEventRecordingManagement = "204"
+  static let uuidSupportedCameraRecordingConfig = "205"
+  static let uuidSupportedVideoRecordingConfig = "206"
+  static let uuidSupportedAudioRecordingConfig = "207"
+  static let uuidSelectedCameraRecordingConfig = "209"
+  static let uuidRecordingAudioActive = "226"
+
+  // Motion Sensor UUIDs
+  static let uuidMotionSensor = "85"
+  static let uuidMotionDetected = "22"
+
+  // DataStream Transport Management UUIDs
+  static let uuidDataStreamTransportManagement = "129"
+  static let uuidSupportedDataStreamTransportConfig = "130"
+  static let uuidSetupDataStreamTransport = "131"
+  static let uuidVersion = "37"
 
   // MARK: - Read Characteristic
 
@@ -127,6 +227,31 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
     case Self.iidMicrophoneMute: return .bool(isMuted)
     case Self.iidSpeakerMute: return .bool(speakerMuted)
     case Self.iidSpeakerVolume: return .int(speakerVolume)
+    // Camera Operating Mode
+    case Self.iidHomeKitCameraActive: return .bool(homeKitCameraActive)
+    case Self.iidEventSnapshotsActive: return .bool(eventSnapshotsActive)
+    case Self.iidPeriodicSnapshotsActive: return .bool(periodicSnapshotsActive)
+    // Camera Event Recording Management
+    case Self.iidRecordingActive: return .int(Int(recordingActive))
+    case Self.iidSupportedCameraRecordingConfig:
+      return .string(supportedCameraRecordingConfig().base64())
+    case Self.iidSupportedVideoRecordingConfig:
+      return .string(supportedVideoRecordingConfig().base64())
+    case Self.iidSupportedAudioRecordingConfig:
+      return .string(supportedAudioRecordingConfig().base64())
+    case Self.iidSelectedCameraRecordingConfig:
+      return .string(selectedRecordingConfig.base64EncodedString())
+    case Self.iidRecordingAudioActive: return .int(Int(recordingAudioActive))
+    case Self.iidRTPStreamActive: return .int(Int(recordingActive))
+    // Motion Sensor
+    case Self.iidMotionDetected: return .bool(isMotionDetected)
+    // DataStream Transport Management
+    case Self.iidSupportedDataStreamConfig:
+      return .string(supportedDataStreamConfig().base64())
+    case Self.iidSetupDataStreamTransport:
+      return .string(setupDataStreamResponse.base64EncodedString())
+    case Self.iidDataStreamVersion: return .string("1.0")
+    // Battery
     case BatteryIID.batteryLevel: return batteryState.map { .int($0.level) }
     case BatteryIID.chargingState: return batteryState.map { .int($0.chargingState) }
     case BatteryIID.statusLowBattery: return batteryState.map { .int($0.statusLowBattery) }
@@ -179,13 +304,83 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
         return true
       }
       return false
+    // Camera Operating Mode
+    case Self.iidHomeKitCameraActive:
+      if let v = boolFromValue(value) {
+        homeKitCameraActive = v
+        onStateChange?(aid, iid, .bool(v))
+        return true
+      }
+      return false
+    case Self.iidEventSnapshotsActive:
+      if let v = boolFromValue(value) {
+        eventSnapshotsActive = v
+        onStateChange?(aid, iid, .bool(v))
+        return true
+      }
+      return false
+    case Self.iidPeriodicSnapshotsActive:
+      if let v = boolFromValue(value) {
+        periodicSnapshotsActive = v
+        onStateChange?(aid, iid, .bool(v))
+        return true
+      }
+      return false
+    // Camera Event Recording Management
+    case Self.iidRecordingActive:
+      if case .int(let v) = value {
+        recordingActive = UInt8(v)
+        let isActive = v != 0
+        onRecordingConfigChange?(isActive)
+        onStateChange?(aid, iid, .int(v))
+        return true
+      }
+      return false
+    case Self.iidSelectedCameraRecordingConfig:
+      if case .string(let b64) = value, let data = Data(base64Encoded: b64) {
+        selectedRecordingConfig = data
+        handleSelectedRecordingConfig(data)
+        return true
+      }
+      return false
+    case Self.iidRecordingAudioActive:
+      if case .int(let v) = value {
+        recordingAudioActive = UInt8(v)
+        onStateChange?(aid, iid, .int(v))
+        return true
+      }
+      return false
+    case Self.iidRTPStreamActive:
+      if case .int(let v) = value {
+        onStateChange?(aid, iid, .int(v))
+        return true
+      }
+      return false
+    // DataStream Transport Management
+    case Self.iidSetupDataStreamTransport:
+      return handleSetupDataStream(value)
     default:
       return false
     }
   }
 
+  /// Extract a Bool from either a .bool or .int HAPValue.
+  private func boolFromValue(_ value: HAPValue) -> Bool? {
+    switch value {
+    case .bool(let v): return v
+    case .int(let v): return v != 0
+    default: return nil
+    }
+  }
+
   func identify() {
     logger.info("Camera identify requested")
+  }
+
+  /// Update the linked motion sensor (called from VideoMotionDetector).
+  func updateMotionDetected(_ detected: Bool) {
+    _isMotionDetected.withLock { $0 = detected }
+    onStateChange?(aid, Self.iidMotionDetected, .bool(detected))
   }
 
   // MARK: - Supported Configurations (static TLV8 blobs)
@@ -256,6 +451,135 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
     config.add(0x02, byte: 0x00)  // SRTP crypto: AES_CM_128_HMAC_SHA1_80
     return config
   }
+
+  // MARK: - HKSV Recording Configurations (TLV8)
+
+  /// SupportedCameraRecordingConfiguration
+  func supportedCameraRecordingConfig() -> TLV8.Builder {
+    // Prebuffer length in milliseconds
+    var prebuffer = TLV8.Builder()
+    prebuffer.add(0x01, uint32: 4000)  // 4 seconds prebuffer
+
+    // Media container config
+    var container = TLV8.Builder()
+    container.add(0x01, byte: 0x00)  // Container type: fragmented MP4
+    container.add(0x02, uint32: 4000)  // Fragment length 4000ms
+
+    var config = TLV8.Builder()
+    config.add(0x01, tlv: prebuffer)  // Prebuffer length
+    config.add(0x02, byte: 0x01)  // Event trigger options: Motion (bit 0)
+    config.add(0x03, tlv: container)  // Media container configuration
+    return config
+  }
+
+  /// SupportedVideoRecordingConfiguration
+  func supportedVideoRecordingConfig() -> TLV8.Builder {
+    // H.264 codec parameters for recording
+    var codecParams = TLV8.Builder()
+    codecParams.add(0x01, byte: 0x00)  // ProfileID: Constrained Baseline
+    codecParams.add(0x02, byte: 0x00)  // Level: 3.1
+    codecParams.add(0x03, uint32: 0)  // Bitrate: 0 = no constraint
+
+    // Resolution: 1920x1080 @ 30fps
+    var attrs1080 = TLV8.Builder()
+    attrs1080.add(0x01, uint16: 1920)
+    attrs1080.add(0x02, uint16: 1080)
+    attrs1080.add(0x03, byte: 30)
+
+    // Resolution: 1280x720 @ 30fps
+    var attrs720 = TLV8.Builder()
+    attrs720.add(0x01, uint16: 1280)
+    attrs720.add(0x02, uint16: 720)
+    attrs720.add(0x03, byte: 30)
+
+    var codecConfig = TLV8.Builder()
+    codecConfig.add(0x01, byte: 0x00)  // CodecType: H.264
+    codecConfig.add(0x02, tlv: codecParams)
+    codecConfig.add(0x03, tlv: attrs1080)
+    codecConfig.add(0x03, tlv: attrs720)
+
+    var config = TLV8.Builder()
+    config.add(0x01, tlv: codecConfig)
+    return config
+  }
+
+  /// SupportedAudioRecordingConfiguration
+  func supportedAudioRecordingConfig() -> TLV8.Builder {
+    // AAC-LC codec parameters for recording
+    var codecParams = TLV8.Builder()
+    codecParams.add(0x01, byte: 1)  // Channels: 1
+    codecParams.add(0x02, byte: 0)  // BitRate: Variable
+    codecParams.add(0x03, byte: 1)  // SampleRate: 16kHz (0x01)
+
+    var codecConfig = TLV8.Builder()
+    codecConfig.add(0x01, byte: 3)  // CodecType: AAC-LC (0x03)
+    codecConfig.add(0x02, tlv: codecParams)
+
+    // Also add 24kHz variant
+    var codecParams24 = TLV8.Builder()
+    codecParams24.add(0x01, byte: 1)
+    codecParams24.add(0x02, byte: 0)
+    codecParams24.add(0x03, byte: 2)  // SampleRate: 24kHz (0x02)
+
+    var codecConfig24 = TLV8.Builder()
+    codecConfig24.add(0x01, byte: 3)
+    codecConfig24.add(0x02, tlv: codecParams24)
+
+    var config = TLV8.Builder()
+    config.add(0x01, tlv: codecConfig)
+    config.add(0x01, tlv: codecConfig24)
+    return config
+  }
+
+  /// SupportedDataStreamTransportConfiguration
+  func supportedDataStreamConfig() -> TLV8.Builder {
+    // Transfer transport config: HomeKit Data Stream over TCP
+    var transferTransport = TLV8.Builder()
+    transferTransport.add(0x01, byte: 0x00)  // Transport type: TCP
+
+    var config = TLV8.Builder()
+    config.add(0x01, tlv: transferTransport)
+    return config
+  }
+
+  /// Parse the hub's selected recording configuration.
+  private func handleSelectedRecordingConfig(_ data: Data) {
+    let tlvs = TLV8.decode(data) as [(UInt8, Data)]
+    for (tag, val) in tlvs {
+      if tag == 0x01 {
+        // Selected general recording configuration
+        let sub = TLV8.decode(val) as [(UInt8, Data)]
+        for (stag, _) in sub {
+          logger.info("Selected recording config tag 0x\(String(stag, radix: 16))")
+        }
+      } else if tag == 0x02 {
+        // Selected video configuration
+        logger.info("Selected video recording config: \(val.count) bytes")
+      } else if tag == 0x03 {
+        // Selected audio configuration
+        logger.info("Selected audio recording config: \(val.count) bytes")
+      }
+    }
+  }
+
+  // Pending setup DataStream response
+  private var setupDataStreamResponse = Data()
+
+  /// Handle DataStream transport setup — placeholder, implemented fully in HAPDataStream.
+  private func handleSetupDataStream(_ value: HAPValue) -> Bool {
+    guard case .string(let b64) = value, let data = Data(base64Encoded: b64) else { return false }
+    logger.info("SetupDataStreamTransport: \(data.count) bytes")
+    // Full implementation in Phase 5 (HAPDataStream.swift)
+    onSetupDataStream?(
+      data,
+      { [weak self] response in
+        self?.setupDataStreamResponse = response
+      })
+    return true
+  }
+
+  /// Callback for DataStream setup — set by HAPDataStream.
+  var onSetupDataStream: ((_ request: Data, _ respond: @escaping (Data) -> Void) -> Void)?
 
   // MARK: - Streaming Status
 
@@ -536,6 +860,7 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
     session.isMuted = isMuted
     session.speakerMuted = speakerMuted
     session.speakerVolume = speakerVolume
+    session.videoMotionDetector = videoMotionDetector
     session.onSnapshotFrame = { [weak self] jpeg in
       self?.cachedSnapshot = jpeg
     }
@@ -691,52 +1016,63 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
   // MARK: - JSON Serialization
 
   func toJSON() -> [String: Any] {
+    // Camera RTP Stream Management — conditionally include Active for HKSV
+    var rtpCharacteristics: [[String: Any]] = [
+      [
+        "iid": Self.iidSupportedVideoConfig,
+        "type": Self.uuidSupportedVideoStreamConfig,
+        "format": "tlv8",
+        "perms": ["pr"],
+        "value": Self.supportedVideoConfig().base64(),
+      ],
+      [
+        "iid": Self.iidSupportedAudioConfig,
+        "type": Self.uuidSupportedAudioStreamConfig,
+        "format": "tlv8",
+        "perms": ["pr"],
+        "value": Self.supportedAudioConfig().base64(),
+      ],
+      [
+        "iid": Self.iidSupportedRTPConfig,
+        "type": Self.uuidSupportedRTPConfig,
+        "format": "tlv8",
+        "perms": ["pr"],
+        "value": Self.supportedRTPConfig().base64(),
+      ],
+      [
+        "iid": Self.iidSetupEndpoints,
+        "type": Self.uuidSetupEndpoints, "format": "tlv8",
+        "perms": ["pr", "pw"], "value": "",
+      ],
+      [
+        "iid": Self.iidSelectedRTPStreamConfig,
+        "type": Self.uuidSelectedRTPStreamConfig,
+        "format": "tlv8",
+        "perms": ["pr", "pw"], "value": "",
+      ],
+      [
+        "iid": Self.iidStreamingStatus,
+        "type": Self.uuidStreamingStatus, "format": "tlv8",
+        "perms": ["pr", "ev"],
+        "value": streamingStatusTLV().base64EncodedString(),
+      ],
+    ]
+    if hksvEnabled {
+      rtpCharacteristics.append([
+        "iid": Self.iidRTPStreamActive,
+        "type": Self.uuidActive, "format": "uint8",
+        "perms": ["pr", "pw", "ev"], "value": recordingActive,
+        "minValue": 0, "maxValue": 1,
+      ])
+    }
+
     var services: [[String: Any]] = [
       accessoryInformationServiceJSON(),
       // Camera RTP Stream Management Service
       [
         "iid": Self.iidCameraService,
         "type": Self.uuidCameraRTPStreamManagement,
-        "characteristics": [
-          [
-            "iid": Self.iidSupportedVideoConfig,
-            "type": Self.uuidSupportedVideoStreamConfig,
-            "format": "tlv8",
-            "perms": ["pr"],
-            "value": Self.supportedVideoConfig().base64(),
-          ],
-          [
-            "iid": Self.iidSupportedAudioConfig,
-            "type": Self.uuidSupportedAudioStreamConfig,
-            "format": "tlv8",
-            "perms": ["pr"],
-            "value": Self.supportedAudioConfig().base64(),
-          ],
-          [
-            "iid": Self.iidSupportedRTPConfig,
-            "type": Self.uuidSupportedRTPConfig,
-            "format": "tlv8",
-            "perms": ["pr"],
-            "value": Self.supportedRTPConfig().base64(),
-          ],
-          [
-            "iid": Self.iidSetupEndpoints,
-            "type": Self.uuidSetupEndpoints, "format": "tlv8",
-            "perms": ["pr", "pw"], "value": "",
-          ],
-          [
-            "iid": Self.iidSelectedRTPStreamConfig,
-            "type": Self.uuidSelectedRTPStreamConfig,
-            "format": "tlv8",
-            "perms": ["pr", "pw"], "value": "",
-          ],
-          [
-            "iid": Self.iidStreamingStatus,
-            "type": Self.uuidStreamingStatus, "format": "tlv8",
-            "perms": ["pr", "ev"],
-            "value": streamingStatusTLV().base64EncodedString(),
-          ],
-        ],
+        "characteristics": rtpCharacteristics,
       ],
       // Microphone Service
       [
@@ -769,6 +1105,116 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
         ],
       ],
     ]
+
+    // HKSV services (only if enabled)
+    if hksvEnabled {
+      // Camera Operating Mode Service
+      services.append([
+        "iid": Self.iidOperatingModeService,
+        "type": Self.uuidCameraOperatingMode,
+        "characteristics": [
+          [
+            "iid": Self.iidHomeKitCameraActive,
+            "type": Self.uuidHomeKitCameraActive, "format": "bool",
+            "perms": ["pr", "pw", "ev"], "value": homeKitCameraActive,
+          ],
+          [
+            "iid": Self.iidEventSnapshotsActive,
+            "type": Self.uuidEventSnapshotsActive, "format": "bool",
+            "perms": ["pr", "pw", "ev"], "value": eventSnapshotsActive,
+          ],
+          [
+            "iid": Self.iidPeriodicSnapshotsActive,
+            "type": Self.uuidPeriodicSnapshotsActive, "format": "bool",
+            "perms": ["pr", "pw", "ev"], "value": periodicSnapshotsActive,
+          ],
+        ],
+      ])
+
+      // Camera Event Recording Management Service
+      services.append([
+        "iid": Self.iidRecordingManagementService,
+        "type": Self.uuidCameraEventRecordingManagement,
+        "linked": [Self.iidMotionSensorService, Self.iidDataStreamService],
+        "characteristics": [
+          [
+            "iid": Self.iidRecordingActive,
+            "type": Self.uuidActive, "format": "uint8",
+            "perms": ["pr", "pw", "ev"], "value": recordingActive,
+            "minValue": 0, "maxValue": 1,
+          ],
+          [
+            "iid": Self.iidSupportedCameraRecordingConfig,
+            "type": Self.uuidSupportedCameraRecordingConfig, "format": "tlv8",
+            "perms": ["pr"],
+            "value": supportedCameraRecordingConfig().base64(),
+          ],
+          [
+            "iid": Self.iidSupportedVideoRecordingConfig,
+            "type": Self.uuidSupportedVideoRecordingConfig, "format": "tlv8",
+            "perms": ["pr"],
+            "value": supportedVideoRecordingConfig().base64(),
+          ],
+          [
+            "iid": Self.iidSupportedAudioRecordingConfig,
+            "type": Self.uuidSupportedAudioRecordingConfig, "format": "tlv8",
+            "perms": ["pr"],
+            "value": supportedAudioRecordingConfig().base64(),
+          ],
+          [
+            "iid": Self.iidSelectedCameraRecordingConfig,
+            "type": Self.uuidSelectedCameraRecordingConfig, "format": "tlv8",
+            "perms": ["pr", "pw"],
+            "value": selectedRecordingConfig.base64EncodedString(),
+          ],
+          [
+            "iid": Self.iidRecordingAudioActive,
+            "type": Self.uuidRecordingAudioActive, "format": "uint8",
+            "perms": ["pr", "pw", "ev"], "value": recordingAudioActive,
+            "minValue": 0, "maxValue": 1,
+          ],
+        ],
+      ])
+
+      // Motion Sensor Service (linked to recording management)
+      services.append([
+        "iid": Self.iidMotionSensorService,
+        "type": Self.uuidMotionSensor,
+        "characteristics": [
+          [
+            "iid": Self.iidMotionDetected,
+            "type": Self.uuidMotionDetected, "format": "bool",
+            "perms": ["pr", "ev"], "value": isMotionDetected,
+          ]
+        ],
+      ])
+
+      // DataStream Transport Management Service
+      services.append([
+        "iid": Self.iidDataStreamService,
+        "type": Self.uuidDataStreamTransportManagement,
+        "characteristics": [
+          [
+            "iid": Self.iidSupportedDataStreamConfig,
+            "type": Self.uuidSupportedDataStreamTransportConfig, "format": "tlv8",
+            "perms": ["pr"],
+            "value": supportedDataStreamConfig().base64(),
+          ],
+          [
+            "iid": Self.iidSetupDataStreamTransport,
+            "type": Self.uuidSetupDataStreamTransport, "format": "tlv8",
+            "perms": ["pr", "pw"],
+            "value": setupDataStreamResponse.base64EncodedString(),
+          ],
+          [
+            "iid": Self.iidDataStreamVersion,
+            "type": Self.uuidVersion, "format": "string",
+            "perms": ["pr"], "value": "1.0",
+          ],
+        ],
+      ])
+    }
+
     if let battery = batteryServiceJSON(state: batteryState) {
       services.append(battery)
     }

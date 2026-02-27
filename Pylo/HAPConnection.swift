@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Network
 import os
@@ -31,6 +32,9 @@ final class HAPConnection {
   /// The pairing session state (tracks in-progress pair-setup/verify).
   var pairSetupState: PairSetupSession?
   var pairVerifyState: PairVerifySession?
+
+  /// The Curve25519 shared secret from pair-verify, stored for HDS key derivation.
+  var pairVerifySharedSecret: SharedSecret?
 
   init(id: String, connection: NWConnection, server: HAPServer, queue: DispatchQueue) {
     self.id = id
@@ -388,9 +392,26 @@ final class HAPConnection {
       return
     }
 
+    // Respect Camera Operating Mode snapshot settings
+    let reason = json["reason"] as? Int
+    if camera.hksvEnabled {
+      if reason == 0 && !camera.periodicSnapshotsActive {
+        let body = try? JSONSerialization.data(withJSONObject: ["status": -70412])
+        sendResponse(HTTPResponse(status: 200, body: body, contentType: "application/hap+json"))
+        return
+      }
+      if reason == 1 && !camera.eventSnapshotsActive {
+        let body = try? JSONSerialization.data(withJSONObject: ["status": -70412])
+        sendResponse(HTTPResponse(status: 200, body: body, contentType: "application/hap+json"))
+        return
+      }
+    }
+
     let width = json["image-width"] as? Int ?? 320
     let height = json["image-height"] as? Int ?? 240
-    logger.info("Snapshot requested: \(width)x\(height) from aid \(aid)")
+    logger.info(
+      "Snapshot requested: \(width)x\(height) from aid \(aid), reason=\(reason.map(String.init) ?? "none")"
+    )
 
     DispatchQueue.global(qos: .userInitiated).async { [weak self] in
       let jpeg = camera.captureSnapshot(width: width, height: height)

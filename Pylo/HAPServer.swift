@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Network
 import os
@@ -32,6 +33,9 @@ final class HAPServer {
 
   /// Device identity (long-term Ed25519 key pair).
   let deviceIdentity: DeviceIdentity
+
+  /// HDS (HomeKit Data Stream) handler for HKSV video transfer.
+  var dataStream: HAPDataStream?
 
   /// Configuration number — derived from a hash of the accessory database structure
   /// so it updates automatically whenever services or characteristics change.
@@ -101,7 +105,22 @@ final class HAPServer {
     listener.start(queue: queue)
   }
 
+  /// Look up the pair-verify shared secret from any active verified connection.
+  /// Used by HDS to derive its encryption keys.
+  func sharedSecretForVerifiedConnection() -> SharedSecret? {
+    queue.sync {
+      for conn in connections.values {
+        if let secret = conn.pairVerifySharedSecret {
+          return secret
+        }
+      }
+      return nil
+    }
+  }
+
   func stop() {
+    dataStream?.stop()
+    dataStream = nil
     // Remove connections from the dictionary first, then cancel them.
     // This avoids a deadlock: NWConnection.cancel() fires
     // stateUpdateHandler(.cancelled) on this same serial queue, which
