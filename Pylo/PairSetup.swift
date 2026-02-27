@@ -180,6 +180,12 @@ nonisolated enum PairSetupHandler {
   private static func handleM1(tlv: [TLV8.Tag: Data], connection: HAPConnection, server: HAPServer)
     -> HTTPResponse
   {
+    // Reject if a pair-setup session is already in progress on this connection
+    if connection.pairSetupState != nil {
+      logger.warning("Pair-setup M1 received while session already in progress")
+      return errorResponse(state: 0x02, error: .busy)
+    }
+
     // Reject if rate-limited (HAP spec §5.6.1)
     if throttle.isThrottled() {
       logger.warning("Pair-setup throttled after \(throttle.failedAttempts) failed attempts")
