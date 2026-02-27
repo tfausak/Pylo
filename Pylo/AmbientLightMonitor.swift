@@ -174,6 +174,9 @@ nonisolated final class AmbientLightMonitor: @unchecked Sendable {
       return (t, s)
     }
     oldTimer?.cancel()
+    // Drain timerQueue so any in-flight event handler finishes before we
+    // stop the session — prevents reading device properties during teardown.
+    timerQueue.sync {}
     // stopRunning() must execute on sessionQueue but we must avoid sync-on-self
     // deadlocks if the caller is already on sessionQueue.
     let stopBlock = { oldSession?.stopRunning() }
