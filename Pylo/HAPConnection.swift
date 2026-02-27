@@ -576,6 +576,12 @@ nonisolated struct HTTPRequest {
 
     var headers: [String: String] = [:]
     for line in lines.dropFirst() {
+      // Reject obsolete line folding (RFC 7230 §3.2.4): a continuation line
+      // starting with SP or HTAB could smuggle a split Content-Length.
+      if let first = line.first, first == " " || first == "\t" {
+        buffer.removeAll()
+        return .malformed
+      }
       if let colonIndex = line.firstIndex(of: ":") {
         let key = line[line.startIndex..<colonIndex].trimmingCharacters(in: .whitespaces)
           .lowercased()

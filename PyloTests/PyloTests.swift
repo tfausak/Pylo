@@ -412,6 +412,30 @@ struct HTTPRequestTests {
     }
   }
 
+  @Test("parseAndConsume rejects obsolete line folding (RFC 7230 §3.2.4)")
+  func rejectsLineFolding() {
+    let raw =
+      "POST /pair-setup HTTP/1.1\r\nContent-Length:\r\n 5\r\n\r\nhello"
+    var buffer = Data(raw.utf8)
+    if case .malformed = HTTPRequest.parseAndConsume(&buffer) {
+      #expect(buffer.isEmpty)
+    } else {
+      Issue.record("Expected .malformed for obsolete line folding")
+    }
+  }
+
+  @Test("parseAndConsume rejects tab-folded header lines")
+  func rejectsTabFolding() {
+    let raw =
+      "GET /accessories HTTP/1.1\r\nHost: example\r\n\tfolded-value\r\n\r\n"
+    var buffer = Data(raw.utf8)
+    if case .malformed = HTTPRequest.parseAndConsume(&buffer) {
+      #expect(buffer.isEmpty)
+    } else {
+      Issue.record("Expected .malformed for tab-folded header")
+    }
+  }
+
   @Test("parseAndConsume accepts duplicate identical Content-Length")
   func acceptsIdenticalContentLength() {
     let raw =
