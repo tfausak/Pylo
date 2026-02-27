@@ -228,13 +228,14 @@ nonisolated final class SRPServer {
 
   /// Constant-time comparison to prevent timing attacks.
   /// Uses the platform's timingsafe_bcmp which is immune to compiler optimizations.
+  /// Hashes both inputs to a fixed length before comparing so that a length
+  /// mismatch does not leak timing information via an early return.
   private static func constantTimeCompare(_ lhs: Data, _ rhs: Data) -> Bool {
-    guard lhs.count == rhs.count else {
-      return false
-    }
-    return lhs.withUnsafeBytes { lhsPtr in
-      rhs.withUnsafeBytes { rhsPtr in
-        timingsafe_bcmp(lhsPtr.baseAddress, rhsPtr.baseAddress, lhs.count) == 0
+    let lhsHash = Data(SHA512.hash(data: lhs))
+    let rhsHash = Data(SHA512.hash(data: rhs))
+    return lhsHash.withUnsafeBytes { lhsPtr in
+      rhsHash.withUnsafeBytes { rhsPtr in
+        timingsafe_bcmp(lhsPtr.baseAddress, rhsPtr.baseAddress, lhsHash.count) == 0
       }
     }
   }
