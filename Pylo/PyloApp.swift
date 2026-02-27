@@ -205,6 +205,7 @@ final class HAPViewModel {
   /// while restoring persisted preferences during start().
   @ObservationIgnored var isRestoring = false
 
+  @ObservationIgnored private var startTask: Task<Void, Never>?
   @ObservationIgnored private var server: HAPServer?
   @ObservationIgnored private var lightMonitor: AmbientLightMonitor?
   @ObservationIgnored private var motionMonitor: MotionMonitor?
@@ -286,7 +287,7 @@ final class HAPViewModel {
       minimumBitrate: videoQuality.minimumBitrate
     )
 
-    Task { @MainActor in
+    startTask = Task { @MainActor in
       // Stage 2: Create server and all accessories off MainActor.
       // PairingStore (file I/O), DeviceIdentity (Keychain), and NWListener
       // creation are the heaviest operations moved off the main thread.
@@ -298,6 +299,12 @@ final class HAPViewModel {
       } catch {
         self.isStarting = false
         self.statusMessage = "Failed to start: \(error.localizedDescription)"
+        return
+      }
+
+      guard !Task.isCancelled else {
+        setup.server.stop()
+        self.isStarting = false
         return
       }
 
@@ -436,6 +443,9 @@ final class HAPViewModel {
 
   @MainActor
   func stop() {
+    startTask?.cancel()
+    startTask = nil
+    isStarting = false
     batteryMonitor?.stop()
     batteryMonitor = nil
     motionMonitor?.stop()
