@@ -73,26 +73,17 @@ nonisolated enum PairingsHandler {
     // HAP spec §5.10: if the identifier already exists, the public key must
     // match — only permission updates are allowed. Silently replacing the
     // key would allow an admin to hijack another controller's identity.
+    // HAP spec §5.10: if the identifier already exists, the public key must
+    // match — only permission updates are allowed.
     if let existing = server.pairingStore.getPairing(identifier: id) {
       guard existing.publicKey == publicKey else {
         logger.warning("Add pairing rejected: key mismatch for existing identifier \(id)")
         return errorResponse(error: .unknown)
       }
-      // Same key — update permissions only
-      server.pairingStore.addPairing(
-        PairingStore.Pairing(
-          identifier: id,
-          publicKey: publicKey,
-          isAdmin: isAdmin
-        ))
-    } else {
-      server.pairingStore.addPairing(
-        PairingStore.Pairing(
-          identifier: id,
-          publicKey: publicKey,
-          isAdmin: isAdmin
-        ))
     }
+    server.pairingStore.addPairing(
+      PairingStore.Pairing(identifier: id, publicKey: publicKey, isAdmin: isAdmin)
+    )
 
     logger.info("Added pairing: \(id)")
     return successResponse()
