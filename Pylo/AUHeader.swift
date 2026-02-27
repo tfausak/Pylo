@@ -8,9 +8,9 @@ nonisolated enum AUHeader {
   /// Prepend a 4-byte RFC 3640 AU header section to raw AAC data.
   /// Layout: 2-byte AU-headers-length (0x0010 = one 16-bit AU header)
   ///       + 2-byte AU header (13-bit AU-size << 3 | AU-Index=0).
-  static func add(to aacData: Data) -> Data {
-    // AU-size is 13 bits; skip oversized frames rather than crashing a live audio stream.
-    guard aacData.count <= 8191 else { return aacData }
+  static func add(to aacData: Data) -> Data? {
+    // AU-size is 13 bits; return nil for oversized frames.
+    guard aacData.count <= 8191 else { return nil }
     let auSize = UInt16(aacData.count)
     var header = Data(count: 4)
     header[0] = 0x00  // AU-headers-length MSB

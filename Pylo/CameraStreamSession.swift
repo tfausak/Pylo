@@ -1025,7 +1025,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     let aacData = Data(bytes: outputBuffer, count: encodedSize)
 
     // Wrap in RFC 3640 AU header section (HomeKit expects this framing)
-    let framedPayload = AUHeader.add(to: aacData)
+    guard let framedPayload = AUHeader.add(to: aacData) else { return }
 
     sendAudioRTPPacket(payload: framedPayload)
   }

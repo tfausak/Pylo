@@ -1453,25 +1453,25 @@ struct AUHeaderTests {
   @Test("Roundtrip: strip(add(data)) == data")
   func roundtrip() {
     let original = Data([0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02, 0x03])
-    let framed = AUHeader.add(to: original)
+    let framed = try #require(AUHeader.add(to: original))
     let stripped = AUHeader.strip(from: framed)
     #expect(stripped == original)
   }
 
   @Test("add() produces 0x00 0x10 prefix")
-  func addPrefix() {
+  func addPrefix() throws {
     let payload = Data([0xAA, 0xBB])
-    let framed = AUHeader.add(to: payload)
+    let framed = try #require(AUHeader.add(to: payload))
     #expect(framed.count == payload.count + 4)
     #expect(framed[0] == 0x00)
     #expect(framed[1] == 0x10)
   }
 
   @Test("AU-size field encodes correctly for small payload")
-  func auSizeSmall() {
+  func auSizeSmall() throws {
     // Payload size 10: AU-size field = 10 << 3 = 80 = 0x0050
     let payload = Data(repeating: 0xFF, count: 10)
-    let framed = AUHeader.add(to: payload)
+    let framed = try #require(AUHeader.add(to: payload))
     let auSizeBits = UInt16(framed[2]) << 8 | UInt16(framed[3])
     // Upper 13 bits = payload size, lower 3 bits = AU-Index = 0
     #expect(auSizeBits >> 3 == 10)
@@ -1479,9 +1479,9 @@ struct AUHeaderTests {
   }
 
   @Test("AU-size field encodes correctly for larger payload")
-  func auSizeLarger() {
+  func auSizeLarger() throws {
     let payload = Data(repeating: 0xAA, count: 500)
-    let framed = AUHeader.add(to: payload)
+    let framed = try #require(AUHeader.add(to: payload))
     let auSizeBits = UInt16(framed[2]) << 8 | UInt16(framed[3])
     #expect(auSizeBits >> 3 == 500)
     #expect(auSizeBits & 0x07 == 0)
@@ -1509,8 +1509,8 @@ struct AUHeaderTests {
   }
 
   @Test("add() with empty payload")
-  func addEmpty() {
-    let framed = AUHeader.add(to: Data())
+  func addEmpty() throws {
+    let framed = try #require(AUHeader.add(to: Data()))
     #expect(framed.count == 4)
     #expect(framed[0] == 0x00)
     #expect(framed[1] == 0x10)
@@ -1519,18 +1519,16 @@ struct AUHeaderTests {
   }
 
   @Test("add() with maximum 13-bit payload succeeds")
-  func addMaxPayload() {
-    let payload = Data(repeating: 0xAA, count: 8191)
-    let framed = AUHeader.add(to: payload)
+  func addMaxPayload() throws {
+    let framed = try #require(AUHeader.add(to: Data(repeating: 0xAA, count: 8191)))
     #expect(framed.count == 4 + 8191)
   }
 
-  @Test("add() with oversized payload returns data unchanged")
+  @Test("add() with oversized payload returns nil")
   func addOversizedPayload() {
     let payload = Data(repeating: 0xBB, count: 8192)
     let result = AUHeader.add(to: payload)
-    // Oversized frames should be returned without a header rather than crashing
-    #expect(result == payload)
+    #expect(result == nil)
   }
 }
 
