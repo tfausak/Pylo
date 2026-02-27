@@ -12,12 +12,12 @@ enum KeychainHelper {
   private static let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "Keychain")
 
   @discardableResult
-  static func save(key: String, data: Data) -> Bool {
+  static func save(key: String, data: Data, accessible: CFString = kSecAttrAccessibleAfterFirstUnlock) -> Bool {
     let query: [String: Any] = [
       kSecClass as String: kSecClassGenericPassword,
       kSecAttrService as String: service,
       kSecAttrAccount as String: key,
-      kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
+      kSecAttrAccessible as String: accessible,
       kSecValueData as String: data,
     ]
     SecItemDelete(query as CFDictionary)
@@ -44,7 +44,7 @@ enum KeychainHelper {
   }
 
   static func saveSigningKey(_ rawKey: Data) {
-    save(key: signingKeyAccount, data: rawKey)
+    save(key: signingKeyAccount, data: rawKey, accessible: kSecAttrAccessibleWhenUnlockedThisDeviceOnly)
   }
 
   static func loadSigningKey() -> Data? {
