@@ -187,7 +187,7 @@ nonisolated extension HAPAccessoryProtocol {
 
 // MARK: - HAP Accessory
 
-nonisolated final class HAPAccessory: HAPAccessoryProtocol {
+nonisolated final class HAPAccessory: HAPAccessoryProtocol, @unchecked Sendable {
 
   let name: String
   let model: String
@@ -208,12 +208,18 @@ nonisolated final class HAPAccessory: HAPAccessoryProtocol {
 
   private(set) var isOn: Bool {
     get { lightState.withLock { $0.isOn } }
-    set { lightState.withLock { $0.isOn = newValue }; applyTorchState() }
+    set {
+      lightState.withLock { $0.isOn = newValue }
+      applyTorchState()
+    }
   }
 
   private(set) var brightness: Int {
     get { lightState.withLock { $0.brightness } }
-    set { lightState.withLock { $0.brightness = newValue }; applyTorchState() }
+    set {
+      lightState.withLock { $0.brightness = newValue }
+      applyTorchState()
+    }
   }
 
   /// Shared battery state — nil means no battery, omit battery service.
@@ -414,7 +420,7 @@ nonisolated final class HAPAccessory: HAPAccessoryProtocol {
 
 /// Lightweight accessory representing the bridge itself (aid=1).
 /// Only exposes the Accessory Information service.
-nonisolated final class HAPBridgeInfo: HAPAccessoryProtocol {
+nonisolated final class HAPBridgeInfo: HAPAccessoryProtocol, @unchecked Sendable {
 
   let aid: Int = 1
   let name: String
@@ -475,7 +481,7 @@ nonisolated final class HAPBridgeInfo: HAPAccessoryProtocol {
 // MARK: - Light Sensor Accessory
 
 /// Standalone light sensor accessory for the bridge.
-nonisolated final class HAPLightSensorAccessory: HAPAccessoryProtocol {
+nonisolated final class HAPLightSensorAccessory: HAPAccessoryProtocol, @unchecked Sendable {
 
   let aid: Int
   let name: String
@@ -573,7 +579,7 @@ nonisolated final class HAPLightSensorAccessory: HAPAccessoryProtocol {
 // MARK: - Motion Sensor Accessory
 
 /// Standalone motion sensor accessory for the bridge.
-nonisolated final class HAPMotionSensorAccessory: HAPAccessoryProtocol {
+nonisolated final class HAPMotionSensorAccessory: HAPAccessoryProtocol, @unchecked Sendable {
 
   let aid: Int
   let name: String

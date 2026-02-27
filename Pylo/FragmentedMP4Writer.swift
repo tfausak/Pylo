@@ -13,7 +13,7 @@ struct MP4Fragment {
 }
 
 /// Thread-safe circular buffer holding the most recent fMP4 fragments for prebuffering.
-final class FragmentRingBuffer {
+nonisolated final class FragmentRingBuffer {
 
   private let capacity: Int
 
@@ -66,7 +66,7 @@ final class FragmentRingBuffer {
 
 /// Generates fragmented MP4 segments from H.264 sample buffers using AVAssetWriter.
 /// Each segment is a ~4-second fMP4 fragment stored in the ring buffer for HKSV prebuffering.
-final class FragmentedMP4Writer {
+nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
 
   /// Ring buffer holding completed fragments for HKSV prebuffering.
   let ringBuffer = FragmentRingBuffer(capacity: 3)

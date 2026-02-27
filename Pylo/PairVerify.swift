@@ -7,7 +7,7 @@ import os
 // This is a 2-step exchange using Curve25519 ECDH.
 // Much simpler than pair-setup — no SRP involved.
 
-enum PairVerifyHandler {
+nonisolated enum PairVerifyHandler {
 
   private static let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "PairVerify")
 

@@ -1,14 +1,14 @@
-import AVFoundation
+@preconcurrency import AVFoundation
 import CoreImage
 import Foundation
-import UIKit
+@preconcurrency import UIKit
 import os
 
 // MARK: - Camera Accessory
 
 /// HAP camera sub-accessory exposing CameraRTPStreamManagement.
 /// Handles the full pipeline: TLV8 negotiation → video capture → H.264 → RTP → SRTP → UDP.
-final class HAPCameraAccessory: HAPAccessoryProtocol {
+nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sendable {
 
   let aid: Int
   let name: String
@@ -1225,7 +1225,8 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
 
 // MARK: - Frame Grabber (for silent snapshots)
 
-private final class FrameGrabber: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
+private nonisolated final class FrameGrabber: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate
+{
   private let semaphore = DispatchSemaphore(value: 0)
   /// CGImage copied from the pixel buffer inside the delegate callback, so
   /// the backing CVPixelBuffer can be safely recycled by AVFoundation.

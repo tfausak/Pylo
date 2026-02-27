@@ -4,7 +4,7 @@ import os
 
 // MARK: - Keychain Helper
 
-enum KeychainHelper {
+nonisolated enum KeychainHelper {
 
   private static let service = "me.fausak.taylor.Pylo"
   private static let signingKeyAccount = "device-signing-key"
@@ -12,7 +12,9 @@ enum KeychainHelper {
   private static let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "Keychain")
 
   @discardableResult
-  static func save(key: String, data: Data, accessible: CFString = kSecAttrAccessibleAfterFirstUnlock) -> Bool {
+  static func save(
+    key: String, data: Data, accessible: CFString = kSecAttrAccessibleAfterFirstUnlock
+  ) -> Bool {
     let query: [String: Any] = [
       kSecClass as String: kSecClassGenericPassword,
       kSecAttrService as String: service,
@@ -44,7 +46,9 @@ enum KeychainHelper {
   }
 
   static func saveSigningKey(_ rawKey: Data) {
-    save(key: signingKeyAccount, data: rawKey, accessible: kSecAttrAccessibleWhenUnlockedThisDeviceOnly)
+    save(
+      key: signingKeyAccount, data: rawKey, accessible: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+    )
   }
 
   static func loadSigningKey() -> Data? {
@@ -64,7 +68,7 @@ enum KeychainHelper {
 // MARK: - Device Identity
 // The accessory's long-term Ed25519 key pair and device ID.
 
-final class DeviceIdentity {
+nonisolated final class DeviceIdentity: @unchecked Sendable {
 
   private static let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "Identity")
 
@@ -116,7 +120,7 @@ final class DeviceIdentity {
 // MARK: - Pairing Store
 // Stores paired controllers (their Ed25519 public keys and identifiers).
 
-nonisolated final class PairingStore {
+nonisolated final class PairingStore: @unchecked Sendable {
 
   struct Pairing: Codable {
     let identifier: String  // Controller's pairing ID (UUID string)
@@ -322,7 +326,7 @@ nonisolated final class EncryptionContext {
 // MARK: - Pair Setup Session State
 
 /// Tracks in-progress pair-setup state for a connection.
-final class PairSetupSession {
+nonisolated final class PairSetupSession {
   // SRP session values — filled in progressively during the M1→M6 exchange.
   var salt: Data?
   var serverPublicKey: Data?  // B
@@ -336,7 +340,7 @@ final class PairSetupSession {
 // MARK: - Pair Verify Session State
 
 /// Tracks in-progress pair-verify state for a connection.
-final class PairVerifySession {
+nonisolated final class PairVerifySession {
   var sharedSecret: SharedSecret?
   var accessoryEphemeralPrivateKey: Curve25519.KeyAgreement.PrivateKey?
   var controllerEphemeralPublicKey: Curve25519.KeyAgreement.PublicKey?
@@ -345,7 +349,7 @@ final class PairVerifySession {
 
 // MARK: - HKDF Convenience
 
-extension HKDF<SHA512> {
+nonisolated extension HKDF<SHA512> {
   /// Derive raw bytes using HKDF-SHA512 — use for non-key material (e.g. signature payloads).
   static func deriveKey(
     inputKeyMaterial: Data,

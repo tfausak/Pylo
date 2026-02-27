@@ -5,7 +5,7 @@ import Foundation
 // for pairing data exchange. Values longer than 255 bytes are split across
 // consecutive TLV items with the same type.
 
-enum TLV8 {
+nonisolated enum TLV8 {
 
   // MARK: - HAP TLV Types (Table 5-6 in HAP R2 spec)
 

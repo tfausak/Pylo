@@ -1,8 +1,8 @@
-import AVFoundation
+@preconcurrency import AVFoundation
 import os
 
 /// A camera that can be used for ambient light sensing.
-struct CameraOption: Identifiable, Hashable {
+struct CameraOption: Identifiable, Hashable, Sendable {
   let id: String  // AVCaptureDevice.uniqueID
   let name: String
   let fNumber: Float
@@ -25,7 +25,7 @@ struct CameraOption: Identifiable, Hashable {
 
 /// Monitors ambient light using a camera's auto-exposure metadata.
 /// Estimates lux from ISO and exposure duration: `lux = (K × f²) / (ISO × t)`
-final class AmbientLightMonitor {
+nonisolated final class AmbientLightMonitor: @unchecked Sendable {
 
   var onLuxUpdate: ((Float) -> Void)?
 

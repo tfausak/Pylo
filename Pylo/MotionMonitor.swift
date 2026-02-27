@@ -3,7 +3,7 @@ import os
 
 /// Monitors device motion using the accelerometer and reports motion detected / not detected.
 /// At rest the accelerometer reads ~1g; significant deviation from that indicates movement.
-final class MotionMonitor {
+nonisolated final class MotionMonitor: @unchecked Sendable {
 
   var onMotionChange: ((Bool) -> Void)?
 

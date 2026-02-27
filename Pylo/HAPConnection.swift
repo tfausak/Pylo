@@ -8,7 +8,7 @@ import os
 // Before pairing is verified, HTTP is plaintext. After pair-verify completes,
 // all HTTP traffic is encrypted with ChaCha20-Poly1305.
 
-final class HAPConnection {
+nonisolated final class HAPConnection: @unchecked Sendable {
 
   let id: String
   private let connection: NWConnection
@@ -458,7 +458,7 @@ nonisolated struct CharacteristicID: Hashable, Sendable {
 
 // MARK: - Minimal HTTP Request/Response
 
-struct HTTPRequest {
+nonisolated struct HTTPRequest {
   let method: String
   let path: String
   let headers: [String: String]
@@ -538,7 +538,7 @@ struct HTTPRequest {
   }
 }
 
-struct HTTPResponse {
+nonisolated struct HTTPResponse {
   let status: Int
   let body: Data?
   let contentType: String

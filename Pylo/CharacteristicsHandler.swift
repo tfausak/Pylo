@@ -3,7 +3,7 @@ import Foundation
 // MARK: - Characteristics Handler
 // Handles GET /characteristics?id=1.9,1.10 and PUT /characteristics
 
-enum CharacteristicsHandler {
+nonisolated enum CharacteristicsHandler {
 
   static func handleGet(request: HTTPRequest, server: HAPServer) -> HTTPResponse {
     // Parse query string: /characteristics?id=1.9,1.10

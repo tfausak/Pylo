@@ -68,7 +68,7 @@ nonisolated final class PairSetupThrottle {
   }
 }
 
-enum PairSetupHandler {
+nonisolated enum PairSetupHandler {
 
   private static let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "PairSetup")
 

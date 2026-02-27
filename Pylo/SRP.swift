@@ -11,7 +11,7 @@ import Foundation
 //   - Password: the setup code (e.g. "111-22-333")
 
 /// SRP-6a server session for HAP pair-setup.
-final class SRPServer {
+nonisolated final class SRPServer {
 
   // MARK: - 3072-bit SRP Group (RFC 5054, Appendix A)
 

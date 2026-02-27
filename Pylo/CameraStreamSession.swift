@@ -1,6 +1,7 @@
-import AVFoundation
+@preconcurrency import AVFoundation
 import AudioToolbox
 import CoreImage
+@preconcurrency import CoreMedia
 import Foundation
 import VideoToolbox
 import os
@@ -9,7 +10,7 @@ import os
 
 /// Holds all state for a single streaming session: addresses, ports, SRTP keys, and the
 /// video capture + RTP pipeline.
-final class CameraStreamSession {
+nonisolated final class CameraStreamSession: @unchecked Sendable {
 
   let sessionID: Data
   let controllerAddress: String
@@ -127,7 +128,7 @@ final class CameraStreamSession {
   var onSnapshotFrame: ((Data) -> Void)?
   private var snapshotFrameCounter = 0
   private let snapshotInterval = 150  // every ~5s at 30fps
-  private lazy var snapshotCIContext = CIContext()
+  private let snapshotCIContext = CIContext()
 
   // Audio encoder state — accumulates PCM until we have a full AAC-ELD frame
   private var pcmAccumulator = Data()
@@ -573,8 +574,10 @@ final class CameraStreamSession {
         guard let sampleBuffer, let self else { return }
         // Feed to fMP4 writer for HKSV prebuffering (if active)
         self.fragmentWriter?.appendVideoSample(sampleBuffer)
+        // CMSampleBuffer is immutable after creation and safe to send across threads.
+        nonisolated(unsafe) let buffer = sampleBuffer
         self.rtpQueue.async {
-          self.processEncodedFrame(sampleBuffer)
+          self.processEncodedFrame(buffer)
         }
       }
     )
@@ -606,7 +609,8 @@ final class CameraStreamSession {
 
     rtpFrameCount += 1
     if isKeyframe || rtpFrameCount % 300 == 1 {
-      logger.debug("Frame \(self.rtpFrameCount) encoded: \(totalLength) bytes, keyframe=\(isKeyframe)")
+      logger.debug(
+        "Frame \(self.rtpFrameCount) encoded: \(totalLength) bytes, keyframe=\(isKeyframe)")
     }
 
     if isKeyframe, let formatDesc = CMSampleBufferGetFormatDescription(sampleBuffer) {
@@ -1388,7 +1392,9 @@ final class CameraStreamSession {
 }
 // MARK: - Video Capture Delegate
 
-private final class VideoCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
+private nonisolated final class VideoCaptureDelegate: NSObject,
+  AVCaptureVideoDataOutputSampleBufferDelegate
+{
   let handler: (CVPixelBuffer, CMTime) -> Void
 
   init(handler: @escaping (CVPixelBuffer, CMTime) -> Void) {
@@ -1424,7 +1430,9 @@ private struct AudioDecoderInput {
 
 // MARK: - Audio Capture Delegate
 
-private final class AudioCaptureDelegate: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
+private nonisolated final class AudioCaptureDelegate: NSObject,
+  AVCaptureAudioDataOutputSampleBufferDelegate
+{
   let handler: (CMSampleBuffer) -> Void
 
   init(handler: @escaping (CMSampleBuffer) -> Void) {

@@ -13,7 +13,7 @@ import os
 // (proprietary protocols) and 2.5.1 (public APIs). Sideloading is the
 // fallback distribution method.
 
-final class HAPServer {
+nonisolated final class HAPServer: @unchecked Sendable {
 
   private let listener: NWListener
   private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "Server")

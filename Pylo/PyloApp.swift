@@ -275,64 +275,49 @@ final class HAPViewModel {
     startedConfig = AccessoryConfig(from: self)
     statusMessage = "Starting…"
 
-    // Defer heavy work so the UI can render the starting state first.
+    // Stage 1: Capture config values on MainActor before leaving isolation.
+    let config = StartConfig(
+      serial: UIDevice.current.identifierForVendor?.uuidString ?? "000000",
+      flashlightEnabled: flashlightEnabled,
+      selectedStreamCameraID: selectedStreamCamera?.id,
+      selectedCameraOption: selectedCamera,
+      motionEnabled: motionEnabled,
+      motionThreshold: motionSensitivity.threshold,
+      minimumBitrate: videoQuality.minimumBitrate
+    )
+
     Task { @MainActor in
-      await Task.yield()
+      // Stage 2: Create server and all accessories off MainActor.
+      // PairingStore (file I/O), DeviceIdentity (Keychain), and NWListener
+      // creation are the heaviest operations moved off the main thread.
+      let setup: ServerSetup
+      do {
+        setup = try await Task.detached {
+          try createServerSetup(config: config)
+        }.value
+      } catch {
+        self.isStarting = false
+        self.statusMessage = "Failed to start: \(error.localizedDescription)"
+        return
+      }
 
-      let serial = UIDevice.current.identifierForVendor?.uuidString ?? "000000"
+      // Stage 3: Wire UI-updating callbacks, store references, and start
+      // monitors — all on MainActor.
+      self.server = setup.server
+      self.lightMonitor = setup.lightMonitor
+      self.motionMonitor = setup.motionMonitor
+      self.cameraAccessory = config.selectedStreamCameraID != nil ? setup.camera : nil
+      self.fragmentWriter = setup.fmp4Writer
+      self.dataStreamHandler = setup.dataStream
+      self.isMotionAvailable = setup.isMotionAvailable
 
-      let bridge = HAPBridgeInfo(
-        name: "Pylo Bridge",
-        model: "HAP-PoC",
-        manufacturer: "DIY",
-        serialNumber: serial,
-        firmwareRevision: "0.1.0"
-      )
+      // Wire state-change callbacks that update published UI state
+      var enabledAccessories: [any HAPAccessoryProtocol] = []
 
-      let lightbulb = HAPAccessory(
-        aid: 2,
-        name: "Pylo Flashlight",
-        model: "HAP-PoC",
-        manufacturer: "DIY",
-        serialNumber: serial + "-light",
-        firmwareRevision: "0.1.0"
-      )
-
-      let camera = HAPCameraAccessory(
-        aid: 3,
-        name: "Pylo Camera",
-        model: "HAP-PoC",
-        manufacturer: "DIY",
-        serialNumber: serial + "-cam",
-        firmwareRevision: "0.1.0"
-      )
-
-      let lightSensor = HAPLightSensorAccessory(
-        aid: 4,
-        name: "Pylo Light Sensor",
-        model: "HAP-PoC",
-        manufacturer: "DIY",
-        serialNumber: serial + "-lux",
-        firmwareRevision: "0.1.0"
-      )
-
-      let motionSensor = HAPMotionSensorAccessory(
-        aid: 5,
-        name: "Pylo Motion Sensor",
-        model: "HAP-PoC",
-        manufacturer: "DIY",
-        serialNumber: serial + "-motion",
-        firmwareRevision: "0.1.0"
-      )
-
-      let pairingStore = PairingStore()
-      let identity = DeviceIdentity()
-
-      // Wire up state change callbacks and build accessories list
-      var enabledAccessories: [HAPAccessoryProtocol] = []
-
-      if self.flashlightEnabled {
-        lightbulb.onStateChange = { [weak self] aid, iid, value in
+      if config.flashlightEnabled {
+        setup.lightbulb.onStateChange = {
+          [weak self, weak server = setup.server] aid, iid, value in
+          server?.notifySubscribers(aid: aid, iid: iid, value: value)
           Task { @MainActor in
             guard let self else { return }
             if iid == HAPAccessory.iidOn, case .bool(let on) = value {
@@ -340,14 +325,15 @@ final class HAPViewModel {
             } else if iid == HAPAccessory.iidBrightness, case .int(let b) = value {
               self.brightness = b
             }
-            self.server?.notifySubscribers(aid: aid, iid: iid, value: value)
           }
         }
-        enabledAccessories.append(lightbulb)
+        enabledAccessories.append(setup.lightbulb)
       }
 
-      if self.selectedStreamCamera != nil {
-        camera.onStateChange = { [weak self] aid, iid, value in
+      if config.selectedStreamCameraID != nil {
+        setup.camera.onStateChange = {
+          [weak self, weak server = setup.server] aid, iid, value in
+          server?.notifySubscribers(aid: aid, iid: iid, value: value)
           Task { @MainActor in
             guard let self else { return }
             if iid == HAPCameraAccessory.iidStreamingStatus,
@@ -356,51 +342,15 @@ final class HAPViewModel {
             {
               self.isCameraStreaming = data[data.startIndex + 2] == 1
             }
-            self.server?.notifySubscribers(aid: aid, iid: iid, value: value)
           }
         }
-        self.cameraAccessory = camera
-        camera.selectedCameraID = self.selectedStreamCamera?.id
-        camera.minimumBitrate = self.videoQuality.minimumBitrate
-        camera.hksvEnabled = true
-        enabledAccessories.append(camera)
-
-        // HKSV: Set up video motion detection on the camera
-        camera.onVideoMotionChange = { [weak camera] detected in
-          camera?.updateMotionDetected(detected)
-        }
-        camera.videoMotionEnabled = true
-
-        // HKSV: Set up fragmented MP4 writer for prebuffering
-        let fmp4Writer = FragmentedMP4Writer()
-        fmp4Writer.configure(width: 1920, height: 1080, fps: 30)
-        self.fragmentWriter = fmp4Writer
-
-        // HKSV: Set up HDS data stream
-        let dataStream = HAPDataStream()
-        dataStream.fragmentWriter = fmp4Writer
-        self.dataStreamHandler = dataStream
-
-        // Wire the DataStream setup callback
-        camera.onSetupDataStream = { [weak self, weak dataStream] requestData, respond in
-          guard let self, let dataStream else { return }
-          // Get the shared secret from the most recent verified connection
-          guard let secret = self.server?.sharedSecretForVerifiedConnection() else { return }
-          let responseData = dataStream.setupTransport(
-            requestTLV: requestData, sharedSecret: secret)
-          respond(responseData)
-        }
-
-        // Wire recording configuration changes
-        camera.onRecordingConfigChange = { [weak camera] active in
-          if active {
-            camera?.videoMotionEnabled = true
-          }
-        }
+        enabledAccessories.append(setup.camera)
       }
 
-      if self.selectedCamera != nil {
-        lightSensor.onStateChange = { [weak self] aid, iid, value in
+      if config.selectedCameraOption != nil {
+        setup.lightSensor.onStateChange = {
+          [weak self, weak server = setup.server] aid, iid, value in
+          server?.notifySubscribers(aid: aid, iid: iid, value: value)
           Task { @MainActor in
             guard let self else { return }
             if iid == HAPLightSensorAccessory.iidAmbientLightLevel,
@@ -408,30 +358,15 @@ final class HAPViewModel {
             {
               self.ambientLux = lux
             }
-            self.server?.notifySubscribers(aid: aid, iid: iid, value: value)
           }
         }
-        enabledAccessories.append(lightSensor)
+        enabledAccessories.append(setup.lightSensor)
       }
 
-      // Set up ambient light monitor
-      let monitor = AmbientLightMonitor()
-      monitor.onLuxUpdate = { [weak lightSensor] lux in
-        lightSensor?.updateAmbientLight(lux)
-      }
-      self.lightMonitor = monitor
-
-      // Pause/resume the light monitor around snapshot captures so only
-      // one AVCaptureSession is active at a time (iOS limitation).
-      camera.onSnapshotWillCapture = { [weak monitor] in
-        monitor?.pauseSession()
-      }
-      camera.onSnapshotDidCapture = { [weak monitor] in
-        monitor?.resumeSession()
-      }
-
-      if self.motionEnabled {
-        motionSensor.onStateChange = { [weak self] aid, iid, value in
+      if config.motionEnabled {
+        setup.motionSensor.onStateChange = {
+          [weak self, weak server = setup.server] aid, iid, value in
+          server?.notifySubscribers(aid: aid, iid: iid, value: value)
           Task { @MainActor in
             guard let self else { return }
             if iid == HAPMotionSensorAccessory.iidMotionDetected,
@@ -439,97 +374,63 @@ final class HAPViewModel {
             {
               self.isMotionDetected = detected
             }
-            self.server?.notifySubscribers(aid: aid, iid: iid, value: value)
           }
         }
-        enabledAccessories.append(motionSensor)
+        enabledAccessories.append(setup.motionSensor)
       }
 
-      // Set up motion monitor (accelerometer)
-      let motion = MotionMonitor()
-      motion.threshold = self.motionSensitivity.threshold
-      self.isMotionAvailable = motion.isAvailable
-      motion.onMotionChange = { [weak motionSensor] detected in
-        motionSensor?.updateMotionDetected(detected)
+      setup.server.pairingStore.onChange = { [weak self] in
+        Task { @MainActor in
+          withAnimation { self?.hasPairings = setup.server.pairingStore.isPaired }
+        }
       }
-      self.motionMonitor = motion
 
-      // Set up battery monitor — share a single BatteryState across all accessories
+      // Battery monitor — uses UIDevice which requires MainActor
       let battery = BatteryMonitor()
       battery.start()
       if battery.isAvailable {
         let sharedBatteryState = battery.currentState()
-        lightbulb.batteryState = sharedBatteryState
-        camera.batteryState = sharedBatteryState
-        lightSensor.batteryState = sharedBatteryState
-        motionSensor.batteryState = sharedBatteryState
+        setup.lightbulb.batteryState = sharedBatteryState
+        setup.camera.batteryState = sharedBatteryState
+        setup.lightSensor.batteryState = sharedBatteryState
+        setup.motionSensor.batteryState = sharedBatteryState
 
-        battery.onBatteryChange = { [weak self] state in
-          Task { @MainActor in
-            guard let self, let server = self.server else { return }
-            // Update shared state in-place
-            sharedBatteryState.level = state.level
-            sharedBatteryState.chargingState = state.chargingState
-            sharedBatteryState.statusLowBattery = state.statusLowBattery
-            // Notify subscribers for each enabled accessory
-            for accessory in enabledAccessories {
-              server.notifySubscribers(
-                aid: accessory.aid, iid: BatteryIID.batteryLevel,
-                value: .int(state.level))
-              server.notifySubscribers(
-                aid: accessory.aid, iid: BatteryIID.chargingState,
-                value: .int(state.chargingState))
-              server.notifySubscribers(
-                aid: accessory.aid, iid: BatteryIID.statusLowBattery,
-                value: .int(state.statusLowBattery))
-            }
+        battery.onBatteryChange = { [weak server = setup.server] state in
+          sharedBatteryState.level = state.level
+          sharedBatteryState.chargingState = state.chargingState
+          sharedBatteryState.statusLowBattery = state.statusLowBattery
+          guard let server else { return }
+          for accessory in enabledAccessories {
+            server.notifySubscribers(
+              aid: accessory.aid, iid: BatteryIID.batteryLevel,
+              value: .int(state.level))
+            server.notifySubscribers(
+              aid: accessory.aid, iid: BatteryIID.chargingState,
+              value: .int(state.chargingState))
+            server.notifySubscribers(
+              aid: accessory.aid, iid: BatteryIID.statusLowBattery,
+              value: .int(state.statusLowBattery))
           }
         }
       }
       self.batteryMonitor = battery
 
-      pairingStore.onChange = { [weak self] in
-        Task { @MainActor in
-          withAnimation { self?.hasPairings = pairingStore.isPaired }
-        }
+      // Start everything
+      setup.server.start()
+      self.hasPairings = setup.server.pairingStore.isPaired
+      withAnimation { self.isRunning = true }
+      self.isStarting = false
+      self.statusMessage =
+        "Advertising as '\(setup.bridge.name)'\nDevice ID: \(setup.server.deviceIdentity.deviceID)"
+      UserDefaults.standard.set(true, forKey: "hasStartedBefore")
+
+      if config.selectedCameraOption != nil {
+        setup.lightMonitor.start(with: config.selectedCameraOption)
       }
-
-      do {
-        let hapServer = try HAPServer(
-          bridge: bridge,
-          accessories: enabledAccessories,
-          pairingStore: pairingStore,
-          deviceIdentity: identity
-        )
-        // Start HDS listener for HKSV data streaming
-        if let dataStream = self.dataStreamHandler {
-          try? dataStream.startListener()
-          hapServer.dataStream = dataStream
-        }
-        hapServer.start()
-        self.server = hapServer
-        self.hasPairings = pairingStore.isPaired
-        withAnimation { self.isRunning = true }
-        self.isStarting = false
-        self.statusMessage = "Advertising as '\(bridge.name)'\nDevice ID: \(identity.deviceID)"
-        UserDefaults.standard.set(true, forKey: "hasStartedBefore")
-
-        // Start ambient light monitoring with selected camera (if any)
-        if self.selectedCamera != nil {
-          monitor.start(with: self.selectedCamera)
-        }
-
-        // Start motion monitoring if enabled
-        if self.motionEnabled {
-          motion.start()
-        }
-
-        UIApplication.shared.isIdleTimerDisabled = self.keepScreenAwake
-      } catch {
-        self.isRestoring = false
-        self.isStarting = false
-        self.statusMessage = "Failed to start: \(error.localizedDescription)"
+      if config.motionEnabled {
+        setup.motionMonitor.start()
       }
+      UIApplication.shared.isIdleTimerDisabled = self.keepScreenAwake
     }
   }
 
@@ -570,6 +471,148 @@ final class HAPViewModel {
     }
     withAnimation { hasPairings = false }
   }
+}
+
+// MARK: - Server Setup (off MainActor)
+
+/// Configuration captured from @MainActor properties for off-main-thread server creation.
+private struct StartConfig: Sendable {
+  let serial: String
+  let flashlightEnabled: Bool
+  let selectedStreamCameraID: String?
+  let selectedCameraOption: CameraOption?
+  let motionEnabled: Bool
+  let motionThreshold: Double
+  let minimumBitrate: Int
+}
+
+/// Objects created off MainActor, returned to MainActor for callback wiring and UI updates.
+private struct ServerSetup: @unchecked Sendable {
+  let bridge: HAPBridgeInfo
+  let lightbulb: HAPAccessory
+  let camera: HAPCameraAccessory
+  let lightSensor: HAPLightSensorAccessory
+  let motionSensor: HAPMotionSensorAccessory
+  let server: HAPServer
+  let fmp4Writer: FragmentedMP4Writer?
+  let dataStream: HAPDataStream?
+  let lightMonitor: AmbientLightMonitor
+  let motionMonitor: MotionMonitor
+  let isMotionAvailable: Bool
+}
+
+/// Creates the HAP server and all accessories off the main thread.
+/// PairingStore (file I/O), DeviceIdentity (Keychain), and NWListener
+/// creation are the heaviest operations moved off MainActor.
+private nonisolated func createServerSetup(config: StartConfig) throws -> ServerSetup {
+  let bridge = HAPBridgeInfo(
+    name: "Pylo Bridge", model: "HAP-PoC", manufacturer: "DIY",
+    serialNumber: config.serial, firmwareRevision: "0.1.0"
+  )
+
+  let lightbulb = HAPAccessory(
+    aid: 2, name: "Pylo Flashlight", model: "HAP-PoC", manufacturer: "DIY",
+    serialNumber: config.serial + "-light", firmwareRevision: "0.1.0"
+  )
+
+  let camera = HAPCameraAccessory(
+    aid: 3, name: "Pylo Camera", model: "HAP-PoC", manufacturer: "DIY",
+    serialNumber: config.serial + "-cam", firmwareRevision: "0.1.0"
+  )
+
+  let lightSensor = HAPLightSensorAccessory(
+    aid: 4, name: "Pylo Light Sensor", model: "HAP-PoC", manufacturer: "DIY",
+    serialNumber: config.serial + "-lux", firmwareRevision: "0.1.0"
+  )
+
+  let motionSensor = HAPMotionSensorAccessory(
+    aid: 5, name: "Pylo Motion Sensor", model: "HAP-PoC", manufacturer: "DIY",
+    serialNumber: config.serial + "-motion", firmwareRevision: "0.1.0"
+  )
+
+  // File I/O and Keychain reads — the main motivation for running off MainActor
+  let pairingStore = PairingStore()
+  let identity = DeviceIdentity()
+
+  // Build enabled accessories list
+  var enabledAccessories: [any HAPAccessoryProtocol] = []
+  if config.flashlightEnabled { enabledAccessories.append(lightbulb) }
+
+  // fMP4 writer and data stream for HKSV
+  var fmp4Writer: FragmentedMP4Writer?
+  var dataStream: HAPDataStream?
+
+  if config.selectedStreamCameraID != nil {
+    camera.selectedCameraID = config.selectedStreamCameraID
+    camera.minimumBitrate = config.minimumBitrate
+    camera.hksvEnabled = true
+    camera.videoMotionEnabled = true
+    camera.onVideoMotionChange = { [weak camera] detected in
+      camera?.updateMotionDetected(detected)
+    }
+    camera.onRecordingConfigChange = { [weak camera] active in
+      if active { camera?.videoMotionEnabled = true }
+    }
+    enabledAccessories.append(camera)
+
+    let writer = FragmentedMP4Writer()
+    writer.configure(width: 1920, height: 1080, fps: 30)
+    fmp4Writer = writer
+
+    let ds = HAPDataStream()
+    ds.fragmentWriter = writer
+    dataStream = ds
+  }
+
+  if config.selectedCameraOption != nil { enabledAccessories.append(lightSensor) }
+  if config.motionEnabled { enabledAccessories.append(motionSensor) }
+
+  // NWListener creation — also benefits from being off MainActor
+  let server = try HAPServer(
+    bridge: bridge, accessories: enabledAccessories,
+    pairingStore: pairingStore, deviceIdentity: identity
+  )
+
+  // Start HDS listener and wire DataStream setup callback
+  if let ds = dataStream {
+    try? ds.startListener()
+    server.dataStream = ds
+
+    camera.onSetupDataStream = { [weak server, weak ds] requestData, respond in
+      guard let server, let ds else { return }
+      guard let secret = server.sharedSecretForVerifiedConnection() else { return }
+      respond(ds.setupTransport(requestTLV: requestData, sharedSecret: secret))
+    }
+  }
+
+  // Wire non-UI callbacks between monitors and accessories
+  let lightMonitor = AmbientLightMonitor()
+  lightMonitor.onLuxUpdate = { [weak lightSensor] lux in
+    lightSensor?.updateAmbientLight(lux)
+  }
+
+  // Pause/resume the light monitor around snapshot captures so only
+  // one AVCaptureSession is active at a time (iOS limitation).
+  camera.onSnapshotWillCapture = { [weak lightMonitor] in
+    lightMonitor?.pauseSession()
+  }
+  camera.onSnapshotDidCapture = { [weak lightMonitor] in
+    lightMonitor?.resumeSession()
+  }
+
+  let motionMonitor = MotionMonitor()
+  motionMonitor.threshold = config.motionThreshold
+  motionMonitor.onMotionChange = { [weak motionSensor] detected in
+    motionSensor?.updateMotionDetected(detected)
+  }
+
+  return ServerSetup(
+    bridge: bridge, lightbulb: lightbulb, camera: camera,
+    lightSensor: lightSensor, motionSensor: motionSensor,
+    server: server, fmp4Writer: fmp4Writer, dataStream: dataStream,
+    lightMonitor: lightMonitor, motionMonitor: motionMonitor,
+    isMotionAvailable: motionMonitor.isAvailable
+  )
 }
 
 // MARK: - HomeKit QR Code Helpers

@@ -8,7 +8,7 @@ import os
 /// Implements the HomeKit Data Stream protocol for HKSV video transfer.
 /// HDS runs on a separate TCP connection with its own ChaCha20-Poly1305 encryption,
 /// derived from the HAP pair-verify shared secret.
-final class HAPDataStream {
+nonisolated final class HAPDataStream: @unchecked Sendable {
 
   private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "DataStream")
 
@@ -68,7 +68,6 @@ final class HAPDataStream {
 
     // Parse controller's key salt from the request
     var controllerKeySalt = Data()
-    var sessionID = Data()
 
     for (tag, val) in tlvs {
       if tag == 0x01 {
@@ -159,7 +158,7 @@ final class HAPDataStream {
 // MARK: - HDS Connection
 
 /// A single HDS TCP connection with encryption and message framing.
-final class HDSConnection {
+nonisolated final class HDSConnection: @unchecked Sendable {
 
   private let connection: NWConnection
   private let queue: DispatchQueue
@@ -549,7 +548,7 @@ final class HDSConnection {
 // MARK: - HDS Message
 
 /// Represents an HDS protocol message with header and body.
-struct HDSMessage {
+nonisolated struct HDSMessage {
 
   enum MessageType: UInt8 {
     case event = 1
@@ -644,7 +643,7 @@ struct HDSMessage {
 /// Minimal OPack (Object Pack) encoder/decoder for HDS messages.
 /// OPack is Apple's compact binary dictionary serialization format used in HDS.
 /// It's similar to bplist but with different type tags.
-enum OPack {
+nonisolated enum OPack {
 
   // Type tags
   private static let typeNull: UInt8 = 0x04

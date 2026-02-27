@@ -5,7 +5,7 @@ import os
 /// Detects motion by comparing consecutive video frames using vImage.
 /// Downscales each frame to a small grayscale thumbnail and computes the
 /// sum of squared differences against the previous frame.
-final class VideoMotionDetector {
+nonisolated final class VideoMotionDetector {
 
   var onMotionChange: ((Bool) -> Void)?
 
@@ -13,7 +13,10 @@ final class VideoMotionDetector {
   var threshold: Float = 0.02
 
   /// Seconds of calm required before reporting no motion.
-  nonisolated(unsafe) var cooldown: TimeInterval = 3.0
+  var cooldown: TimeInterval {
+    get { state.withLock { $0.cooldown } }
+    set { state.withLock { $0.cooldown = newValue } }
+  }
 
   private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "VideoMotion")
 
@@ -28,6 +31,7 @@ final class VideoMotionDetector {
   private struct State {
     var isMotionDetected = false
     var lastMotionDate = Date.distantPast
+    var cooldown: TimeInterval = 3.0
   }
 
   private let state = OSAllocatedUnfairLock(initialState: State())
@@ -65,7 +69,7 @@ final class VideoMotionDetector {
       let elapsed: TimeInterval? = state.withLock { state in
         guard state.isMotionDetected else { return nil }
         let elapsed = Date().timeIntervalSince(state.lastMotionDate)
-        if elapsed >= cooldown {
+        if elapsed >= state.cooldown {
           state.isMotionDetected = false
           return elapsed
         }
