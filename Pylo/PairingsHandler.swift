@@ -67,7 +67,9 @@ nonisolated enum PairingsHandler {
       return errorResponse(error: .unknown)
     }
 
-    let id = String(data: identifier, encoding: .utf8) ?? ""
+    guard let id = String(data: identifier, encoding: .utf8), !id.isEmpty else {
+      return errorResponse(error: .unknown)
+    }
     let isAdmin = permissions.first == 1
 
     // HAP spec §5.10: if the identifier already exists, the public key must
@@ -96,7 +98,9 @@ nonisolated enum PairingsHandler {
       return errorResponse(error: .unknown)
     }
 
-    let id = String(data: identifier, encoding: .utf8) ?? ""
+    guard let id = String(data: identifier, encoding: .utf8), !id.isEmpty else {
+      return errorResponse(error: .unknown)
+    }
     server.pairingStore.removePairing(identifier: id)
 
     // HAP spec §5.11: terminate sessions for the removed controller.
