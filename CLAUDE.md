@@ -7,11 +7,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 # Build
 ./scripts/build.sh
-# or: xcodebuild -scheme Pylo -destination 'platform=iOS Simulator,name=iPhone 16e' -quiet build
 
 # Test
 ./scripts/test.sh
-# or: xcodebuild -scheme Pylo -destination 'platform=iOS Simulator,name=iPhone 16e' -quiet test
 
 # Format (in-place)
 ./scripts/format.sh

@@ -55,6 +55,9 @@ struct AccessoryConfigSection: View {
         .pickerStyle(.segmented)
       }
     }
+    .animation(.default, value: viewModel.motionEnabled)
+    .animation(.default, value: viewModel.selectedCamera?.id)
+    .animation(.default, value: viewModel.selectedStreamCamera?.id)
   }
 
   /// Binding that maps selectedStreamCamera (optional) to a Bool toggle.
