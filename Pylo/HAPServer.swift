@@ -148,13 +148,15 @@ nonisolated final class HAPServer: @unchecked Sendable {
 
   /// Update the Bonjour TXT record (e.g., after pairing state changes).
   func updateAdvertisement() {
-    let txtItems = bonjourTXTRecord()
-    let txtRecord = createTXTRecord(from: txtItems)
-    listener.service = NWListener.Service(
-      name: bridge.name,
-      type: "_hap._tcp",
-      txtRecord: txtRecord
-    )
+    queue.async { [self] in
+      let txtItems = bonjourTXTRecord()
+      let txtRecord = createTXTRecord(from: txtItems)
+      listener.service = NWListener.Service(
+        name: bridge.name,
+        type: "_hap._tcp",
+        txtRecord: txtRecord
+      )
+    }
   }
 
   /// Look up an accessory by its aid.
