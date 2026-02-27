@@ -168,10 +168,20 @@ nonisolated final class HAPConnection: @unchecked Sendable {
   /// Process accumulated HTTP data, handling multiple requests if needed
   private func processHTTPBuffer() {
     // Keep processing as long as we can extract complete requests
-    while let request = HTTPRequest.parseAndConsume(&receiveBuffer) {
-      logger.info("\(request.method) \(request.path)")
-      if let response = routeRequest(request) {
-        sendResponse(response)
+    while true {
+      switch HTTPRequest.parseAndConsume(&receiveBuffer) {
+      case .request(let request):
+        logger.info("\(request.method) \(request.path)")
+        if let response = routeRequest(request) {
+          sendResponse(response)
+        }
+      case .needsMoreData:
+        return
+      case .malformed:
+        logger.warning("Malformed HTTP request, sending 400 and closing")
+        sendResponse(HTTPResponse(status: 400, body: nil, contentType: "application/hap+json"))
+        cancel()
+        return
       }
     }
   }
@@ -254,10 +264,20 @@ nonisolated final class HAPConnection: @unchecked Sendable {
           return
         }
 
-        while let request = HTTPRequest.parseAndConsume(&self.decryptedBuffer) {
-          self.logger.info("\(request.method) \(request.path)")
-          if let response = self.routeRequest(request) {
-            self.sendResponse(response)
+        loop: while true {
+          switch HTTPRequest.parseAndConsume(&self.decryptedBuffer) {
+          case .request(let request):
+            self.logger.info("\(request.method) \(request.path)")
+            if let response = self.routeRequest(request) {
+              self.sendResponse(response)
+            }
+          case .needsMoreData:
+            break loop
+          case .malformed:
+            self.logger.warning("Malformed HTTP request (encrypted), sending 400 and closing")
+            self.sendResponse(HTTPResponse(status: 400, body: nil, contentType: "application/hap+json"))
+            self.cancel()
+            return
           }
         }
 
@@ -505,37 +525,44 @@ nonisolated struct HTTPRequest {
   /// (TLV8 bodies may contain non-UTF-8 binary like Ed25519 keys).
   static func parse(_ data: Data) -> HTTPRequest? {
     var buffer = data
-    return parseAndConsume(&buffer)
+    switch parseAndConsume(&buffer) {
+    case .request(let request): return request
+    case .needsMoreData, .malformed: return nil
+    }
+  }
+
+  enum ParseResult {
+    case request(HTTPRequest)
+    case needsMoreData
+    case malformed
   }
 
   /// Parse a complete HTTP request from buffer and consume it.
-  /// Returns nil if there's not enough data for a complete request.
-  static func parseAndConsume(_ buffer: inout Data) -> HTTPRequest? {
+  static func parseAndConsume(_ buffer: inout Data) -> ParseResult {
     // Look for \r\n\r\n to find end of headers
     guard let headerEndRange = buffer.range(of: Data("\r\n\r\n".utf8)) else {
       // No complete headers yet
-      return nil
+      return .needsMoreData
     }
 
     let headerEnd = headerEndRange.upperBound
     let headerData = buffer[buffer.startIndex..<headerEndRange.lowerBound]
 
     guard let headerStr = String(data: headerData, encoding: .utf8) else {
-      // Invalid UTF-8, clear bad data
       buffer.removeAll()
-      return nil
+      return .malformed
     }
 
     let lines = headerStr.components(separatedBy: "\r\n")
     guard let requestLine = lines.first else {
       buffer.removeAll()
-      return nil
+      return .malformed
     }
 
     let requestParts = requestLine.split(separator: " ", maxSplits: 2)
     guard requestParts.count >= 2 else {
       buffer.removeAll()
-      return nil
+      return .malformed
     }
 
     let method = String(requestParts[0])
@@ -556,14 +583,14 @@ nonisolated struct HTTPRequest {
     let contentLength = headers["content-length"].flatMap { Int($0) } ?? 0
     guard contentLength <= 65536 else {
       buffer.removeAll()
-      return nil
+      return .malformed
     }
 
     // Check if we have the complete body
     let totalNeeded = headerEnd + contentLength
     guard buffer.count >= totalNeeded else {
       // Not enough data yet
-      return nil
+      return .needsMoreData
     }
 
     // Extract body
@@ -575,7 +602,7 @@ nonisolated struct HTTPRequest {
     // Remove this request from the buffer
     buffer.removeSubrange(buffer.startIndex..<totalNeeded)
 
-    return HTTPRequest(method: method, path: path, headers: headers, body: body)
+    return .request(HTTPRequest(method: method, path: path, headers: headers, body: body))
   }
 }
 

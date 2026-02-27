@@ -325,42 +325,68 @@ struct HTTPRequestTests {
     let raw = "GET /a HTTP/1.1\r\nHost: x\r\n\r\nGET /b HTTP/1.1\r\nHost: y\r\n\r\n"
     var buffer = Data(raw.utf8)
 
-    let first = HTTPRequest.parseAndConsume(&buffer)
-    #expect(first?.path == "/a")
+    if case .request(let first) = HTTPRequest.parseAndConsume(&buffer) {
+      #expect(first.path == "/a")
+    } else {
+      Issue.record("Expected .request for first parse")
+    }
     #expect(!buffer.isEmpty)
 
-    let second = HTTPRequest.parseAndConsume(&buffer)
-    #expect(second?.path == "/b")
+    if case .request(let second) = HTTPRequest.parseAndConsume(&buffer) {
+      #expect(second.path == "/b")
+    } else {
+      Issue.record("Expected .request for second parse")
+    }
     #expect(buffer.isEmpty)
   }
 
-  @Test("parseAndConsume returns nil when body incomplete")
+  @Test("parseAndConsume returns needsMoreData when body incomplete")
   func parseAndConsumeIncompleteBody() {
     let raw = "POST /data HTTP/1.1\r\nContent-Length: 100\r\n\r\nshort"
     var buffer = Data(raw.utf8)
-    let request = HTTPRequest.parseAndConsume(&buffer)
-    #expect(request == nil)
-    // Buffer should be preserved since request is incomplete
-    #expect(!buffer.isEmpty)
+    if case .needsMoreData = HTTPRequest.parseAndConsume(&buffer) {
+      // Buffer should be preserved since request is incomplete
+      #expect(!buffer.isEmpty)
+    } else {
+      Issue.record("Expected .needsMoreData for incomplete body")
+    }
   }
 
   @Test("parseAndConsume handles zero content-length")
   func parseAndConsumeNoBody() {
     let raw = "GET /test HTTP/1.1\r\n\r\n"
     var buffer = Data(raw.utf8)
-    let request = HTTPRequest.parseAndConsume(&buffer)
-    #expect(request?.method == "GET")
-    #expect(request?.body == nil)
-    #expect(buffer.isEmpty)
+    if case .request(let request) = HTTPRequest.parseAndConsume(&buffer) {
+      #expect(request.method == "GET")
+      #expect(request.body == nil)
+      #expect(buffer.isEmpty)
+    } else {
+      Issue.record("Expected .request for no-body parse")
+    }
   }
 
-  @Test("parseAndConsume rejects oversized content-length")
+  @Test("parseAndConsume returns malformed for oversized content-length")
   func rejectsOversizedContentLength() {
     let raw = "POST /pair-setup HTTP/1.1\r\nContent-Length: 100000\r\n\r\n"
     var buffer = Data(raw.utf8)
-    let request = HTTPRequest.parseAndConsume(&buffer)
-    #expect(request == nil)
-    #expect(buffer.isEmpty)  // buffer cleared on rejection
+    if case .malformed = HTTPRequest.parseAndConsume(&buffer) {
+      #expect(buffer.isEmpty)  // buffer cleared on rejection
+    } else {
+      Issue.record("Expected .malformed for oversized content-length")
+    }
+  }
+
+  @Test("parseAndConsume returns malformed for invalid UTF-8 headers")
+  func rejectsInvalidUTF8Headers() {
+    // Construct a request with invalid UTF-8 in the header area
+    var buffer = Data([0x47, 0x45, 0x54, 0x20])  // "GET "
+    buffer.append(Data([0xFF, 0xFE]))  // Invalid UTF-8
+    buffer.append(Data(" HTTP/1.1\r\n\r\n".utf8))
+    if case .malformed = HTTPRequest.parseAndConsume(&buffer) {
+      #expect(buffer.isEmpty)
+    } else {
+      Issue.record("Expected .malformed for invalid UTF-8 headers")
+    }
   }
 }
 
