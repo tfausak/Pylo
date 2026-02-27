@@ -1771,6 +1771,26 @@ struct SRTPTests {
     let late = receiver.unprotect(srtpPackets[3]!)
     #expect(late != nil, "Failed to unprotect late packet seq 3")
   }
+
+  @Test("ROC increments at exact half-range boundary (0x8000 → 0x0000)")
+  func rocIncrementAtHalfRange() {
+    let sender = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+    let receiver = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+
+    // Send a packet at seq 0x8000, then jump to 0x0000.
+    // The gap is exactly 0x8000 — this must be treated as a forward wrap.
+    let rtp1 = Self.makeRTPPacket(
+      seq: 0x8000, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0xAA, count: 40))
+    let srtp1 = sender.protect(rtp1)
+    let recovered1 = receiver.unprotect(srtp1)
+    #expect(recovered1 == rtp1, "Failed at seq 0x8000")
+
+    let rtp2 = Self.makeRTPPacket(
+      seq: 0x0000, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0xBB, count: 40))
+    let srtp2 = sender.protect(rtp2)
+    let recovered2 = receiver.unprotect(srtp2)
+    #expect(recovered2 == rtp2, "Failed at seq 0x0000 after 0x8000 (ROC should have incremented)")
+  }
 }
 
 // MARK: - Pair Setup Throttle Tests

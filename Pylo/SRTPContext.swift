@@ -122,7 +122,11 @@ nonisolated final class SRTPContext {
 
     // Track rollover counter (under lock for thread safety)
     let (currentROC, packetIndex) = state.withLock { s -> (UInt32, UInt64) in
-      if seq < s.lastSequenceNumber && (s.lastSequenceNumber - seq) > 0x8000 {
+      // Sender-side ROC: increment when the sequence number wraps.
+      // A decrease >= half the sequence space indicates a forward rollover
+      // (RFC 3711 §3.3.1). Use >= 0x8000 (not >) so the exact-half-range
+      // boundary (e.g. 0x8000 → 0x0000) is treated as a wrap.
+      if seq < s.lastSequenceNumber && (s.lastSequenceNumber &- seq) >= 0x8000 {
         s.rolloverCounter += 1
       }
       s.lastSequenceNumber = seq
@@ -195,7 +199,7 @@ nonisolated final class SRTPContext {
       if s.incomingLastSeq < 0x8000 && seq > (s.incomingLastSeq &+ 0x8000) {
         // Late packet from previous ROC period (RFC 3711 §3.3.1 v = ROC-1)
         roc &-= 1
-      } else if seq < s.incomingLastSeq && (s.incomingLastSeq &- seq) > 0x8000 {
+      } else if seq < s.incomingLastSeq && (s.incomingLastSeq &- seq) >= 0x8000 {
         // Forward rollover (RFC 3711 §3.3.1 v = ROC+1)
         roc &+= 1
       }
