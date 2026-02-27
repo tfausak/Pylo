@@ -191,7 +191,7 @@ nonisolated final class SRPServer {
     let expectedM1 = Data(SHA512.hash(data: m1Data))
 
     // 2. Compare with received clientProof (constant-time comparison)
-    guard Self.constantTimeCompare(expectedM1, clientProof) else {
+    guard Self.constantTimeEqual(expectedM1, clientProof) else {
       // Proof verification failed — wrong password
       return nil
     }
@@ -230,16 +230,14 @@ nonisolated final class SRPServer {
     return Data(zip(lhs, rhs).map { $0 ^ $1 })
   }
 
-  /// Constant-time comparison to prevent timing attacks.
+  /// Constant-time comparison of two fixed-length digests.
+  /// Both inputs must be the same size (e.g., 64-byte SHA-512 digests).
   /// Uses the platform's timingsafe_bcmp which is immune to compiler optimizations.
-  /// Hashes both inputs to a fixed length before comparing so that a length
-  /// mismatch does not leak timing information via an early return.
-  private static func constantTimeCompare(_ lhs: Data, _ rhs: Data) -> Bool {
-    let lhsHash = Data(SHA512.hash(data: lhs))
-    let rhsHash = Data(SHA512.hash(data: rhs))
-    return lhsHash.withUnsafeBytes { lhsPtr in
-      rhsHash.withUnsafeBytes { rhsPtr in
-        timingsafe_bcmp(lhsPtr.baseAddress, rhsPtr.baseAddress, lhsHash.count) == 0
+  private static func constantTimeEqual(_ lhs: Data, _ rhs: Data) -> Bool {
+    guard lhs.count == rhs.count else { return false }
+    return lhs.withUnsafeBytes { lhsPtr in
+      rhs.withUnsafeBytes { rhsPtr in
+        timingsafe_bcmp(lhsPtr.baseAddress, rhsPtr.baseAddress, lhs.count) == 0
       }
     }
   }
