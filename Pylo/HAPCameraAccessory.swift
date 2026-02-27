@@ -1236,9 +1236,9 @@ private nonisolated final class FrameGrabber: NSObject, AVCaptureVideoDataOutput
   private let lock = NSLock()
   private let context = CIContext()
   private var _capturedImage: CGImage?
+  private var _framesReceived = 0
   var capturedImage: CGImage? { lock.withLock { _capturedImage } }
   private let framesToSkip: Int
-  private var framesReceived = 0
 
   init(framesToSkip: Int = 0) {
     self.framesToSkip = framesToSkip
@@ -1253,10 +1253,12 @@ private nonisolated final class FrameGrabber: NSObject, AVCaptureVideoDataOutput
     _ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
     from connection: AVCaptureConnection
   ) {
-    guard lock.withLock({ _capturedImage }) == nil else { return }
-    framesReceived += 1
-    // Skip early frames so auto-exposure can settle.
-    guard framesReceived > framesToSkip else { return }
+    let shouldProcess = lock.withLock { () -> Bool in
+      guard _capturedImage == nil else { return false }
+      _framesReceived += 1
+      return _framesReceived > framesToSkip
+    }
+    guard shouldProcess else { return }
     guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
     // Render to CGImage immediately while the pixel buffer is still valid —
     // CIImage(cvPixelBuffer:) only holds a lazy reference and the pool may
