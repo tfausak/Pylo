@@ -202,8 +202,8 @@ nonisolated final class SRTPContext {
     var authInput = authenticated
     var roc = candidateROC.bigEndian
     authInput.append(Data(bytes: &roc, count: 4))
-    let expectedTag = hmacSHA1(key: sessionAuthKey, data: authInput)
-    guard receivedTag == expectedTag.prefix(10) else {
+    let expectedTag = Data(hmacSHA1(key: sessionAuthKey, data: authInput).prefix(10))
+    guard constantTimeCompare(receivedTag, expectedTag) else {
       logger.debug("SRTP unprotect: auth tag mismatch")
       return nil
     }
@@ -406,6 +406,17 @@ nonisolated final class SRTPContext {
     }
 
     return result
+  }
+
+  // MARK: - Constant-Time Comparison
+
+  private func constantTimeCompare(_ lhs: Data, _ rhs: Data) -> Bool {
+    guard lhs.count == rhs.count else { return false }
+    return lhs.withUnsafeBytes { lhsPtr in
+      rhs.withUnsafeBytes { rhsPtr in
+        timingsafe_bcmp(lhsPtr.baseAddress, rhsPtr.baseAddress, lhs.count) == 0
+      }
+    }
   }
 
   // MARK: - HMAC-SHA1

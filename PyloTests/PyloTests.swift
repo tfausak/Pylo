@@ -1613,6 +1613,37 @@ struct SRTPTests {
     #expect(srtcp.count == rtcp.count + 14)
   }
 
+  @Test("Auth failure: single bit flip in auth tag returns nil")
+  func authFailureTagFlip() {
+    let sender = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+    let receiver = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+
+    let rtp = Self.makeRTPPacket(
+      seq: 1, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0xBB, count: 50))
+    var srtp = sender.protect(rtp)
+
+    // Flip one bit in the last byte of the 10-byte auth tag
+    srtp[srtp.count - 1] ^= 0x01
+    #expect(receiver.unprotect(srtp) == nil)
+  }
+
+  @Test("Auth failure: each tag byte position is validated")
+  func authFailureEachTagByte() {
+    let sender = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+
+    let rtp = Self.makeRTPPacket(
+      seq: 1, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0xCC, count: 50))
+    let srtp = sender.protect(rtp)
+
+    // Flip a byte at each position in the 10-byte auth tag
+    for i in 0..<10 {
+      let receiver = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+      var tampered = srtp
+      tampered[tampered.count - 10 + i] ^= 0xFF
+      #expect(receiver.unprotect(tampered) == nil, "Tag byte \(i) not validated")
+    }
+  }
+
   @Test("Short packets (< 12 bytes) are returned unchanged by protect")
   func shortPacketProtect() {
     let ctx = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
