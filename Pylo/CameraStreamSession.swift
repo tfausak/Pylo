@@ -1167,11 +1167,11 @@ final class CameraStreamSession {
     while true {
       let n = recv(audioSocketFD, &buf, buf.count, 0)
       if n <= 0 { break }  // EAGAIN (no more data) or error
-      // Distinguish RTP from RTCP: RTCP has payload type 200-204 in byte[1]
-      // (RFC 5761). We only process RTP audio; RTCP receiver reports are ignored.
+      // Distinguish RTP from RTCP per RFC 5761 §4: check payload type bits
+      // (byte[1] bits 0-6, masking off the marker bit) against 72-76.
       guard n >= 12 else { continue }
-      let pt = buf[1]
-      if pt >= 200 && pt <= 204 {
+      let pt = buf[1] & 0x7F
+      if pt >= 72 && pt <= 76 {
         // SRTCP packet from controller (receiver report, etc.) — skip
         continue
       }
