@@ -59,9 +59,6 @@ struct PyloApp: App {
   var body: some Scene {
     WindowGroup {
       ContentView(viewModel: viewModel)
-        .task {
-          viewModel.restorePreferences()
-        }
     }
   }
 }
@@ -98,6 +95,10 @@ struct AccessoryConfig: Equatable {
 
 @Observable @MainActor
 final class HAPViewModel {
+
+  init() {
+    restorePreferences()
+  }
 
   var isRunning = false
   var isStarting = false
