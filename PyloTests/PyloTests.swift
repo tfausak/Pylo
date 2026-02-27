@@ -1451,7 +1451,7 @@ struct SetupCodeValidationTests {
 struct AUHeaderTests {
 
   @Test("Roundtrip: strip(add(data)) == data")
-  func roundtrip() {
+  func roundtrip() throws {
     let original = Data([0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02, 0x03])
     let framed = try #require(AUHeader.add(to: original))
     let stripped = AUHeader.strip(from: framed)
