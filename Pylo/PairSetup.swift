@@ -113,7 +113,10 @@ nonisolated enum PairSetupHandler {
       return code
     }
     let code = generateSetupCode()
-    KeychainHelper.save(key: "setup-code", data: Data(code.utf8))
+    KeychainHelper.save(
+      key: "setup-code", data: Data(code.utf8),
+      accessible: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+    )
     return code
   }()
 
@@ -127,7 +130,10 @@ nonisolated enum PairSetupHandler {
     }
     let chars = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ")
     let id = String((0..<4).map { _ in chars[Int.random(in: chars.indices)] })
-    KeychainHelper.save(key: "setup-id", data: Data(id.utf8))
+    KeychainHelper.save(
+      key: "setup-id", data: Data(id.utf8),
+      accessible: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+    )
     return id
   }()
 
