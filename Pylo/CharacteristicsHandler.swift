@@ -29,7 +29,11 @@ enum CharacteristicsHandler {
       guard parts.count == 2,
         let aid = Int(parts[0]),
         let iid = Int(parts[1])
-      else { continue }
+      else {
+        // HAP spec §6.7.2: every requested characteristic must produce a result
+        characteristics.append(["status": -70409])
+        continue
+      }
 
       var entry: [String: Any] = ["aid": aid, "iid": iid]
       if let accessory = server.accessory(aid: aid),
@@ -70,7 +74,12 @@ enum CharacteristicsHandler {
     for char in characteristics {
       guard let aid = char["aid"] as? Int,
         let iid = char["iid"] as? Int
-      else { continue }
+      else {
+        // HAP spec §6.7.2.2: every entry must produce a result
+        allOK = false
+        results.append(["status": -70409])
+        continue
+      }
 
       // Handle value write first, then apply event subscription only on success
       if let rawValue = char["value"], let value = HAPValue(fromJSON: rawValue) {
