@@ -399,6 +399,20 @@ struct HTTPRequestTests {
       Issue.record("Expected .malformed for negative content-length")
     }
   }
+
+  @Test("parse works correctly with Data slices (non-zero startIndex)")
+  func parseDataSlice() {
+    let prefix = Data(repeating: 0xAA, count: 10)
+    let raw = Data("GET /test HTTP/1.1\r\nHost: local\r\n\r\n".utf8)
+    var combined = prefix
+    combined.append(raw)
+    // Create a slice with non-zero startIndex
+    let slice = combined[10...]
+    let request = HTTPRequest.parse(slice)
+    #expect(request != nil)
+    #expect(request?.method == "GET")
+    #expect(request?.path == "/test")
+  }
 }
 
 // MARK: - HTTP Response Tests

@@ -524,7 +524,7 @@ nonisolated struct HTTPRequest {
   /// Only parses headers as UTF-8; the body is kept as raw Data
   /// (TLV8 bodies may contain non-UTF-8 binary like Ed25519 keys).
   static func parse(_ data: Data) -> HTTPRequest? {
-    var buffer = data
+    var buffer = Data(data)  // normalize startIndex to 0 for slices
     switch parseAndConsume(&buffer) {
     case .request(let request): return request
     case .needsMoreData, .malformed: return nil
