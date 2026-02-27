@@ -49,7 +49,7 @@ enum TLV8 {
     var offset = data.startIndex
 
     while offset < data.endIndex {
-      guard offset + 1 < data.endIndex else { break }
+      guard offset + 2 <= data.endIndex else { break }
       let type = data[offset]
       let length = Int(data[offset + 1])
       offset += 2
