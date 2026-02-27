@@ -489,7 +489,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
       self.setupAudioEncoder()
     }
 
-    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+    captureQueue.async { [weak self] in
       session.startRunning()
       self?.logger.info("Capture session running: \(session.isRunning)")
     }
