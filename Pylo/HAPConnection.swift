@@ -217,8 +217,9 @@ nonisolated final class HAPConnection: @unchecked Sendable {
 
       let frameLength = Int(data[0]) | (Int(data[1]) << 8)
 
-      // HAP spec §6.5: frames are capped at 1024 plaintext bytes.
-      guard frameLength <= 1024 else {
+      // HAP spec §6.5: frames are capped at 1024 plaintext bytes
+      // and must carry at least 1 byte of payload.
+      guard frameLength > 0, frameLength <= 1024 else {
         self.logger.error("Encrypted frame too large (\(frameLength) bytes), disconnecting")
         self.cancel()
         return
