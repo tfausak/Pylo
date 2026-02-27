@@ -95,7 +95,7 @@ struct AccessoryConfigSection: View {
   /// Non-optional binding for the stream camera picker (only used when non-nil).
   private var streamCameraBinding: Binding<CameraOption> {
     Binding(
-      get: { viewModel.selectedStreamCamera ?? viewModel.availableCameras[0] },
+      get: { viewModel.selectedStreamCamera ?? viewModel.availableCameras.first ?? CameraOption(id: "", name: "None", fNumber: 0) },
       set: { viewModel.selectedStreamCamera = $0 }
     )
   }
@@ -103,7 +103,7 @@ struct AccessoryConfigSection: View {
   /// Non-optional binding for the light sensor camera picker (only used when non-nil).
   private var lightCameraBinding: Binding<CameraOption> {
     Binding(
-      get: { viewModel.selectedCamera ?? viewModel.availableCameras[0] },
+      get: { viewModel.selectedCamera ?? viewModel.availableCameras.first ?? CameraOption(id: "", name: "None", fNumber: 0) },
       set: { viewModel.selectedCamera = $0 }
     )
   }
