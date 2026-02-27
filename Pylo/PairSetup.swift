@@ -322,7 +322,10 @@ enum PairSetupHandler {
         return errorResponse(state: 0x06, error: .authentication)
       }
 
-      let iosID = String(data: iosIdentifier, encoding: .utf8) ?? ""
+      guard let iosID = String(data: iosIdentifier, encoding: .utf8), !iosID.isEmpty else {
+        logger.error("Invalid or empty controller identifier")
+        return errorResponse(state: 0x06, error: .authentication)
+      }
 
       // Build the accessory's response (M6) BEFORE persisting the pairing.
       // If any crypto step throws, we must not leave a stranded pairing on disk.
