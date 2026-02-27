@@ -108,7 +108,9 @@ nonisolated final class DeviceIdentity: @unchecked Sendable {
     self.signingKey = newKey
 
     var bytes = [UInt8](repeating: 0, count: 6)
-    _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+    guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
+      fatalError("SecRandomCopyBytes failed — cannot generate device ID")
+    }
     let newID = bytes.map { String(format: "%02X", $0) }.joined(separator: ":")
     self.deviceID = newID
 
