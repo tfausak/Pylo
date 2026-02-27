@@ -132,13 +132,13 @@ nonisolated final class SRPServer {
 
     self.clientPublicKey = clientA
 
-    // 3. Compute u = H(PAD(A) | PAD(B))
+    // 4. Compute u = H(PAD(A) | PAD(B))
     var uData = Data()
     uData.append(Self.pad(clientA))
     uData.append(self.publicKey)
     self.u = BigUInt(Data(SHA512.hash(data: uData)))
 
-    // 4. Compute S = (A * v^u)^b mod N
+    // 5. Compute S = (A * v^u)^b mod N
     guard let u = self.u else { return false }
     let vu = self.verifier.power(u, modulus: Self.prime)
     let avu = (clientA * vu) % Self.prime

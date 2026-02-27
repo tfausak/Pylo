@@ -1499,6 +1499,14 @@ struct AUHeaderTests {
     let framed = AUHeader.add(to: payload)
     #expect(framed.count == 4 + 8191)
   }
+
+  @Test("add() with oversized payload returns data unchanged")
+  func addOversizedPayload() {
+    let payload = Data(repeating: 0xBB, count: 8192)
+    let result = AUHeader.add(to: payload)
+    // Oversized frames should be returned without a header rather than crashing
+    #expect(result == payload)
+  }
 }
 
 // MARK: - SRTP Tests
