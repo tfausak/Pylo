@@ -111,9 +111,12 @@ nonisolated final class AmbientLightMonitor: @unchecked Sendable {
     // A session needs at least one output to actually run the camera pipeline
     // (otherwise ISO/exposureDuration never update).
     let output = AVCaptureVideoDataOutput()
-    if session.canAddOutput(output) {
-      session.addOutput(output)
+    guard session.canAddOutput(output) else {
+      logger.error("Cannot add video output to ambient light session")
+      lock.withLock { _state.captureSession = nil }
+      return
     }
+    session.addOutput(output)
 
     let newTimer = DispatchSource.makeTimerSource(queue: timerQueue)
     newTimer.schedule(deadline: .now() + 2.0, repeating: 2.0)
