@@ -124,8 +124,14 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   private var videoCaptureDelegate: VideoCaptureDelegate?
   private var audioCaptureDelegate: AudioCaptureDelegate?
 
-  // Snapshot caching — periodically grab a JPEG from the video stream
-  var onSnapshotFrame: ((Data) -> Void)?
+  // Snapshot caching — periodically grab a JPEG from the video stream.
+  // The callback is set from the server queue and read from captureQueue,
+  // so it must be synchronized.
+  private let _onSnapshotFrame = OSAllocatedUnfairLock<((Data) -> Void)?>(initialState: nil)
+  var onSnapshotFrame: ((Data) -> Void)? {
+    get { _onSnapshotFrame.withLock { $0 } }
+    set { _onSnapshotFrame.withLock { $0 = newValue } }
+  }
   private var snapshotFrameCounter = 0
   private let snapshotInterval = 150  // every ~5s at 30fps
   private let snapshotCIContext = CIContext()
