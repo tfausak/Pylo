@@ -96,6 +96,37 @@ struct TLV8Tests {
     #expect(dict[.error] == nil)
   }
 
+  @Test("Decode multi-record TLV8 with separators")
+  func decodeRecords() {
+    // Two records separated by 0xFF:
+    // Record 1: identifier="A", publicKey=0xAA
+    // Record 2: identifier="B", publicKey=0xBB
+    let encoded = TLV8.encode([
+      (.identifier, Data("A".utf8)),
+      (.publicKey, Data([0xAA])),
+      (.separator, Data()),
+      (.identifier, Data("B".utf8)),
+      (.publicKey, Data([0xBB])),
+    ])
+    let records = TLV8.decodeRecords(encoded)
+    #expect(records.count == 2)
+    #expect(records[0][.identifier] == Data("A".utf8))
+    #expect(records[0][.publicKey] == Data([0xAA]))
+    #expect(records[1][.identifier] == Data("B".utf8))
+    #expect(records[1][.publicKey] == Data([0xBB]))
+  }
+
+  @Test("Decode single-record TLV8 with decodeRecords returns one record")
+  func decodeRecordsSingle() {
+    let encoded = TLV8.encode([
+      (.state, Data([0x01])),
+      (.publicKey, Data([0xCC])),
+    ])
+    let records = TLV8.decodeRecords(encoded)
+    #expect(records.count == 1)
+    #expect(records[0][.state] == Data([0x01]))
+  }
+
   @Test("Encode-decode roundtrip preserves data")
   func roundtrip() {
     let original: [(TLV8.Tag, Data)] = [

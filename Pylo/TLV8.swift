@@ -71,8 +71,10 @@ nonisolated enum TLV8 {
     return results
   }
 
-  /// Convenience: decode and return as a dictionary keyed by Tag.
+  /// Convenience: decode a single-record TLV8 blob as a dictionary keyed by Tag.
+  /// Only suitable for messages that contain a single logical record (no separators).
   /// If duplicate tags exist (separated by a separator), only the last value is kept.
+  /// For multi-record TLV8, use `decodeRecords(_:)` instead.
   static func decode(_ data: Data) -> [Tag: Data] {
     let pairs: [(UInt8, Data)] = decode(data)
     var dict: [Tag: Data] = [:]
@@ -82,6 +84,26 @@ nonisolated enum TLV8 {
       }
     }
     return dict
+  }
+
+  /// Decode a multi-record TLV8 blob into an array of dictionaries.
+  /// Records are delimited by separator TLVs (0xFF). Each dictionary
+  /// represents one logical record.
+  static func decodeRecords(_ data: Data) -> [[Tag: Data]] {
+    let pairs: [(UInt8, Data)] = decode(data)
+    var records: [[Tag: Data]] = [[:]]
+    for (rawTag, value) in pairs {
+      if rawTag == Tag.separator.rawValue {
+        records.append([:])
+      } else if let tag = Tag(rawValue: rawTag) {
+        records[records.count - 1][tag] = value
+      }
+    }
+    // Remove empty trailing record from a trailing separator
+    if let last = records.last, last.isEmpty {
+      records.removeLast()
+    }
+    return records
   }
 
   // MARK: - Encode
