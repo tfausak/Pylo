@@ -592,6 +592,7 @@ nonisolated struct HTTPResponse {
     case 400: return "Bad Request"
     case 404: return "Not Found"
     case 422: return "Unprocessable Entity"
+    case 470: return "Connection Authorization Required"
     case 500: return "Internal Server Error"
     default: return "Unknown"
     }

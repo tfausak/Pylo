@@ -364,6 +364,9 @@ struct HTTPResponseTests {
     #expect(
       HTTPResponse(status: 422, body: nil, contentType: "").statusText == "Unprocessable Entity")
     #expect(
+      HTTPResponse(status: 470, body: nil, contentType: "").statusText
+        == "Connection Authorization Required")
+    #expect(
       HTTPResponse(status: 500, body: nil, contentType: "").statusText == "Internal Server Error")
     #expect(HTTPResponse(status: 999, body: nil, contentType: "").statusText == "Unknown")
   }
