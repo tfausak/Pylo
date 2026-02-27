@@ -480,7 +480,10 @@ nonisolated final class HAPLightSensorAccessory: HAPAccessoryProtocol {
   /// Shared battery state — nil means no battery, omit battery service.
   var batteryState: BatteryState?
 
-  private(set) var ambientLightLevel: Float = 1.0
+  private let _ambientLightLevel = OSAllocatedUnfairLock(initialState: Float(1.0))
+  var ambientLightLevel: Float {
+    get { _ambientLightLevel.withLock { $0 } }
+  }
 
   static let iidLightSensorService = 8
   static let iidAmbientLightLevel = 9
@@ -505,7 +508,7 @@ nonisolated final class HAPLightSensorAccessory: HAPAccessoryProtocol {
   }
 
   func updateAmbientLight(_ lux: Float) {
-    ambientLightLevel = lux
+    _ambientLightLevel.withLock { $0 = lux }
     onStateChange?(aid, Self.iidAmbientLightLevel, .float(lux))
   }
 
@@ -575,7 +578,10 @@ nonisolated final class HAPMotionSensorAccessory: HAPAccessoryProtocol {
   /// Shared battery state — nil means no battery, omit battery service.
   var batteryState: BatteryState?
 
-  private(set) var isMotionDetected: Bool = false
+  private let _isMotionDetected = OSAllocatedUnfairLock(initialState: false)
+  var isMotionDetected: Bool {
+    get { _isMotionDetected.withLock { $0 } }
+  }
 
   static let iidMotionSensorService = 8
   static let iidMotionDetected = 9
@@ -600,7 +606,7 @@ nonisolated final class HAPMotionSensorAccessory: HAPAccessoryProtocol {
   }
 
   func updateMotionDetected(_ detected: Bool) {
-    isMotionDetected = detected
+    _isMotionDetected.withLock { $0 = detected }
     onStateChange?(aid, Self.iidMotionDetected, .bool(detected))
   }
 

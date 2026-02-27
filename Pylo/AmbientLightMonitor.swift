@@ -31,10 +31,11 @@ final class AmbientLightMonitor {
 
   private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "AmbientLight")
   private let lock = NSLock()
+  private let timerQueue = DispatchQueue(label: "me.fausak.taylor.Pylo.lightTimer")
 
   private struct State {
     var captureSession: AVCaptureSession?
-    var timer: Timer?
+    var timer: DispatchSourceTimer?
   }
   private var _state = State()
 
@@ -94,13 +95,16 @@ final class AmbientLightMonitor {
       session.addOutput(output)
     }
 
-    let newTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+    let newTimer = DispatchSource.makeTimerSource(queue: timerQueue)
+    newTimer.schedule(deadline: .now() + 2.0, repeating: 2.0)
+    newTimer.setEventHandler { [weak self] in
       self?.sampleLux(from: camera, fNumber: fNumber)
     }
     lock.withLock {
       _state.captureSession = session
       _state.timer = newTimer
     }
+    newTimer.resume()
 
     // Start on a background queue to avoid blocking the main thread
     DispatchQueue.global(qos: .background).async {
@@ -133,14 +137,14 @@ final class AmbientLightMonitor {
   }
 
   func stop() {
-    let (oldTimer, oldSession): (Timer?, AVCaptureSession?) = lock.withLock {
+    let (oldTimer, oldSession): (DispatchSourceTimer?, AVCaptureSession?) = lock.withLock {
       let t = _state.timer
       let s = _state.captureSession
       _state.timer = nil
       _state.captureSession = nil
       return (t, s)
     }
-    oldTimer?.invalidate()
+    oldTimer?.cancel()
     oldSession?.stopRunning()
 
     logger.info("Ambient light monitor stopped")

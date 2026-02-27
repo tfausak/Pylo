@@ -95,7 +95,7 @@ enum PairingsHandler {
     // If the requesting controller is removing itself, defer termination
     // so the M2 success response can be sent before the session is torn down.
     if id == connection.verifiedControllerID {
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+      DispatchQueue.global().asyncAfter(deadline: .now() + 0.1) {
         server.terminateSessions(forController: id)
       }
     } else {
