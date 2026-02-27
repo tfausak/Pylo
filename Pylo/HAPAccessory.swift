@@ -313,16 +313,18 @@ nonisolated final class HAPAccessory: HAPAccessoryProtocol, @unchecked Sendable 
         logger.info("Light \(v ? "ON" : "OFF")")
         return true
       case .int(let v):
-        isOn = (v != 0)
-        onStateChange?(aid, iid, .bool(isOn))
+        let boolV = (v != 0)
+        isOn = boolV
+        onStateChange?(aid, iid, .bool(boolV))
         return true
       default:
         return false
       }
     case Self.iidBrightness:
       if case .int(let v) = value {
-        brightness = max(0, min(100, v))
-        onStateChange?(aid, iid, .int(brightness))
+        let clamped = max(0, min(100, v))
+        brightness = clamped
+        onStateChange?(aid, iid, .int(clamped))
         logger.info("Brightness: \(self.brightness)%")
         return true
       }
