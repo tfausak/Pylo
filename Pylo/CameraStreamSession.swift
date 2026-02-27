@@ -354,37 +354,41 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     audioConverter = nil
     pcmAccumulator = Data()
 
-    // Capture references to resources before nil-ing, then clean up
-    // on rtpQueue to avoid data races with in-flight send/receive handlers.
+    // Capture FD values, then invalidate the members immediately so that
+    // any in-flight timer/read handlers on rtpQueue see -1 and bail via
+    // their guard checks before we close the actual file descriptors.
     let readSource = audioReadSource
     let videoFD = videoSocketFD
+    let audioFD = audioSocketFD
     let decoder = audioDecoder
     let player = audioPlayerNode
     let engine = audioEngine
     let incomingSRTP = incomingSRTPContext
 
     audioReadSource = nil
-    // The cancel handler on the read source owns closing audioSocketFD,
-    // ensuring no in-flight event handler reads from a closed FD.
-    readSource?.cancel()
-
-    rtpQueue.sync {
-      // By the time this executes, the cancelled read source's cancel handler
-      // and any in-flight sendVideoUDP/sendAudioUDP/readAudioSocket calls have drained.
-      if videoFD >= 0 { close(videoFD) }
-      player?.stop()
-      engine?.stop()
-      if let dec = decoder { AudioConverterDispose(dec) }
-      _ = incomingSRTP  // prevent premature dealloc until after queue drains
-    }
-
-    // Now safe to nil out the remaining state (no concurrent access possible)
     videoSocketFD = -1
     controllerVideoAddr = nil
     srtpContext = nil
     audioSocketFD = -1
     controllerAudioAddr = nil
     audioSRTPContext = nil
+
+    // Cancel the read source. Its cancel handler closes the audio FD.
+    readSource?.cancel()
+
+    rtpQueue.sync {
+      // By the time this executes, the cancelled read source's cancel handler
+      // and any in-flight sendVideoUDP/sendAudioUDP/readAudioSocket calls have drained.
+      if videoFD >= 0 { close(videoFD) }
+      // Close audio FD here if there was no read source to own it.
+      if readSource == nil, audioFD >= 0 { close(audioFD) }
+      player?.stop()
+      engine?.stop()
+      if let dec = decoder { AudioConverterDispose(dec) }
+      _ = incomingSRTP  // prevent premature dealloc until after queue drains
+    }
+
+    // Remaining state cleanup (FDs already invalidated above)
     audioSampleCount = 0
     incomingAudioPacketCount = 0
     audioPlayerNode = nil
