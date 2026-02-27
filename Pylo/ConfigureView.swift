@@ -16,6 +16,14 @@ struct AccessoryConfigSection: View {
       Toggle(isOn: $viewModel.motionEnabled) {
         Label("Motion Sensor", systemImage: "figure.walk.motion")
       }
+      if viewModel.motionEnabled {
+        Picker("Sensitivity", selection: $viewModel.motionSensitivity) {
+          ForEach(MotionSensitivity.allCases) { sensitivity in
+            Text(sensitivity.rawValue).tag(sensitivity)
+          }
+        }
+        .pickerStyle(.segmented)
+      }
 
       // Ambient Light
       Toggle(isOn: lightSensorEnabled) {

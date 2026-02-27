@@ -20,6 +20,25 @@ enum VideoQuality: String, CaseIterable, Identifiable {
   }
 }
 
+// MARK: - Motion Sensitivity
+
+enum MotionSensitivity: String, CaseIterable, Identifiable {
+  case low = "Low"
+  case medium = "Medium"
+  case high = "High"
+
+  var id: String { rawValue }
+
+  /// Acceleration delta from gravity (in g) required to trigger motion detected.
+  var threshold: Double {
+    switch self {
+    case .low: return 0.30
+    case .medium: return 0.15
+    case .high: return 0.05
+    }
+  }
+}
+
 // MARK: - App Entry Point
 // This is the main SwiftUI app. Create a new Xcode project (iOS App, SwiftUI)
 // and replace the generated ContentView / App with this.
@@ -135,6 +154,13 @@ final class HAPViewModel {
       }
     }
   }
+  var motionSensitivity: MotionSensitivity = .medium {
+    didSet {
+      guard !isRestoring, motionSensitivity != oldValue else { return }
+      UserDefaults.standard.set(motionSensitivity.rawValue, forKey: "motionSensitivity")
+      motionMonitor?.threshold = motionSensitivity.threshold
+    }
+  }
   var videoQuality: VideoQuality = .medium {
     didSet {
       guard !isRestoring, videoQuality != oldValue else { return }
@@ -195,6 +221,11 @@ final class HAPViewModel {
     }
     if UserDefaults.standard.object(forKey: "motionEnabled") != nil {
       motionEnabled = UserDefaults.standard.bool(forKey: "motionEnabled")
+    }
+    if let savedSensitivity = UserDefaults.standard.string(forKey: "motionSensitivity"),
+      let sensitivity = MotionSensitivity(rawValue: savedSensitivity)
+    {
+      motionSensitivity = sensitivity
     }
     if let savedQuality = UserDefaults.standard.string(forKey: "videoQuality"),
       let quality = VideoQuality(rawValue: savedQuality)
@@ -380,6 +411,7 @@ final class HAPViewModel {
 
       // Set up motion monitor (accelerometer)
       let motion = MotionMonitor()
+      motion.threshold = self.motionSensitivity.threshold
       self.isMotionAvailable = motion.isAvailable
       motion.onMotionChange = { [weak motionSensor] detected in
         motionSensor?.updateMotionDetected(detected)

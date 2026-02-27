@@ -14,7 +14,7 @@ final class MotionMonitor {
   private let motionManager = CMMotionManager()
 
   /// Acceleration delta from gravity (in g) required to trigger motion detected.
-  private let threshold: Double = 0.15
+  var threshold: Double = 0.15
 
   /// Seconds of calm required before reporting no motion.
   private let cooldown: TimeInterval = 3.0
