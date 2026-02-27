@@ -119,7 +119,7 @@ nonisolated enum TLV8 {
 
     for (tag, value) in items {
       if value.isEmpty {
-        assert(
+        precondition(
           tag == .separator,
           "Zero-length TLV value for non-separator tag \(tag) — likely a bug"
         )
