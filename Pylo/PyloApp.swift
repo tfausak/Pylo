@@ -41,9 +41,37 @@ struct PyloApp: App {
     WindowGroup {
       ContentView(viewModel: viewModel)
         .task {
-          viewModel.start()
+          viewModel.restorePreferences()
         }
     }
+  }
+}
+
+// MARK: - Accessory Config Snapshot
+
+/// Captures the accessory-enable state at server start so we can detect
+/// whether settings have actually diverged (not just toggled and toggled back).
+struct AccessoryConfig: Equatable {
+  var flashlightEnabled: Bool
+  var cameraEnabled: Bool
+  var lightSensorEnabled: Bool
+  var motionEnabled: Bool
+
+  init(
+    flashlightEnabled: Bool, cameraEnabled: Bool,
+    lightSensorEnabled: Bool, motionEnabled: Bool
+  ) {
+    self.flashlightEnabled = flashlightEnabled
+    self.cameraEnabled = cameraEnabled
+    self.lightSensorEnabled = lightSensorEnabled
+    self.motionEnabled = motionEnabled
+  }
+
+  init(from vm: HAPViewModel) {
+    flashlightEnabled = vm.flashlightEnabled
+    cameraEnabled = vm.selectedStreamCamera != nil
+    lightSensorEnabled = vm.selectedCamera != nil
+    motionEnabled = vm.motionEnabled
   }
 }
 
@@ -68,8 +96,6 @@ final class HAPViewModel {
   var selectedCamera: CameraOption? {
     didSet {
       guard !isRestoring, oldValue?.id != selectedCamera?.id else { return }
-      let wasNone = oldValue == nil
-      let isNone = selectedCamera == nil
       if let selectedCamera {
         UserDefaults.standard.set(selectedCamera.id, forKey: "selectedCameraID")
         lightMonitor?.restart(with: selectedCamera)
@@ -77,14 +103,11 @@ final class HAPViewModel {
         UserDefaults.standard.set("none", forKey: "selectedCameraID")
         lightMonitor?.stop()
       }
-      if isRunning && wasNone != isNone { needsRestart = true }
     }
   }
   var selectedStreamCamera: CameraOption? {
     didSet {
       guard !isRestoring, oldValue?.id != selectedStreamCamera?.id else { return }
-      let wasNone = oldValue == nil
-      let isNone = selectedStreamCamera == nil
       if let selectedStreamCamera {
         UserDefaults.standard.set(selectedStreamCamera.id, forKey: "selectedStreamCameraID")
         cameraAccessory?.selectedCameraID = selectedStreamCamera.id
@@ -92,14 +115,12 @@ final class HAPViewModel {
         UserDefaults.standard.set("none", forKey: "selectedStreamCameraID")
         cameraAccessory?.selectedCameraID = nil
       }
-      if isRunning && wasNone != isNone { needsRestart = true }
     }
   }
   var flashlightEnabled: Bool = true {
     didSet {
       guard !isRestoring, flashlightEnabled != oldValue else { return }
       UserDefaults.standard.set(flashlightEnabled, forKey: "flashlightEnabled")
-      if isRunning { needsRestart = true }
     }
   }
   var motionEnabled: Bool = true {
@@ -112,7 +133,6 @@ final class HAPViewModel {
         motionMonitor?.stop()
         isMotionDetected = false
       }
-      if isRunning { needsRestart = true }
     }
   }
   var videoQuality: VideoQuality = .medium {
@@ -132,13 +152,32 @@ final class HAPViewModel {
       UIApplication.shared.isIdleTimerDisabled = keepScreenAwake && isRunning
     }
   }
+  var screenSaverEnabled: Bool = false {
+    didSet {
+      guard !isRestoring, screenSaverEnabled != oldValue else { return }
+      UserDefaults.standard.set(screenSaverEnabled, forKey: "screenSaverEnabled")
+    }
+  }
+  var screenSaverDelay: TimeInterval = 60 {
+    didSet {
+      guard !isRestoring, screenSaverDelay != oldValue else { return }
+      UserDefaults.standard.set(screenSaverDelay, forKey: "screenSaverDelay")
+    }
+  }
 
-  /// Whether the accessory configuration has changed since the server started.
-  var needsRestart = false
+  /// Configuration snapshot taken when the server starts. Compared against
+  /// current values to determine whether a restart is needed.
+  @ObservationIgnored var startedConfig: AccessoryConfig?
+
+  /// Whether the accessory configuration has diverged from what the server launched with.
+  var needsRestart: Bool {
+    guard let startedConfig else { return false }
+    return startedConfig != AccessoryConfig(from: self)
+  }
 
   /// Suppresses didSet side effects (UserDefaults writes, monitor restarts)
   /// while restoring persisted preferences during start().
-  @ObservationIgnored private var isRestoring = false
+  @ObservationIgnored var isRestoring = false
 
   @ObservationIgnored private var server: HAPServer?
   @ObservationIgnored private var lightMonitor: AmbientLightMonitor?
@@ -146,11 +185,61 @@ final class HAPViewModel {
   @ObservationIgnored private var batteryMonitor: BatteryMonitor?
   @ObservationIgnored private var cameraAccessory: HAPCameraAccessory?
 
+  /// Restores persisted preferences so the configure screen shows saved state.
+  /// Called once when the app launches, before the user presses Start.
+  @MainActor
+  func restorePreferences() {
+    isRestoring = true
+    if UserDefaults.standard.object(forKey: "flashlightEnabled") != nil {
+      flashlightEnabled = UserDefaults.standard.bool(forKey: "flashlightEnabled")
+    }
+    if UserDefaults.standard.object(forKey: "motionEnabled") != nil {
+      motionEnabled = UserDefaults.standard.bool(forKey: "motionEnabled")
+    }
+    if let savedQuality = UserDefaults.standard.string(forKey: "videoQuality"),
+      let quality = VideoQuality(rawValue: savedQuality)
+    {
+      videoQuality = quality
+    }
+    keepScreenAwake = UserDefaults.standard.bool(forKey: "keepScreenAwake")
+    screenSaverEnabled = UserDefaults.standard.bool(forKey: "screenSaverEnabled")
+    let savedDelay = UserDefaults.standard.double(forKey: "screenSaverDelay")
+    if savedDelay > 0 { screenSaverDelay = savedDelay }
+
+    // Discover available cameras and restore selections
+    let cameras = CameraOption.availableCameras()
+    availableCameras = cameras
+    let savedCameraID = UserDefaults.standard.string(forKey: "selectedCameraID")
+    if savedCameraID == "none" {
+      selectedCamera = nil
+    } else {
+      selectedCamera =
+        cameras.first(where: { $0.id == savedCameraID })
+        ?? cameras.first { $0.name.localizedCaseInsensitiveContains("front") }
+        ?? cameras.first
+    }
+    let savedStreamID = UserDefaults.standard.string(forKey: "selectedStreamCameraID")
+    if savedStreamID == "none" {
+      selectedStreamCamera = nil
+    } else {
+      selectedStreamCamera =
+        cameras.first(where: { $0.id == savedStreamID })
+        ?? cameras.first { $0.name.localizedCaseInsensitiveContains("back") }
+        ?? cameras.first
+    }
+    hasPairings = PairingStore().isPaired
+    isRestoring = false
+
+    if UserDefaults.standard.bool(forKey: "hasStartedBefore") {
+      start()
+    }
+  }
+
   @MainActor
   func start() {
     guard !isRunning && !isStarting else { return }
     isStarting = true
-    needsRestart = false
+    startedConfig = AccessoryConfig(from: self)
     statusMessage = "Starting…"
 
     // Defer heavy work so the UI can render the starting state first.
@@ -206,17 +295,6 @@ final class HAPViewModel {
       let pairingStore = PairingStore()
       let identity = DeviceIdentity()
 
-      // Restore accessory-enable preferences (default to true).
-      // isRestoring suppresses didSet side effects (redundant UserDefaults
-      // writes and calls to nil monitors) during preference restoration.
-      self.isRestoring = true
-      if UserDefaults.standard.object(forKey: "flashlightEnabled") != nil {
-        self.flashlightEnabled = UserDefaults.standard.bool(forKey: "flashlightEnabled")
-      }
-      if UserDefaults.standard.object(forKey: "motionEnabled") != nil {
-        self.motionEnabled = UserDefaults.standard.bool(forKey: "motionEnabled")
-      }
-
       // Wire up state change callbacks and build accessories list
       var enabledAccessories: [HAPAccessoryProtocol] = []
 
@@ -235,32 +313,6 @@ final class HAPViewModel {
         enabledAccessories.append(lightbulb)
       }
 
-      // Discover available cameras; restore previous selections
-      let cameras = CameraOption.availableCameras()
-      self.availableCameras = cameras
-      if self.selectedCamera == nil {
-        let savedID = UserDefaults.standard.string(forKey: "selectedCameraID")
-        if savedID == "none" {
-          // User explicitly chose "None" — leave selectedCamera nil
-        } else {
-          self.selectedCamera =
-            cameras.first(where: { $0.id == savedID })
-            ?? cameras.first { $0.name.localizedCaseInsensitiveContains("front") }
-            ?? cameras.first
-        }
-      }
-      if self.selectedStreamCamera == nil {
-        let savedID = UserDefaults.standard.string(forKey: "selectedStreamCameraID")
-        if savedID == "none" {
-          // User explicitly chose "None" — leave selectedStreamCamera nil
-        } else {
-          self.selectedStreamCamera =
-            cameras.first(where: { $0.id == savedID })
-            ?? cameras.first { $0.name.localizedCaseInsensitiveContains("back") }
-            ?? cameras.first
-        }
-      }
-
       if self.selectedStreamCamera != nil {
         camera.onStateChange = { [weak self] aid, iid, value in
           Task { @MainActor in
@@ -276,11 +328,6 @@ final class HAPViewModel {
         }
         self.cameraAccessory = camera
         camera.selectedCameraID = self.selectedStreamCamera?.id
-        if let savedQuality = UserDefaults.standard.string(forKey: "videoQuality"),
-          let quality = VideoQuality(rawValue: savedQuality)
-        {
-          self.videoQuality = quality
-        }
         camera.minimumBitrate = self.videoQuality.minimumBitrate
         enabledAccessories.append(camera)
       }
@@ -392,6 +439,7 @@ final class HAPViewModel {
         self.isRunning = true
         self.isStarting = false
         self.statusMessage = "Advertising as '\(bridge.name)'\nDevice ID: \(identity.deviceID)"
+        UserDefaults.standard.set(true, forKey: "hasStartedBefore")
 
         // Start ambient light monitoring with selected camera (if any)
         if self.selectedCamera != nil {
@@ -403,9 +451,6 @@ final class HAPViewModel {
           motion.start()
         }
 
-        // Restore keep-screen-awake preference
-        self.keepScreenAwake = UserDefaults.standard.bool(forKey: "keepScreenAwake")
-        self.isRestoring = false
         UIApplication.shared.isIdleTimerDisabled = self.keepScreenAwake
       } catch {
         self.isRestoring = false
@@ -427,16 +472,26 @@ final class HAPViewModel {
     server?.stop()
     server = nil
     isRunning = false
+    startedConfig = nil
     UIApplication.shared.isIdleTimerDisabled = false
     statusMessage = "Stopped"
   }
 
   @MainActor
+  func restart() {
+    stop()
+    start()
+  }
+
+  @MainActor
   func resetPairings() {
-    server?.pairingStore.removeAll()
-    server?.updateAdvertisement()
+    if let server {
+      server.pairingStore.removeAll()
+      server.updateAdvertisement()
+    } else {
+      PairingStore().removeAll()
+    }
     hasPairings = false
-    statusMessage = "Pairings cleared — ready for new pairing"
   }
 }
 
@@ -466,7 +521,7 @@ func hapSetupURI(setupCode: String, category: Int = HAPAccessoryCategory.bridge.
 }
 
 /// Generate a crisp QR code `UIImage` from a string using CoreImage.
-private func generateQRCode(from string: String) -> UIImage? {
+func generateQRCode(from string: String) -> UIImage? {
   let context = CIContext()
   let filter = CIFilter.qrCodeGenerator()
   filter.message = Data(string.utf8)
@@ -476,314 +531,4 @@ private func generateQRCode(from string: String) -> UIImage? {
   let scaled = output.transformed(by: scale)
   guard let cgImage = context.createCGImage(scaled, from: scaled.extent) else { return nil }
   return UIImage(cgImage: cgImage)
-}
-
-// MARK: - Burn-in Prevention
-
-/// Seconds of inactivity before the screen dims to black.
-private let screenDimDelay: TimeInterval = 120
-
-struct ContentView: View {
-  @Bindable var viewModel: HAPViewModel
-  @State private var isScreenDimmed = false
-  @State private var dimTask: Task<Void, Never>?
-  @State private var qrImage: UIImage?
-
-  private func resetDimTimer() {
-    dimTask?.cancel()
-    isScreenDimmed = false
-    guard viewModel.isRunning else { return }
-    dimTask = Task {
-      try? await Task.sleep(for: .seconds(screenDimDelay))
-      guard !Task.isCancelled else { return }
-      isScreenDimmed = true
-    }
-  }
-
-  var body: some View {
-    ZStack {
-      mainContent
-        .allowsHitTesting(!isScreenDimmed)
-
-      if isScreenDimmed {
-        Color.black
-          .ignoresSafeArea()
-          .onTapGesture { resetDimTimer() }
-      }
-    }
-    .onChange(of: viewModel.isRunning) {
-      if viewModel.isRunning {
-        resetDimTimer()
-        qrImage = generateQRCode(from: hapSetupURI(setupCode: viewModel.setupCode))
-      } else {
-        dimTask?.cancel()
-        dimTask = nil
-        isScreenDimmed = false
-      }
-    }
-  }
-
-  private var mainContent: some View {
-    VStack(spacing: 0) {
-      ScrollView {
-        VStack(spacing: 24) {
-          Text("Pylo")
-            .font(.largeTitle)
-            .fontWeight(.bold)
-
-          // Status
-          GroupBox("Status") {
-            VStack(alignment: .leading, spacing: 8) {
-              HStack {
-                if viewModel.isStarting {
-                  ProgressView()
-                    .controlSize(.small)
-                } else {
-                  Circle()
-                    .fill(viewModel.isRunning ? .green : .gray)
-                    .frame(width: 12, height: 12)
-                }
-                Text(
-                  viewModel.isStarting ? "Starting…" : viewModel.isRunning ? "Running" : "Stopped")
-              }
-              Text(viewModel.statusMessage)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-              if viewModel.needsRestart {
-                Text("Restart required for accessory changes to take effect")
-                  .font(.caption)
-                  .foregroundStyle(.orange)
-              }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-          }
-
-          // Settings
-          if viewModel.isRunning {
-            GroupBox("Settings") {
-              Toggle("Keep Screen Awake", isOn: $viewModel.keepScreenAwake)
-            }
-          }
-
-          // Setup Code + QR
-          if viewModel.isRunning {
-            GroupBox("Setup Code") {
-              VStack(spacing: 12) {
-                if let qr = qrImage {
-                  Image(uiImage: qr)
-                    .interpolation(.none)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 180, height: 180)
-                }
-                Text(viewModel.setupCode)
-                  .font(.system(.title, design: .monospaced))
-                  .fontWeight(.bold)
-                  .frame(maxWidth: .infinity)
-                Text("Scan with Home.app or enter the code manually")
-                  .font(.caption)
-                  .foregroundStyle(.secondary)
-              }
-            }
-          }
-
-          // Light State
-          if viewModel.isRunning {
-            GroupBox("Flashlight") {
-              VStack(spacing: 12) {
-                if viewModel.flashlightEnabled {
-                  Image(systemName: viewModel.isLightOn ? "lightbulb.fill" : "lightbulb")
-                    .font(.system(size: 48))
-                    .foregroundStyle(viewModel.isLightOn ? .yellow : .gray)
-
-                  Text(viewModel.isLightOn ? "ON" : "OFF")
-                    .font(.headline)
-
-                  if viewModel.isLightOn {
-                    Text("Brightness: \(viewModel.brightness)%")
-                      .font(.subheadline)
-                      .foregroundStyle(.secondary)
-                  }
-                } else {
-                  Image(systemName: "lightbulb.slash")
-                    .font(.system(size: 48))
-                    .foregroundStyle(.secondary)
-
-                  Text("Disabled")
-                    .font(.headline)
-                }
-
-                Toggle("Enabled", isOn: $viewModel.flashlightEnabled)
-              }
-              .frame(maxWidth: .infinity)
-            }
-
-            GroupBox("Ambient Light") {
-              VStack(spacing: 8) {
-                if viewModel.selectedCamera == nil {
-                  Image(systemName: "sun.max")
-                    .font(.system(size: 32))
-                    .foregroundStyle(.secondary)
-                  Text("Disabled")
-                    .font(.headline)
-                } else {
-                  Image(systemName: "sun.max")
-                    .font(.system(size: 32))
-                    .foregroundStyle(.orange)
-                  Text(String(format: "%.1f lux", viewModel.ambientLux))
-                    .font(.system(.title2, design: .monospaced))
-                }
-
-                Picker("Camera", selection: $viewModel.selectedCamera) {
-                  Text("None").tag(CameraOption?.none)
-                  ForEach(viewModel.availableCameras) { camera in
-                    Text(camera.name).tag(Optional(camera))
-                  }
-                }
-                .pickerStyle(.menu)
-              }
-              .frame(maxWidth: .infinity)
-            }
-
-            GroupBox("Motion Sensor") {
-              VStack(spacing: 8) {
-                if !viewModel.motionEnabled {
-                  Image(systemName: "figure.stand")
-                    .font(.system(size: 32))
-                    .foregroundStyle(.secondary)
-                  Text("Disabled")
-                    .font(.headline)
-                } else if viewModel.isMotionAvailable {
-                  Image(
-                    systemName: viewModel.isMotionDetected ? "figure.walk.motion" : "figure.stand"
-                  )
-                  .font(.system(size: 32))
-                  .foregroundStyle(viewModel.isMotionDetected ? .blue : .gray)
-                  Text(viewModel.isMotionDetected ? "Motion Detected" : "No Motion")
-                    .font(.headline)
-                  Text("Accelerometer movement")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                } else {
-                  Image(systemName: "figure.stand")
-                    .font(.system(size: 32))
-                    .foregroundStyle(.secondary)
-                  Text("No accelerometer found")
-                    .font(.headline)
-                  Text("An accelerometer is required for motion sensing")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                }
-
-                Toggle("Enabled", isOn: $viewModel.motionEnabled)
-              }
-              .frame(maxWidth: .infinity)
-            }
-
-            GroupBox("Camera") {
-              VStack(spacing: 8) {
-                if viewModel.availableCameras.isEmpty {
-                  Image(systemName: "video.slash")
-                    .font(.system(size: 32))
-                    .foregroundStyle(.secondary)
-                  Text("No cameras found")
-                    .font(.headline)
-                  Text("A camera is required for HomeKit streaming")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                } else if viewModel.selectedStreamCamera == nil {
-                  Image(systemName: "video.slash")
-                    .font(.system(size: 32))
-                    .foregroundStyle(.secondary)
-                  Text("Disabled")
-                    .font(.headline)
-
-                  Picker("Camera", selection: $viewModel.selectedStreamCamera) {
-                    Text("None").tag(CameraOption?.none)
-                    ForEach(viewModel.availableCameras) { camera in
-                      Text(camera.name).tag(Optional(camera))
-                    }
-                  }
-                  .pickerStyle(.menu)
-                } else {
-                  Image(systemName: viewModel.isCameraStreaming ? "video.fill" : "video")
-                    .font(.system(size: 32))
-                    .foregroundStyle(viewModel.isCameraStreaming ? .green : .gray)
-                  Text(viewModel.isCameraStreaming ? "Streaming" : "Idle")
-                    .font(.headline)
-
-                  Picker("Camera", selection: $viewModel.selectedStreamCamera) {
-                    Text("None").tag(CameraOption?.none)
-                    ForEach(viewModel.availableCameras) { camera in
-                      Text(camera.name).tag(Optional(camera))
-                    }
-                  }
-                  .pickerStyle(.menu)
-
-                  Picker("Quality", selection: $viewModel.videoQuality) {
-                    ForEach(VideoQuality.allCases) { quality in
-                      Text(quality.rawValue).tag(quality)
-                    }
-                  }
-                  .pickerStyle(.segmented)
-
-                  Text(viewModel.selectedStreamCamera?.name ?? "")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                }
-              }
-              .frame(maxWidth: .infinity)
-            }
-          }
-        }
-        .padding()
-      }
-
-      // Buttons (pinned to bottom)
-      VStack(spacing: 8) {
-        if viewModel.isRunning && viewModel.hasPairings {
-          Button(action: { viewModel.resetPairings() }) {
-            Text("Reset Pairings")
-              .font(.subheadline)
-              .frame(maxWidth: .infinity)
-              .padding(10)
-              .background(Color.orange)
-              .foregroundStyle(.white)
-              .clipShape(.rect(cornerRadius: 10))
-          }
-        }
-
-        Button(action: {
-          if viewModel.isRunning {
-            viewModel.stop()
-          } else {
-            viewModel.start()
-          }
-        }) {
-          Group {
-            if viewModel.isStarting {
-              HStack(spacing: 8) {
-                ProgressView()
-                  .tint(.white)
-                Text("Starting…")
-              }
-            } else {
-              Text(viewModel.isRunning ? "Stop Server" : "Start Server")
-            }
-          }
-          .font(.headline)
-          .frame(maxWidth: .infinity)
-          .padding()
-          .background(
-            viewModel.isStarting ? Color.gray : viewModel.isRunning ? Color.red : Color.blue
-          )
-          .foregroundStyle(.white)
-          .clipShape(.rect(cornerRadius: 12))
-        }
-        .disabled(viewModel.isStarting)
-      }
-      .padding()
-    }
-    .onTapGesture { resetDimTimer() }
-  }
 }
