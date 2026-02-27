@@ -314,7 +314,7 @@ nonisolated enum PairSetupHandler {
       }
 
       // Derive iOSDeviceX from the SRP session key
-      let iosDeviceX = HKDF<SHA512>.deriveKey(
+      let iosDeviceXKey = HKDF<SHA512>.deriveKey(
         inputKeyMaterial: sessionKey,
         salt: Data("Pair-Setup-Controller-Sign-Salt".utf8),
         info: Data("Pair-Setup-Controller-Sign-Info".utf8),
@@ -322,7 +322,7 @@ nonisolated enum PairSetupHandler {
       )
 
       // Verify iOS device signature
-      var iosDeviceInfo = iosDeviceX
+      var iosDeviceInfo = iosDeviceXKey.withUnsafeBytes { Data($0) }
       iosDeviceInfo.append(iosIdentifier)
       iosDeviceInfo.append(iosLTPK)
 
@@ -340,7 +340,7 @@ nonisolated enum PairSetupHandler {
       // Build the accessory's response (M6) BEFORE persisting the pairing.
       // If any crypto step throws, we must not leave a stranded pairing on disk.
       // Derive AccessoryX
-      let accessoryX = HKDF<SHA512>.deriveKey(
+      let accessoryXKey = HKDF<SHA512>.deriveKey(
         inputKeyMaterial: sessionKey,
         salt: Data("Pair-Setup-Accessory-Sign-Salt".utf8),
         info: Data("Pair-Setup-Accessory-Sign-Info".utf8),
@@ -351,7 +351,7 @@ nonisolated enum PairSetupHandler {
       let accessoryLTPK = Data(server.deviceIdentity.publicKey.rawRepresentation)
 
       // Sign: AccessoryX + AccessoryPairingID + AccessoryLTPK
-      var accessoryInfo = accessoryX
+      var accessoryInfo = accessoryXKey.withUnsafeBytes { Data($0) }
       accessoryInfo.append(accessoryID)
       accessoryInfo.append(accessoryLTPK)
       let accessorySignature = try server.deviceIdentity.signingKey.signature(for: accessoryInfo)

@@ -373,7 +373,7 @@ nonisolated final class PairSetupSession: @unchecked Sendable {
   var serverPrivateKey: Data?  // b
   var sharedSecret: Data?  // S -> K
   var clientPublicKey: Data?  // A
-  var sessionKey: Data?  // K (derived from shared secret)
+  var sessionKey: SymmetricKey?  // K (derived from shared secret)
   var srpSession: SRPServer?
 }
 
@@ -420,6 +420,21 @@ nonisolated extension HKDF<SHA512> {
     let ikm = SymmetricKey(data: inputKeyMaterial)
     return Self.deriveKey(
       inputKeyMaterial: ikm,
+      salt: salt,
+      info: info,
+      outputByteCount: outputByteCount
+    )
+  }
+
+  /// Derive a SymmetricKey from a SymmetricKey input — keeps key material in SecureBytes.
+  static func deriveSymmetricKey(
+    inputKeyMaterial: SymmetricKey,
+    salt: Data,
+    info: Data,
+    outputByteCount: Int = 32
+  ) -> SymmetricKey {
+    Self.deriveKey(
+      inputKeyMaterial: inputKeyMaterial,
       salt: salt,
       info: info,
       outputByteCount: outputByteCount

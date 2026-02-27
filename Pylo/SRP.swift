@@ -62,7 +62,8 @@ nonisolated final class SRPServer {
   private var sharedSecret: BigUInt?
 
   /// The derived session key (K = H(S)), available after verifyClientProof succeeds.
-  private(set) var sessionKey: Data?
+  /// Stored as SymmetricKey for memory protection (SecureBytes, locked pages).
+  private(set) var sessionKey: SymmetricKey?
 
   // MARK: - Initialization
 
@@ -204,7 +205,7 @@ nonisolated final class SRPServer {
     let serverProof = Data(SHA512.hash(data: m2Data))
 
     // Proof verified — now expose the session key
-    self.sessionKey = derivedKey
+    self.sessionKey = SymmetricKey(data: derivedKey)
 
     return serverProof
   }
