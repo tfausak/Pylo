@@ -999,11 +999,12 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
     // Wait up to 3 seconds for a usable frame
     _ = grabber.waitForCapture(timeout: .now() + 3)
 
-    guard let ciImage = grabber.capturedImage else {
+    guard let cgImage = grabber.capturedImage else {
       logger.warning("Frame grab timed out — returning cached snapshot")
       return cachedSnapshot
     }
 
+    let ciImage = CIImage(cgImage: cgImage)
     let context = CIContext()
     guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
       let jpeg = context.jpegRepresentation(of: ciImage, colorSpace: colorSpace, options: [:])
@@ -1226,13 +1227,14 @@ final class HAPCameraAccessory: HAPAccessoryProtocol {
 
 private final class FrameGrabber: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
   private let semaphore = DispatchSemaphore(value: 0)
-  /// CIImage created inside the callback to avoid holding a CVPixelBuffer
-  /// beyond the delegate callback lifetime (AVFoundation may recycle the backing memory).
+  /// CGImage copied from the pixel buffer inside the delegate callback, so
+  /// the backing CVPixelBuffer can be safely recycled by AVFoundation.
   /// Protected by a lock to prevent data races between the capture queue
   /// (writer) and the calling thread (reader after semaphore wait).
   private let lock = NSLock()
-  private var _capturedImage: CIImage?
-  var capturedImage: CIImage? { lock.withLock { _capturedImage } }
+  private let context = CIContext()
+  private var _capturedImage: CGImage?
+  var capturedImage: CGImage? { lock.withLock { _capturedImage } }
   private let framesToSkip: Int
   private var framesReceived = 0
 
@@ -1254,7 +1256,12 @@ private final class FrameGrabber: NSObject, AVCaptureVideoDataOutputSampleBuffer
     // Skip early frames so auto-exposure can settle.
     guard framesReceived > framesToSkip else { return }
     guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-    lock.withLock { _capturedImage = CIImage(cvPixelBuffer: pixelBuffer) }
+    // Render to CGImage immediately while the pixel buffer is still valid —
+    // CIImage(cvPixelBuffer:) only holds a lazy reference and the pool may
+    // recycle the backing memory after this callback returns.
+    let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+    guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else { return }
+    lock.withLock { _capturedImage = cgImage }
     semaphore.signal()
   }
 }
