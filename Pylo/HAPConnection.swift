@@ -581,7 +581,7 @@ nonisolated struct HTTPRequest {
     // Check Content-Length — HAP messages are small; reject obviously oversized
     // payloads early rather than buffering until the 1 MB maxBufferSize limit.
     let contentLength = headers["content-length"].flatMap { Int($0) } ?? 0
-    guard contentLength <= 65536 else {
+    guard contentLength >= 0, contentLength <= 65536 else {
       buffer.removeAll()
       return .malformed
     }

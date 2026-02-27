@@ -388,6 +388,17 @@ struct HTTPRequestTests {
       Issue.record("Expected .malformed for invalid UTF-8 headers")
     }
   }
+
+  @Test("parseAndConsume returns malformed for negative content-length")
+  func rejectsNegativeContentLength() {
+    let raw = "POST /pair-setup HTTP/1.1\r\nContent-Length: -1\r\n\r\n"
+    var buffer = Data(raw.utf8)
+    if case .malformed = HTTPRequest.parseAndConsume(&buffer) {
+      #expect(buffer.isEmpty)
+    } else {
+      Issue.record("Expected .malformed for negative content-length")
+    }
+  }
 }
 
 // MARK: - HTTP Response Tests
