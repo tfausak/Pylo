@@ -2143,8 +2143,8 @@ struct SRPSessionKeyDeferralTests {
 @Suite("PairSetupThrottle Window Behavior")
 struct PairSetupThrottleWindowTests {
 
-  @Test("Additional failures beyond maxAttempts do not slide the throttle window")
-  func windowDoesNotSlide() {
+  @Test("Failures beyond maxAttempts keep throttle engaged with latest timestamp")
+  func windowSlidesWithNewFailures() {
     let throttle = PairSetupThrottle()
     let startTime = Date()
 
@@ -2159,18 +2159,22 @@ struct PairSetupThrottleWindowTests {
     for _ in 0..<50 {
       throttle.recordFailure(now: midTime)
     }
-
-    // Should still be throttled at midTime
     #expect(throttle.isThrottled(now: midTime))
 
-    // The window should expire 30s after startTime, NOT after the later failures
+    // The window now extends from midTime (the latest failure), so 30s after
+    // startTime is still within the throttle window.
     let afterOriginalWindow = startTime.addingTimeInterval(
       PairSetupThrottle.throttleDuration + 1)
-    #expect(!throttle.isThrottled(now: afterOriginalWindow))
+    #expect(throttle.isThrottled(now: afterOriginalWindow))
+
+    // Throttle expires 30s after the last failure at midTime
+    let afterMidWindow = midTime.addingTimeInterval(
+      PairSetupThrottle.throttleDuration + 1)
+    #expect(!throttle.isThrottled(now: afterMidWindow))
   }
 
-  @Test("Throttle re-engages after counter reset from expired window")
-  func reEngagesAfterExpiry() {
+  @Test("Single failure after expiry immediately re-throttles")
+  func reThrottlesImmediately() {
     let throttle = PairSetupThrottle()
     let t0 = Date()
 
@@ -2180,15 +2184,13 @@ struct PairSetupThrottleWindowTests {
     }
     #expect(throttle.isThrottled(now: t0))
 
-    // Wait for expiry — isThrottled no longer resets, recordFailure does
+    // Wait for window to expire
     let t1 = t0.addingTimeInterval(PairSetupThrottle.throttleDuration + 1)
     #expect(!throttle.isThrottled(now: t1))
 
-    // Counter will be reset on the next recordFailure call
-    // Need maxAttempts more failures to re-throttle
-    for _ in 0..<PairSetupThrottle.maxAttempts {
-      throttle.recordFailure(now: t1)
-    }
+    // A single new failure should immediately re-throttle since the counter
+    // is still >= maxAttempts (never resets without calling reset()).
+    throttle.recordFailure(now: t1)
     #expect(throttle.isThrottled(now: t1))
   }
 }
