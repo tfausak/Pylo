@@ -392,7 +392,7 @@ final class HAPViewModel {
         }
 
         // Wire recording configuration changes
-        camera.onRecordingConfigChange = { [weak fmp4Writer, weak camera] active in
+        camera.onRecordingConfigChange = { [weak camera] active in
           if active {
             camera?.videoMotionEnabled = true
           }
