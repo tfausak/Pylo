@@ -39,7 +39,19 @@ nonisolated final class PairSetupThrottle {
     }
   }
 
-  /// Record a failed authentication attempt.
+  /// Record a pair-setup attempt (successful or not).
+  /// Counts towards the throttle threshold so that an attacker cannot
+  /// start unlimited M1 sessions without triggering rate limiting.
+  func recordAttempt(now: Date = Date()) {
+    lock.withLock { state in
+      state.failedAttempts += 1
+      if state.failedAttempts >= Self.maxAttempts {
+        state.lastFailureDate = now
+      }
+    }
+  }
+
+  /// Record a failed authentication attempt (M3 proof failure).
   /// Once the threshold is reached, subsequent attempts are gated by
   /// `throttleDuration`. The counter never resets on its own — only
   /// `reset()` (called after a successful pairing) clears the state.
@@ -191,6 +203,7 @@ nonisolated enum PairSetupHandler {
       logger.warning("Pair-setup throttled after \(throttle.failedAttempts) failed attempts")
       return errorResponse(state: 0x02, error: .maxTries)
     }
+    throttle.recordAttempt()
 
     // Reject if already paired
     if server.pairingStore.isPaired {

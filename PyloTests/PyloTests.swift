@@ -1837,6 +1837,17 @@ struct PairSetupThrottleTests {
     #expect(throttle.failedAttempts == 0)
     #expect(!throttle.isThrottled(now: now))
   }
+
+  @Test("recordAttempt counts towards throttle threshold")
+  func recordAttemptCountsTowardsThrottle() {
+    let throttle = PairSetupThrottle()
+    let now = Date()
+    for _ in 0..<PairSetupThrottle.maxAttempts {
+      throttle.recordAttempt(now: now)
+    }
+    #expect(throttle.failedAttempts == PairSetupThrottle.maxAttempts)
+    #expect(throttle.isThrottled(now: now))
+  }
 }
 
 // MARK: - RTCP Sender Report Tests
