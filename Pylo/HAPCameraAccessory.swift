@@ -32,22 +32,31 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
   /// Whether video motion detection is active on the streaming session.
   var videoMotionEnabled: Bool = false {
     didSet {
-      if videoMotionEnabled {
-        let detector = VideoMotionDetector()
-        detector.onMotionChange = { [weak self] detected in
-          self?.onVideoMotionChange?(detected)
+      streamLock.withLock {
+        if videoMotionEnabled {
+          let detector = VideoMotionDetector()
+          detector.onMotionChange = { [weak self] detected in
+            self?.onVideoMotionChange?(detected)
+          }
+          _videoMotionDetector = detector
+          _streamSession?.videoMotionDetector = detector
+        } else {
+          _videoMotionDetector?.reset()
+          _videoMotionDetector = nil
+          _streamSession?.videoMotionDetector = nil
         }
-        videoMotionDetector = detector
-        streamSession?.videoMotionDetector = detector
-      } else {
-        videoMotionDetector?.reset()
-        videoMotionDetector = nil
-        streamSession?.videoMotionDetector = nil
       }
     }
   }
 
-  private var videoMotionDetector: VideoMotionDetector?
+  /// Lock protecting _videoMotionDetector and _streamSession, which are
+  /// accessed from both createServerSetup (off-main) and the server queue.
+  private let streamLock = NSLock()
+  private var _videoMotionDetector: VideoMotionDetector?
+  var videoMotionDetector: VideoMotionDetector? {
+    get { streamLock.withLock { _videoMotionDetector } }
+    set { streamLock.withLock { _videoMotionDetector = newValue } }
+  }
 
   private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "Camera")
 
@@ -58,7 +67,11 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
   var minimumBitrate: Int = 0
 
   /// Active streaming session (nil when idle).
-  private var streamSession: CameraStreamSession?
+  private var _streamSession: CameraStreamSession?
+  var streamSession: CameraStreamSession? {
+    get { streamLock.withLock { _streamSession } }
+    set { streamLock.withLock { _streamSession = newValue } }
+  }
 
   /// Most recent JPEG snapshot captured during streaming (used as fallback for snapshot requests).
   /// Protected by a lock because it is written from captureQueue (via onSnapshotFrame) and from
