@@ -384,11 +384,14 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
       if videoFD >= 0 { close(videoFD) }
       // Close audio FD here if there was no read source to own it.
       if readSource == nil, audioFD >= 0 { close(audioFD) }
-      player?.stop()
-      engine?.stop()
       if let dec = decoder { AudioConverterDispose(dec) }
       _ = incomingSRTP  // prevent premature dealloc until after queue drains
     }
+
+    // Stop the audio engine/player outside of rtpQueue — AVAudioEngine
+    // is not documented as thread-safe when stopped from an arbitrary queue.
+    player?.stop()
+    engine?.stop()
 
     // Remaining state cleanup (FDs already invalidated above)
     audioSampleCount = 0
