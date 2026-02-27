@@ -9,6 +9,7 @@ nonisolated enum AUHeader {
   /// Layout: 2-byte AU-headers-length (0x0010 = one 16-bit AU header)
   ///       + 2-byte AU header (13-bit AU-size << 3 | AU-Index=0).
   static func add(to aacData: Data) -> Data {
+    precondition(aacData.count <= 8191, "AU-size field is 13 bits; payload exceeds maximum")
     let auSize = UInt16(aacData.count)
     var header = Data(count: 4)
     header[0] = 0x00  // AU-headers-length MSB

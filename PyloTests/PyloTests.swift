@@ -1451,6 +1451,13 @@ struct AUHeaderTests {
     #expect(framed[2] == 0x00)
     #expect(framed[3] == 0x00)
   }
+
+  @Test("add() with maximum 13-bit payload succeeds")
+  func addMaxPayload() {
+    let payload = Data(repeating: 0xAA, count: 8191)
+    let framed = AUHeader.add(to: payload)
+    #expect(framed.count == 4 + 8191)
+  }
 }
 
 // MARK: - SRTP Tests
