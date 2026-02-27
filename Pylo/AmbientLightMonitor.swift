@@ -33,7 +33,14 @@ nonisolated final class AmbientLightMonitor: @unchecked Sendable {
   private let lock = NSLock()
   private let timerQueue = DispatchQueue(label: "me.fausak.taylor.Pylo.lightTimer")
   /// Serial queue for AVCaptureSession start/stop — these are not thread-safe.
-  private let sessionQueue = DispatchQueue(label: "me.fausak.taylor.Pylo.lightSession")
+  private let sessionQueue: DispatchQueue
+  private let sessionQueueKey = DispatchSpecificKey<Bool>()
+
+  init() {
+    let queue = DispatchQueue(label: "me.fausak.taylor.Pylo.lightSession")
+    queue.setSpecific(key: sessionQueueKey, value: true)
+    self.sessionQueue = queue
+  }
 
   private struct State {
     var captureSession: AVCaptureSession?
@@ -125,8 +132,11 @@ nonisolated final class AmbientLightMonitor: @unchecked Sendable {
   /// fully released before this method returns.  Used when another
   /// capture session needs exclusive camera access (e.g. snapshot).
   func pauseSession() {
-    sessionQueue.sync {
-      captureSession?.stopRunning()
+    let pause = { [self] in captureSession?.stopRunning() }
+    if DispatchQueue.getSpecific(key: sessionQueueKey) != nil {
+      pause()
+    } else {
+      sessionQueue.sync(execute: pause)
     }
     logger.debug("Ambient light session paused")
   }
@@ -149,8 +159,13 @@ nonisolated final class AmbientLightMonitor: @unchecked Sendable {
       return (t, s)
     }
     oldTimer?.cancel()
-    sessionQueue.sync {
-      oldSession?.stopRunning()
+    // stopRunning() must execute on sessionQueue but we must avoid sync-on-self
+    // deadlocks if the caller is already on sessionQueue.
+    let stopBlock = { oldSession?.stopRunning() }
+    if DispatchQueue.getSpecific(key: self.sessionQueueKey) != nil {
+      stopBlock()
+    } else {
+      sessionQueue.sync(execute: stopBlock)
     }
 
     logger.info("Ambient light monitor stopped")
