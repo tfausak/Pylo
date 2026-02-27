@@ -200,12 +200,20 @@ nonisolated final class HAPAccessory: HAPAccessoryProtocol {
 
   // MARK: - Lightbulb State
 
-  private(set) var isOn: Bool = false {
-    didSet { applyTorchState() }
+  private struct LightState {
+    var isOn: Bool = false
+    var brightness: Int = 100
+  }
+  private let lightState = OSAllocatedUnfairLock(initialState: LightState())
+
+  private(set) var isOn: Bool {
+    get { lightState.withLock { $0.isOn } }
+    set { lightState.withLock { $0.isOn = newValue }; applyTorchState() }
   }
 
-  private(set) var brightness: Int = 100 {
-    didSet { applyTorchState() }
+  private(set) var brightness: Int {
+    get { lightState.withLock { $0.brightness } }
+    set { lightState.withLock { $0.brightness = newValue }; applyTorchState() }
   }
 
   /// Shared battery state — nil means no battery, omit battery service.
@@ -482,7 +490,7 @@ nonisolated final class HAPLightSensorAccessory: HAPAccessoryProtocol {
 
   private let _ambientLightLevel = OSAllocatedUnfairLock(initialState: Float(1.0))
   var ambientLightLevel: Float {
-    get { _ambientLightLevel.withLock { $0 } }
+    _ambientLightLevel.withLock { $0 }
   }
 
   static let iidLightSensorService = 8
@@ -580,7 +588,7 @@ nonisolated final class HAPMotionSensorAccessory: HAPAccessoryProtocol {
 
   private let _isMotionDetected = OSAllocatedUnfairLock(initialState: false)
   var isMotionDetected: Bool {
-    get { _isMotionDetected.withLock { $0 } }
+    _isMotionDetected.withLock { $0 }
   }
 
   static let iidMotionSensorService = 8
