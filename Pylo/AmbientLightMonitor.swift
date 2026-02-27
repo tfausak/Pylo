@@ -124,9 +124,17 @@ nonisolated final class AmbientLightMonitor: @unchecked Sendable {
       self?.sampleLux(from: camera, fNumber: fNumber)
     }
     // Replace the sentinel with the real session.
-    lock.withLock {
+    // If stop() was called between the sentinel set and now,
+    // captureSession will be nil — abort to avoid orphaning a session.
+    let cancelled: Bool = lock.withLock {
+      guard _state.captureSession != nil else { return true }
       _state.captureSession = session
       _state.timer = newTimer
+      return false
+    }
+    if cancelled {
+      logger.info("Ambient light monitor start aborted (stop() called concurrently)")
+      return
     }
     newTimer.resume()
 
