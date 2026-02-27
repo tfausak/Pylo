@@ -36,7 +36,24 @@ nonisolated final class HAPServer: @unchecked Sendable {
   let deviceIdentity: DeviceIdentity
 
   /// HDS (HomeKit Data Stream) handler for HKSV video transfer.
-  var dataStream: HAPDataStream?
+  /// Access is synchronized through the server queue.
+  private var _dataStream: HAPDataStream?
+  var dataStream: HAPDataStream? {
+    get {
+      if DispatchQueue.getSpecific(key: Self.queueKey) != nil {
+        return _dataStream
+      } else {
+        return queue.sync { _dataStream }
+      }
+    }
+    set {
+      if DispatchQueue.getSpecific(key: Self.queueKey) != nil {
+        _dataStream = newValue
+      } else {
+        queue.sync { _dataStream = newValue }
+      }
+    }
+  }
 
   /// Configuration number — derived from a hash of the accessory database structure
   /// so it updates automatically whenever services or characteristics change.
