@@ -223,10 +223,22 @@ nonisolated final class HAPAccessory: HAPAccessoryProtocol, @unchecked Sendable 
   }
 
   /// Shared battery state — nil means no battery, omit battery service.
-  var batteryState: BatteryState?
+  /// Protected by a lock: written from @MainActor during setup, read on the server queue.
+  private let _batteryState = OSAllocatedUnfairLock<BatteryState?>(initialState: nil)
+  var batteryState: BatteryState? {
+    get { _batteryState.withLock { $0 } }
+    set { _batteryState.withLock { $0 = newValue } }
+  }
 
   /// Callback for notifying the server of state changes (for EVENT notifications).
-  var onStateChange: ((_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
+  /// Protected by a lock: written from @MainActor, read from sensor/server callbacks.
+  private let _onStateChange = OSAllocatedUnfairLock<
+    ((_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
+  >(initialState: nil)
+  var onStateChange: ((_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)? {
+    get { _onStateChange.withLock { $0 } }
+    set { _onStateChange.withLock { $0 = newValue } }
+  }
 
   init(
     aid: Int,
@@ -428,7 +440,14 @@ nonisolated final class HAPBridgeInfo: HAPAccessoryProtocol, @unchecked Sendable
   let manufacturer: String
   let serialNumber: String
   let firmwareRevision: String
-  var onStateChange: ((_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
+
+  private let _onStateChange = OSAllocatedUnfairLock<
+    ((_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
+  >(initialState: nil)
+  var onStateChange: ((_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)? {
+    get { _onStateChange.withLock { $0 } }
+    set { _onStateChange.withLock { $0 = newValue } }
+  }
 
   init(
     name: String = "Pylo Bridge",
@@ -489,10 +508,21 @@ nonisolated final class HAPLightSensorAccessory: HAPAccessoryProtocol, @unchecke
   let manufacturer: String
   let serialNumber: String
   let firmwareRevision: String
-  var onStateChange: ((_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
+
+  private let _onStateChange = OSAllocatedUnfairLock<
+    ((_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
+  >(initialState: nil)
+  var onStateChange: ((_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)? {
+    get { _onStateChange.withLock { $0 } }
+    set { _onStateChange.withLock { $0 = newValue } }
+  }
 
   /// Shared battery state — nil means no battery, omit battery service.
-  var batteryState: BatteryState?
+  private let _batteryState = OSAllocatedUnfairLock<BatteryState?>(initialState: nil)
+  var batteryState: BatteryState? {
+    get { _batteryState.withLock { $0 } }
+    set { _batteryState.withLock { $0 = newValue } }
+  }
 
   private let _ambientLightLevel = OSAllocatedUnfairLock(initialState: Float(1.0))
   var ambientLightLevel: Float {
@@ -587,10 +617,21 @@ nonisolated final class HAPMotionSensorAccessory: HAPAccessoryProtocol, @uncheck
   let manufacturer: String
   let serialNumber: String
   let firmwareRevision: String
-  var onStateChange: ((_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
+
+  private let _onStateChange = OSAllocatedUnfairLock<
+    ((_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
+  >(initialState: nil)
+  var onStateChange: ((_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)? {
+    get { _onStateChange.withLock { $0 } }
+    set { _onStateChange.withLock { $0 = newValue } }
+  }
 
   /// Shared battery state — nil means no battery, omit battery service.
-  var batteryState: BatteryState?
+  private let _batteryState = OSAllocatedUnfairLock<BatteryState?>(initialState: nil)
+  var batteryState: BatteryState? {
+    get { _batteryState.withLock { $0 } }
+    set { _batteryState.withLock { $0 = newValue } }
+  }
 
   private let _isMotionDetected = OSAllocatedUnfairLock(initialState: false)
   var isMotionDetected: Bool {

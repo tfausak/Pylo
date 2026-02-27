@@ -141,7 +141,12 @@ nonisolated final class PairingStore: @unchecked Sendable {
   private static let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "PairingStore")
 
   /// Called whenever pairings are added or removed.
-  var onChange: (() -> Void)?
+  /// Protected by its own lock: set from @MainActor, called from the server queue.
+  private let _onChange = OSAllocatedUnfairLock<(() -> Void)?>(initialState: nil)
+  var onChange: (() -> Void)? {
+    get { _onChange.withLock { $0 } }
+    set { _onChange.withLock { $0 = newValue } }
+  }
 
   /// Lock-protected pairings dictionary.
   private let lock = OSAllocatedUnfairLock(initialState: [String: Pairing]())

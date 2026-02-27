@@ -16,10 +16,21 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
   let manufacturer: String
   let serialNumber: String
   let firmwareRevision: String
-  var onStateChange: ((_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
+
+  private let _onStateChange = OSAllocatedUnfairLock<
+    ((_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
+  >(initialState: nil)
+  var onStateChange: ((_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)? {
+    get { _onStateChange.withLock { $0 } }
+    set { _onStateChange.withLock { $0 = newValue } }
+  }
 
   /// Shared battery state — nil means no battery, omit battery service.
-  var batteryState: BatteryState?
+  private let _batteryState = OSAllocatedUnfairLock<BatteryState?>(initialState: nil)
+  var batteryState: BatteryState? {
+    get { _batteryState.withLock { $0 } }
+    set { _batteryState.withLock { $0 = newValue } }
+  }
 
   /// Called before/after snapshot capture so the host can pause other capture sessions
   /// (e.g. the ambient light monitor) that would conflict with the snapshot session.
