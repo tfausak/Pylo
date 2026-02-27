@@ -147,15 +147,16 @@ nonisolated final class HAPServer: @unchecked Sendable {
   /// Called after HDS keys have been derived so the raw DH secret
   /// does not remain in memory for the session's lifetime.
   func clearVerifiedSharedSecrets() {
-    let block = { [self] in
+    if DispatchQueue.getSpecific(key: Self.queueKey) != nil {
       for conn in connections.values {
         conn.setPairVerifySharedSecret(nil)
       }
-    }
-    if DispatchQueue.getSpecific(key: Self.queueKey) != nil {
-      block()
     } else {
-      queue.async(execute: block)
+      queue.async { [self] in
+        for conn in connections.values {
+          conn.setPairVerifySharedSecret(nil)
+        }
+      }
     }
   }
 
