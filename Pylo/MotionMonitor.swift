@@ -38,7 +38,7 @@ nonisolated final class MotionMonitor: @unchecked Sendable {
     return q
   }()
 
-  func start() {
+  @MainActor func start() {
     guard motionManager.isAccelerometerAvailable else {
       logger.warning("Accelerometer not available")
       return
@@ -96,7 +96,7 @@ nonisolated final class MotionMonitor: @unchecked Sendable {
     logger.info("Motion monitor started")
   }
 
-  func stop() {
+  @MainActor func stop() {
     motionManager.stopAccelerometerUpdates()
     state.withLock { $0.isMotionDetected = false }
     logger.info("Motion monitor stopped")
