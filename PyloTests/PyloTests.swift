@@ -955,35 +955,38 @@ struct EncryptionContextTests {
     #expect(msg1 != msg2)
   }
 
-  @Test("Failed decrypt does not desync subsequent frames")
-  func failedDecryptDoesNotDesync() throws {
+  @Test("Failed decrypt advances counter per HAP spec §6.5.2")
+  func failedDecryptAdvancesCounter() throws {
     let readKey = SymmetricKey(size: .bits256)
     let writeKey = SymmetricKey(size: .bits256)
 
     let encryptor = EncryptionContext(readKey: readKey, writeKey: writeKey)
     let decryptor = EncryptionContext(readKey: writeKey, writeKey: readKey)
 
-    // Encrypt two messages
+    // Encrypt two messages (nonces 0 and 1)
     let frame1 = try #require(encryptor.encrypt(plaintext: Data("hello".utf8)))
     let frame2 = try #require(encryptor.encrypt(plaintext: Data("world".utf8)))
 
-    // Feed garbage to the decryptor — should fail but NOT advance the counter
+    // Feed garbage — fails but advances the read counter to 1
     let garbage = Data(repeating: 0xAA, count: 32)
-    let garbageLen = Data([UInt8(16), 0x00])  // claim 16 bytes payload
+    let garbageLen = Data([UInt8(16), 0x00])
     let badResult = decryptor.decrypt(lengthBytes: garbageLen, ciphertext: garbage)
     #expect(badResult == nil)
 
-    // Now decrypt the real frame1 — should succeed because counter didn't advance
+    // frame1 was encrypted with nonce 0 but the decryptor is now at nonce 1,
+    // so it must fail (nonce mismatch).
     let len1 = frame1[0..<2]
     let ct1 = frame1[2...]
     let result1 = decryptor.decrypt(lengthBytes: len1, ciphertext: ct1)
-    #expect(result1 == Data("hello".utf8))
+    #expect(result1 == nil)
 
-    // And frame2 should also work
+    // frame2 was encrypted with nonce 1, decryptor is now at nonce 2 — also fails.
+    // The connection is irrecoverably desynced after a corrupted frame, which is
+    // the correct behavior: the caller should close the connection.
     let len2 = frame2[0..<2]
     let ct2 = frame2[2...]
     let result2 = decryptor.decrypt(lengthBytes: len2, ciphertext: ct2)
-    #expect(result2 == Data("world".utf8))
+    #expect(result2 == nil)
   }
 }
 

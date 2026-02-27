@@ -240,9 +240,13 @@ nonisolated final class EncryptionContext {
   ///   - lengthBytes: The 2-byte little-endian length prefix (used as AAD).
   ///   - ciphertext: The encrypted payload + 16-byte Poly1305 tag.
   func decrypt(lengthBytes: Data, ciphertext: Data) -> Data? {
-    // Read the current counter without advancing — only increment on success
-    // to avoid permanent session desync from a single corrupted frame.
-    let counterValue = counters.withLock { $0.read }
+    // Always advance the read counter (HAP spec §6.5.2). The nonce must never
+    // be reused, and on failure the connection is terminated anyway.
+    let counterValue = counters.withLock { state -> UInt64 in
+      let n = state.read
+      state.read += 1
+      return n
+    }
     let nonce = Self.makeNonce(counter: counterValue)
 
     // Split ciphertext from tag
@@ -256,9 +260,7 @@ nonisolated final class EncryptionContext {
         ciphertext: encrypted,
         tag: tag
       )
-      let plaintext = try ChaChaPoly.open(sealedBox, using: readKey, authenticating: lengthBytes)
-      counters.withLock { $0.read += 1 }
-      return plaintext
+      return try ChaChaPoly.open(sealedBox, using: readKey, authenticating: lengthBytes)
     } catch {
       logger.error("Decrypt failed: \(error)")
       return nil
