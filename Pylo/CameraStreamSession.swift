@@ -260,6 +260,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     let fd = socket(AF_INET, SOCK_DGRAM, 0)
     guard fd >= 0 else {
       logger.error("Failed to create audio UDP socket: errno \(errno)")
+      stopStreaming()
       return
     }
 
@@ -278,6 +279,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     guard bindResult == 0 else {
       logger.error("Failed to bind audio socket to port \(self.localAudioPort): errno \(errno)")
       close(fd)
+      stopStreaming()
       return
     }
 
