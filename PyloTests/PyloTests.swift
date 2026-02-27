@@ -338,6 +338,15 @@ struct HTTPRequestTests {
     #expect(request?.body == nil)
     #expect(buffer.isEmpty)
   }
+
+  @Test("parseAndConsume rejects oversized content-length")
+  func rejectsOversizedContentLength() {
+    let raw = "POST /pair-setup HTTP/1.1\r\nContent-Length: 100000\r\n\r\n"
+    var buffer = Data(raw.utf8)
+    let request = HTTPRequest.parseAndConsume(&buffer)
+    #expect(request == nil)
+    #expect(buffer.isEmpty)  // buffer cleared on rejection
+  }
 }
 
 // MARK: - HTTP Response Tests
