@@ -168,11 +168,13 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
   // MARK: - Fragment Lifecycle
 
   private func startNewFragment(at time: CMTime, formatDescription: CMFormatDescription? = nil) {
-    // Capture video format description for init segment construction
+    // Capture video format description and eagerly build init segment
+    // so it's available when the hub opens a recording channel.
     if videoFormatDescription == nil, let fmt = formatDescription {
       videoFormatDescription = fmt
       let ts = time.timescale
       if ts > 0 { videoTimescale = UInt32(ts) }
+      initSegment = buildInitSegment(videoFormat: fmt)
     }
 
     let filename = "fragment-\(ProcessInfo.processInfo.globallyUniqueString).mp4"
@@ -252,14 +254,17 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
 
     let seq = ringBuffer.nextSequenceNumber()
 
-    // Build init segment from the video format description (not from AVAssetWriter's
-    // minimal moov which lacks track descriptions and codec parameters)
-    if initSegment == nil, let fmt = videoFormatDescription {
-      initSegment = buildInitSegment(videoFormat: fmt)
-    }
-
     // Strip ftyp+moov from fragment data — only keep moof+mdat segments
-    let mediaData = extractMediaSegments(from: fragmentData)
+    var mediaData = extractMediaSegments(from: fragmentData)
+
+    // Patch the moof's sequence_number — each AVAssetWriter instance starts at 1,
+    // but the hub expects globally incrementing sequence numbers across fragments.
+    Self.patchMoofSequenceNumber(&mediaData, sequenceNumber: UInt32(seq + 1))
+
+    // Log first fragment's moof structure for diagnostics
+    if seq == 0 {
+      Self.logMoofInfo(mediaData, logger: logger)
+    }
     let fragment = MP4Fragment(
       data: mediaData,
       timestamp: fragmentStartTime,
@@ -287,6 +292,86 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
 
   private func cleanup(url: URL) {
     try? FileManager.default.removeItem(at: url)
+  }
+
+  // MARK: - Moof Patching
+
+  /// Patch the mfhd.sequence_number inside a moof box.
+  /// Each AVAssetWriter instance always starts at 1, but the hub expects
+  /// globally incrementing sequence numbers (ISO 14496-12 §8.8.5).
+  private static func patchMoofSequenceNumber(_ data: inout Data, sequenceNumber: UInt32) {
+    guard let moofRange = findBoxRange(in: data, type: "moof") else { return }
+    let moofContent = moofRange.lowerBound + 8
+    guard let mfhdRange = findBoxRange(
+      in: data, type: "mfhd",
+      within: moofContent..<moofRange.upperBound
+    ) else { return }
+    // mfhd: [size:4][type:4][version:1][flags:3][sequence_number:4]
+    let seqOffset = mfhdRange.lowerBound + 12
+    guard seqOffset + 4 <= data.count else { return }
+    data[seqOffset] = UInt8((sequenceNumber >> 24) & 0xFF)
+    data[seqOffset + 1] = UInt8((sequenceNumber >> 16) & 0xFF)
+    data[seqOffset + 2] = UInt8((sequenceNumber >> 8) & 0xFF)
+    data[seqOffset + 3] = UInt8(sequenceNumber & 0xFF)
+  }
+
+  /// Find a top-level MP4 box of the given type within a data range.
+  private static func findBoxRange(
+    in data: Data, type: String, within range: Range<Int>? = nil
+  ) -> Range<Int>? {
+    let searchRange = range ?? 0..<data.count
+    var offset = searchRange.lowerBound
+    while offset + 8 <= searchRange.upperBound {
+      let size =
+        Int(data[offset]) << 24 | Int(data[offset + 1]) << 16
+        | Int(data[offset + 2]) << 8 | Int(data[offset + 3])
+      let boxType = String(bytes: data[offset + 4..<offset + 8], encoding: .ascii)
+      guard size > 0 else { break }
+      let boxEnd = offset + size
+      if boxType == type {
+        return offset..<min(boxEnd, searchRange.upperBound)
+      }
+      offset = boxEnd
+    }
+    return nil
+  }
+
+  /// Log diagnostic info about the first fragment's moof structure.
+  private static func logMoofInfo(_ data: Data, logger: Logger) {
+    guard let moofRange = findBoxRange(in: data, type: "moof") else {
+      logger.warning("First fragment: no moof box found")
+      return
+    }
+    let moofContent = moofRange.lowerBound + 8
+    // Find traf(s) and their tfhd track IDs
+    var searchStart = moofContent
+    var trackInfo: [String] = []
+    while let trafRange = findBoxRange(
+      in: data, type: "traf", within: searchStart..<moofRange.upperBound
+    ) {
+      let trafContent = trafRange.lowerBound + 8
+      if let tfhdRange = findBoxRange(
+        in: data, type: "tfhd", within: trafContent..<trafRange.upperBound
+      ) {
+        let trackIDOffset = tfhdRange.lowerBound + 12
+        if trackIDOffset + 4 <= data.count {
+          let trackID =
+            UInt32(data[trackIDOffset]) << 24
+            | UInt32(data[trackIDOffset + 1]) << 16
+            | UInt32(data[trackIDOffset + 2]) << 8
+            | UInt32(data[trackIDOffset + 3])
+          trackInfo.append("track=\(trackID)")
+        }
+      }
+      if let tfdtRange = findBoxRange(
+        in: data, type: "tfdt", within: trafContent..<trafRange.upperBound
+      ) {
+        let version = data[tfdtRange.lowerBound + 8]
+        trackInfo.append("tfdt_v\(version)")
+      }
+      searchStart = trafRange.upperBound
+    }
+    logger.info("First fragment moof: \(trackInfo.joined(separator: ", "))")
   }
 
   // MARK: - Media Segment Extraction

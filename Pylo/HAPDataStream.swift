@@ -210,6 +210,9 @@ nonisolated final class HDSConnection: @unchecked Sendable {
   /// Active dataSend stream ID (assigned by the hub in dataSend/open).
   private var activeStreamID: Int?
 
+  /// Whether the init segment has been sent for the current recording session.
+  private var initSegmentSent = false
+
   /// Data sequence counter for dataSend chunks.
   private var dataSequenceNumber = 0
 
@@ -452,6 +455,7 @@ nonisolated final class HDSConnection: @unchecked Sendable {
     let streamID = message.body["streamId"] as? Int ?? 1
     activeStreamID = streamID
     dataSequenceNumber = 0
+    initSegmentSent = false
 
     logger.info(
       "HDS dataSend/open: type=\(type) target=\(target) reason=\(reason) streamId=\(streamID)")
@@ -509,8 +513,9 @@ nonisolated final class HDSConnection: @unchecked Sendable {
     if let initSeg = writer.initSegment {
       logger.info("HDS sending init segment: \(initSeg.count) bytes")
       sendDataChunks(initSeg, dataType: "mediaInitialization", isLast: false)
+      initSegmentSent = true
     } else {
-      logger.warning("HDS: no init segment available")
+      logger.warning("HDS: no init segment available (will send with first fragment)")
     }
 
     // Send prebuffered fragments
@@ -522,9 +527,17 @@ nonisolated final class HDSConnection: @unchecked Sendable {
 
     // Set up live fragment delivery
     pendingEndOfStream = false
-    writer.onFragmentReady = { [weak self] fragment in
+    writer.onFragmentReady = { [weak self] (fragment: MP4Fragment) in
       self?.queue.async {
         guard let self, self.activeStreamID != nil else { return }
+
+        // Send init segment before first fragment if it wasn't available at open time
+        if !self.initSegmentSent, let w = self.fragmentWriter, let initSeg = w.initSegment {
+          self.logger.info("HDS sending deferred init segment: \(initSeg.count) bytes")
+          self.sendDataChunks(initSeg, dataType: "mediaInitialization", isLast: false)
+          self.initSegmentSent = true
+        }
+
         self.sendDataChunks(fragment.data, dataType: "mediaFragment", isLast: false)
 
         // If motion cleared, send endOfStream after this fragment
