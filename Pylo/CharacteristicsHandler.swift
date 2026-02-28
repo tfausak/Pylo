@@ -1,9 +1,13 @@
 import Foundation
+import os
 
 // MARK: - Characteristics Handler
 // Handles GET /characteristics?id=1.9,1.10 and PUT /characteristics
 
 nonisolated enum CharacteristicsHandler {
+
+  private static let logger = Logger(
+    subsystem: "me.fausak.taylor.Pylo", category: "Characteristics")
 
   static func handleGet(request: HTTPRequest, server: HAPServer) -> HTTPResponse {
     // Parse query string: /characteristics?id=1.9,1.10
@@ -70,6 +74,7 @@ nonisolated enum CharacteristicsHandler {
 
     var results: [[String: Any]] = []
     var allOK = true
+    var hasWriteResponse = false
 
     for char in characteristics {
       guard let aid = char["aid"] as? Int,
@@ -90,11 +95,24 @@ nonisolated enum CharacteristicsHandler {
       // writeCharacteristic returns false for unknown iids, so it doubles as an
       // existence check for write-only characteristics (HAP spec §6.7.2.2).
       if let rawValue = char["value"], let value = HAPValue(fromJSON: rawValue) {
+        logger.debug("PUT write \(aid).\(iid) = \(String(describing: value))")
         let success =
           server.accessory(aid: aid)?.writeCharacteristic(iid: iid, value: value) ?? false
         if !success {
           allOK = false
+          logger.warning("PUT write \(aid).\(iid) FAILED")
           results.append(["aid": aid, "iid": iid, "status": -70402])
+          continue
+        }
+
+        // Write-response: read back the value and include in response (HAP §6.7.2.2)
+        if char["r"] as? Bool == true {
+          hasWriteResponse = true
+          var entry: [String: Any] = ["aid": aid, "iid": iid, "status": 0]
+          if let responseValue = server.accessory(aid: aid)?.readCharacteristic(iid: iid) {
+            entry["value"] = responseValue.jsonValue
+          }
+          results.append(entry)
           continue
         }
       } else {
@@ -119,8 +137,8 @@ nonisolated enum CharacteristicsHandler {
       results.append(["aid": aid, "iid": iid, "status": 0])
     }
 
-    if allOK {
-      // All succeeded — return 204 No Content
+    if allOK && !hasWriteResponse {
+      // All succeeded with no write-response — return 204 No Content
       return HTTPResponse(status: 204, body: nil, contentType: "application/hap+json")
     } else {
       let body: [String: Any] = ["characteristics": results]

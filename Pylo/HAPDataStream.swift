@@ -76,29 +76,42 @@ nonisolated final class HAPDataStream: @unchecked Sendable {
 
   /// Handle the SetupDataStreamTransport write from the hub.
   /// Returns the response TLV with the accessory's key salt and TCP port.
+  ///
+  /// Request TLV (flat):
+  ///   Tag 1: Session command type (1 byte, 0 = START_SESSION)
+  ///   Tag 2: Transport type (1 byte, 0 = HDS over TCP)
+  ///   Tag 3: Controller key salt (32 bytes)
+  ///
+  /// Response TLV (flat):
+  ///   Tag 1: Status (1 byte, 0 = SUCCESS)
+  ///   Tag 2: Transport session parameters (nested: Tag 1 = TCP port uint16)
+  ///   Tag 3: Accessory key salt (32 bytes)
   func setupTransport(requestTLV: Data, sharedSecret: SharedSecret) -> Data {
     let tlvs = TLV8.decode(requestTLV) as [(UInt8, Data)]
 
-    // Parse controller's key salt from the request
+    // Parse flat TLV fields
+    var sessionCommand: UInt8 = 0xFF
+    var transportType: UInt8 = 0xFF
     var controllerKeySalt = Data()
 
     for (tag, val) in tlvs {
-      if tag == 0x01 {
-        // Transfer transport configuration
-        let sub = TLV8.decode(val) as [(UInt8, Data)]
-        for (stag, sval) in sub {
-          if stag == 0x03 {
-            // Session parameters
-            let params = TLV8.decode(sval) as [(UInt8, Data)]
-            for (ptag, pval) in params {
-              switch ptag {
-              case 0x01: controllerKeySalt = pval  // Controller key salt (32 bytes)
-              default: break
-              }
-            }
-          }
-        }
+      switch tag {
+      case 0x01: if let v = val.first { sessionCommand = v }
+      case 0x02: if let v = val.first { transportType = v }
+      case 0x03: controllerKeySalt = val
+      default: break
       }
+    }
+
+    logger.info(
+      "SetupDataStreamTransport: cmd=\(sessionCommand) transport=\(transportType) salt=\(controllerKeySalt.count)B"
+    )
+
+    guard sessionCommand == 0x00, transportType == 0x00, controllerKeySalt.count == 32 else {
+      logger.error("SetupDataStreamTransport: invalid request")
+      var error = TLV8.Builder()
+      error.add(0x01, byte: 0x01)  // Status: Generic Error
+      return error.build()
     }
 
     // Generate accessory key salt (32 bytes random)
@@ -145,23 +158,16 @@ nonisolated final class HAPDataStream: @unchecked Sendable {
       pendingWriteKey = nil
     }
 
-    // Build response TLV
+    // Build response TLV (flat format matching HAP-NodeJS)
     let listenPort = port ?? 0
 
-    var statusTLV = TLV8.Builder()
-    statusTLV.add(0x01, byte: 0x00)  // Status: Success
-
-    var sessionParams = TLV8.Builder()
-    sessionParams.add(0x01, accessoryKeySalt)  // Accessory key salt
-
-    var transportConfig = TLV8.Builder()
-    transportConfig.add(0x01, byte: 0x00)  // Transport type: TCP
-    transportConfig.add(0x02, uint16: listenPort)  // TCP port
-    transportConfig.add(0x03, tlv: sessionParams)
+    var transportParams = TLV8.Builder()
+    transportParams.add(0x01, uint16: UInt16(listenPort))  // TCP listening port
 
     var response = TLV8.Builder()
-    response.add(0x01, tlv: transportConfig)  // Transfer transport configuration
-    response.add(0x02, tlv: statusTLV)  // Status
+    response.add(0x01, byte: 0x00)  // Status: Success
+    response.add(0x02, tlv: transportParams)  // Transport session parameters
+    response.add(0x03, accessoryKeySalt)  // Accessory key salt
 
     return response.build()
   }
@@ -409,19 +415,21 @@ nonisolated final class HDSConnection: @unchecked Sendable {
   }
 
   private func handleDataSendOpen(_ message: HDSMessage) {
-    // The hub requests to open a data channel for camera recording
-    guard let target = message.body["target"] as? String,
-      target == "ipcamera.recording"
-    else {
-      let targetStr = (message.body["target"] as? String) ?? "nil"
-      logger.warning("HDS dataSend/open: unsupported target: \(targetStr)")
+    // The hub requests to open a data channel for camera recording.
+    // Fields: target="controller", type="ipcamera.recording", streamId, reason
+    let target = message.body["target"] as? String ?? ""
+    let type = message.body["type"] as? String ?? ""
+    let reason = message.body["reason"] as? String ?? ""
+
+    guard type == "ipcamera.recording" else {
+      logger.warning("HDS dataSend/open: unsupported type=\(type) target=\(target)")
       let response = HDSMessage(
         type: .response,
         protocol: "dataSend",
         topic: "open",
         identifier: message.identifier,
         status: .protocolError,
-        body: [:]
+        body: ["status": 1]
       )
       sendMessage(response)
       return
@@ -431,7 +439,7 @@ nonisolated final class HDSConnection: @unchecked Sendable {
     activeStreamID = streamID
     dataSequenceNumber = 0
 
-    logger.info("HDS dataSend/open: target=\(target) streamId=\(streamID)")
+    logger.info("HDS dataSend/open: type=\(type) target=\(target) reason=\(reason) streamId=\(streamID)")
 
     // Respond with success
     let response = HDSMessage(

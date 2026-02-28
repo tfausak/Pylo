@@ -314,6 +314,7 @@ nonisolated final class HAPConnection: @unchecked Sendable {
     case ("GET", "/accessories"),
       ("GET", _) where request.path.starts(with: "/characteristics"),
       ("PUT", "/characteristics"),
+      ("PUT", "/prepare"),
       ("POST", "/resource"),
       ("POST", "/pairings"):
       // All post-verification endpoints require an encrypted session (HAP §5.13.1)
@@ -327,6 +328,8 @@ nonisolated final class HAPConnection: @unchecked Sendable {
         return handleGetAccessories(server: server)
       case ("GET", _):
         return handleGetCharacteristics(request, server: server)
+      case ("PUT", "/prepare"):
+        return handlePrepare(request)
       case ("PUT", _):
         return handlePutCharacteristics(request, server: server)
       case ("POST", "/pairings"):
@@ -437,6 +440,16 @@ nonisolated final class HAPConnection: @unchecked Sendable {
 
   private func handlePutCharacteristics(_ request: HTTPRequest, server: HAPServer) -> HTTPResponse {
     return CharacteristicsHandler.handlePut(request: request, connection: self, server: server)
+  }
+
+  /// Handle PUT /prepare for HAP timed writes (HAP §6.7.2.4).
+  /// The hub sends a prepare request with a PID and TTL before timed writes.
+  /// We acknowledge the prepare — the subsequent PUT /characteristics with
+  /// the matching PID is processed normally (we don't enforce the TTL).
+  private func handlePrepare(_ request: HTTPRequest) -> HTTPResponse {
+    // Just acknowledge the prepare — we accept all timed writes.
+    let body = try? JSONSerialization.data(withJSONObject: ["status": 0])
+    return HTTPResponse(status: 200, body: body, contentType: "application/hap+json")
   }
 
   private func handleIdentify(server: HAPServer) -> HTTPResponse {

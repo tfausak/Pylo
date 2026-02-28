@@ -1300,7 +1300,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
           [
             "iid": Self.iidSetupDataStreamTransport,
             "type": Self.uuidSetupDataStreamTransport, "format": "tlv8",
-            "perms": ["pr", "pw"],
+            "perms": ["pr", "pw", "wr"],
             "value": setupDataStreamResponse.base64EncodedString(),
           ],
           [
