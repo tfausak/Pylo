@@ -193,6 +193,29 @@ nonisolated enum TLV8 {
       add(tag, tlv.data)
     }
 
+    /// Insert a TLV8 list delimiter (tag=0x00, length=0x00).
+    /// Used between entries in a TLV8 list per the HAP spec.
+    mutating func addDelimiter() {
+      data.append(0x00)
+      data.append(0x00)
+    }
+
+    /// Add a list of single-byte values under the same tag, with `00 00` delimiters between entries.
+    mutating func addList(_ tag: UInt8, bytes: [UInt8]) {
+      for (index, byte) in bytes.enumerated() {
+        if index > 0 { addDelimiter() }
+        add(tag, byte: byte)
+      }
+    }
+
+    /// Add a list of nested TLV builders under the same tag, with `00 00` delimiters between entries.
+    mutating func addList(_ tag: UInt8, tlvs: [Builder]) {
+      for (index, tlv) in tlvs.enumerated() {
+        if index > 0 { addDelimiter() }
+        add(tag, tlv: tlv)
+      }
+    }
+
     func build() -> Data { data }
     func base64() -> String { data.base64EncodedString() }
   }
