@@ -177,8 +177,14 @@ nonisolated final class PairingStore: @unchecked Sendable {
       let data = try? Data(contentsOf: url),
       let decoded = try? JSONDecoder().decode([String: Pairing].self, from: data)
     {
-      lock.withLock { $0 = decoded }
-      Self.logger.info("Loaded \(decoded.count) pairing(s) from disk")
+      // Re-key with normalized (uppercased) identifiers for case-insensitive matching.
+      let normalized = decoded.reduce(into: [String: Pairing]()) { result, entry in
+        let key = Self.normalizeID(entry.key)
+        result[key] = entry.value
+        Self.logger.info("  Pairing: \(key) admin=\(entry.value.isAdmin)")
+      }
+      lock.withLock { $0 = normalized }
+      Self.logger.info("Loaded \(normalized.count) pairing(s) from disk")
     }
   }
 
@@ -187,13 +193,23 @@ nonisolated final class PairingStore: @unchecked Sendable {
     lock.withLock { $0 = testPairings }
   }
 
+  /// Normalize pairing identifiers for case- and format-insensitive matching.
+  /// Apple devices may send UUID pairing identifiers in varying cases across
+  /// different connections (e.g. iPhone vs Apple TV hub), and theoretically
+  /// with or without hyphens.
+  private static func normalizeID(_ id: String) -> String {
+    id.uppercased()
+  }
+
   func addPairing(_ pairing: Pairing) {
-    lock.withLock { $0[pairing.identifier] = pairing }
+    let key = Self.normalizeID(pairing.identifier)
+    lock.withLock { $0[key] = pairing }
     if !save() {
       // Roll back in-memory state so it stays consistent with disk.
-      lock.withLock { _ = $0.removeValue(forKey: pairing.identifier) }
+      lock.withLock { _ = $0.removeValue(forKey: key) }
       return
     }
+    Self.logger.info("Added pairing: \(key) admin=\(pairing.isAdmin)")
     onChange?()
   }
 
@@ -202,32 +218,36 @@ nonisolated final class PairingStore: @unchecked Sendable {
   /// or if persisting to disk failed.
   @discardableResult
   func addPairingIfUnpaired(_ pairing: Pairing) -> Bool {
+    let key = Self.normalizeID(pairing.identifier)
     let added = lock.withLock { state -> Bool in
       guard state.isEmpty else { return false }
-      state[pairing.identifier] = pairing
+      state[key] = pairing
       return true
     }
     guard added else { return false }
     if !save() {
       // Roll back — the pairing must not exist only in memory.
-      lock.withLock { _ = $0.removeValue(forKey: pairing.identifier) }
+      lock.withLock { _ = $0.removeValue(forKey: key) }
       return false
     }
+    Self.logger.info("Added first pairing: \(key) admin=\(pairing.isAdmin)")
     onChange?()
     return true
   }
 
   func removePairing(identifier: String) {
-    let old = lock.withLock { $0.removeValue(forKey: identifier) }
+    let key = Self.normalizeID(identifier)
+    let old = lock.withLock { $0.removeValue(forKey: key) }
     if !save(), let old {
-      lock.withLock { $0[old.identifier] = old }
+      lock.withLock { $0[Self.normalizeID(old.identifier)] = old }
       return
     }
     onChange?()
   }
 
   func getPairing(identifier: String) -> Pairing? {
-    lock.withLock { $0[identifier] }
+    let key = Self.normalizeID(identifier)
+    return lock.withLock { $0[key] }
   }
 
   func removeAll() {
@@ -248,7 +268,10 @@ nonisolated final class PairingStore: @unchecked Sendable {
     let snapshot = lock.withLock { $0 }
     do {
       let data = try JSONEncoder().encode(snapshot)
-      try data.write(to: Self.storageURL, options: [.atomic, .completeFileProtection])
+      try data.write(
+        to: Self.storageURL,
+        options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]
+      )
       return true
     } catch {
       Self.logger.error("Failed to save pairings: \(error)")

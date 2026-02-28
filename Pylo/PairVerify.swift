@@ -159,7 +159,8 @@ nonisolated enum PairVerifyHandler {
 
       // Look up the controller's long-term public key from our pairing store
       guard let pairing = server.pairingStore.getPairing(identifier: controllerID) else {
-        logger.error("Unknown controller: \(controllerID)")
+        let known = server.pairingStore.pairings.keys.joined(separator: ", ")
+        logger.error("Unknown controller: \(controllerID) — known: [\(known)]")
         return errorResponse(state: 0x04, .authentication)
       }
 

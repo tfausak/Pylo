@@ -72,9 +72,8 @@ nonisolated enum PairingsHandler {
     }
     let isAdmin = permissions.first == 1
 
-    // HAP spec §5.10: if the identifier already exists, the public key must
-    // match — only permission updates are allowed. Silently replacing the
-    // key would allow an admin to hijack another controller's identity.
+    logger.info("Add pairing request: \(id) admin=\(isAdmin)")
+
     // HAP spec §5.10: if the identifier already exists, the public key must
     // match — only permission updates are allowed.
     if let existing = server.pairingStore.getPairing(identifier: id) {
@@ -87,7 +86,6 @@ nonisolated enum PairingsHandler {
       PairingStore.Pairing(identifier: id, publicKey: publicKey, isAdmin: isAdmin)
     )
 
-    logger.info("Added pairing: \(id)")
     return successResponse()
   }
 
