@@ -571,11 +571,10 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
 
     camera.onSetupDataStream = { [weak server, weak ds] requestData, respond in
       guard let server, let ds else { return }
-      guard let secret = server.sharedSecretForVerifiedConnection() else { return }
+      // Use the shared secret from the connection making this write,
+      // not from an arbitrary connection (which could be a different session).
+      guard let secret = server.activeWriteSharedSecret else { return }
       respond(ds.setupTransport(requestTLV: requestData, sharedSecret: secret))
-      // Clear the DH shared secret now that HDS keys have been derived.
-      // It is no longer needed and should not remain in memory.
-      server.clearVerifiedSharedSecrets()
     }
   }
 

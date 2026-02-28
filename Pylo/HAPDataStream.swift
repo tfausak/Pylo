@@ -28,8 +28,11 @@ nonisolated final class HAPDataStream: @unchecked Sendable {
 
   /// Encryption keys derived in setupTransport(), stored until the hub
   /// actually opens the TCP connection (which happens after the HAP write).
+  /// Protected by stateLock since setupTransport runs on the HAP queue
+  /// and newConnectionHandler runs on the HDS queue.
   private var pendingReadKey: SymmetricKey?
   private var pendingWriteKey: SymmetricKey?
+  private let stateLock = OSAllocatedUnfairLock(initialState: ())
 
   /// Start the HDS TCP listener on a random port.
   func startListener() throws {
@@ -54,19 +57,22 @@ nonisolated final class HAPDataStream: @unchecked Sendable {
     listener.newConnectionHandler = { [weak self] nwConnection in
       guard let self else { return }
       self.logger.info("HDS: new TCP connection from hub")
-      // Only allow one connection at a time
-      self.connection?.cancel()
 
       let conn = HDSConnection(connection: nwConnection, queue: queue)
       conn.fragmentWriter = self.fragmentWriter
-      self.connection = conn
 
-      // Apply encryption keys that were derived in setupTransport()
-      if let readKey = self.pendingReadKey, let writeKey = self.pendingWriteKey {
-        conn.setupEncryption(readKey: readKey, writeKey: writeKey)
-        conn.start()
-        self.pendingReadKey = nil
-        self.pendingWriteKey = nil
+      self.stateLock.withLock { _ in
+        // Only allow one connection at a time
+        self.connection?.cancel()
+        self.connection = conn
+
+        // Apply encryption keys that were derived in setupTransport()
+        if let readKey = self.pendingReadKey, let writeKey = self.pendingWriteKey {
+          conn.setupEncryption(readKey: readKey, writeKey: writeKey)
+          conn.start()
+          self.pendingReadKey = nil
+          self.pendingWriteKey = nil
+        }
       }
     }
 
@@ -148,16 +154,17 @@ nonisolated final class HAPDataStream: @unchecked Sendable {
       "HDS keys derived: controllerSalt=\(controllerKeySalt.count)B, accessorySalt=\(accessoryKeySalt.count)B"
     )
 
-    // Cancel any existing connection (hub may be retrying after a failure).
-    // The new TCP connection from the hub will be handled in newConnectionHandler.
-    connection?.cancel()
-    connection = nil
+    stateLock.withLock { _ in
+      // Cancel any existing encrypted connection.
+      connection?.cancel()
+      connection = nil
 
-    // Store keys — the hub connects AFTER this HAP write completes,
-    // so the connection doesn't exist yet.  Keys are applied in
-    // newConnectionHandler when the TCP connection actually arrives.
-    pendingReadKey = readKey
-    pendingWriteKey = writeKey
+      // Store keys — typically the hub connects AFTER this HAP write completes,
+      // so the connection doesn't exist yet.  Keys are applied in
+      // newConnectionHandler when the TCP connection actually arrives.
+      pendingReadKey = readKey
+      pendingWriteKey = writeKey
+    }
 
     // Build response TLV (flat format matching HAP-NodeJS)
     let listenPort = port ?? 0
@@ -394,6 +401,11 @@ nonisolated final class HDSConnection: @unchecked Sendable {
 
     case ("dataSend", "close", .request):
       handleDataSendClose(message)
+
+    case ("dataSend", "close", .event):
+      // Hub may also send close as an event (e.g. after endOfStream)
+      logger.info("HDS dataSend/close event")
+      activeStreamID = nil
 
     case ("dataSend", "ack", .event):
       // Hub acknowledges received data — log and continue
