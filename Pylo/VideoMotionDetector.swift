@@ -10,7 +10,7 @@ nonisolated final class VideoMotionDetector {
   var onMotionChange: ((Bool) -> Void)?
 
   /// Fraction of pixels that must differ to trigger motion (0.0–1.0).
-  var threshold: Float = 0.02
+  var threshold: Float = 0.05
 
   /// Seconds of calm required before reporting no motion.
   var cooldown: TimeInterval {

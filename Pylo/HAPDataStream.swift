@@ -26,6 +26,11 @@ nonisolated final class HAPDataStream: @unchecked Sendable {
   /// The fragment writer to serve prebuffered and live video from.
   weak var fragmentWriter: FragmentedMP4Writer?
 
+  /// Encryption keys derived in setupTransport(), stored until the hub
+  /// actually opens the TCP connection (which happens after the HAP write).
+  private var pendingReadKey: SymmetricKey?
+  private var pendingWriteKey: SymmetricKey?
+
   /// Start the HDS TCP listener on a random port.
   func startListener() throws {
     let params = NWParameters.tcp
@@ -47,14 +52,22 @@ nonisolated final class HAPDataStream: @unchecked Sendable {
     }
 
     listener.newConnectionHandler = { [weak self] nwConnection in
-      self?.logger.info("HDS: new TCP connection from hub")
+      guard let self else { return }
+      self.logger.info("HDS: new TCP connection from hub")
       // Only allow one connection at a time
-      self?.connection?.cancel()
-      // Connection setup is completed after encryption keys are derived
-      // (via setupTransport)
+      self.connection?.cancel()
+
       let conn = HDSConnection(connection: nwConnection, queue: queue)
-      conn.fragmentWriter = self?.fragmentWriter
-      self?.connection = conn
+      conn.fragmentWriter = self.fragmentWriter
+      self.connection = conn
+
+      // Apply encryption keys that were derived in setupTransport()
+      if let readKey = self.pendingReadKey, let writeKey = self.pendingWriteKey {
+        conn.setupEncryption(readKey: readKey, writeKey: writeKey)
+        conn.start()
+        self.pendingReadKey = nil
+        self.pendingWriteKey = nil
+      }
     }
 
     listener.start(queue: queue)
@@ -118,12 +131,19 @@ nonisolated final class HAPDataStream: @unchecked Sendable {
       "HDS keys derived: controllerSalt=\(controllerKeySalt.count)B, accessorySalt=\(accessoryKeySalt.count)B"
     )
 
-    // Set up encryption on the pending connection
-    connection?.setupEncryption(
-      readKey: readKey,
-      writeKey: writeKey
-    )
-    connection?.start()
+    // Store keys — the hub connects AFTER this HAP write completes,
+    // so the connection doesn't exist yet.  Keys are applied in
+    // newConnectionHandler when the TCP connection actually arrives.
+    pendingReadKey = readKey
+    pendingWriteKey = writeKey
+
+    // If the connection already exists (hub connected early), apply immediately.
+    if let conn = connection {
+      conn.setupEncryption(readKey: readKey, writeKey: writeKey)
+      conn.start()
+      pendingReadKey = nil
+      pendingWriteKey = nil
+    }
 
     // Build response TLV
     let listenPort = port ?? 0
