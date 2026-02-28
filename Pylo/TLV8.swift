@@ -185,6 +185,10 @@ nonisolated enum TLV8 {
       withUnsafeBytes(of: uint32.littleEndian) { add(tag, Data($0)) }
     }
 
+    mutating func add(_ tag: UInt8, uint64: UInt64) {
+      withUnsafeBytes(of: uint64.littleEndian) { add(tag, Data($0)) }
+    }
+
     mutating func add(_ tag: UInt8, tlv: Builder) {
       add(tag, tlv.data)
     }

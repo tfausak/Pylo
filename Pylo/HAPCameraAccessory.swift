@@ -153,6 +153,11 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
     recordingActive = value
   }
 
+  /// Restores `selectedRecordingConfig` from persisted state.
+  func restoreSelectedRecordingConfig(_ data: Data) {
+    selectedRecordingConfig = data
+  }
+
   /// Shared fMP4 writer for HKSV pre-buffering.  Set by the host so it can be
   /// forwarded to `CameraStreamSession` during live streams.
   var fragmentWriter: FragmentedMP4Writer?
@@ -168,6 +173,9 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
 
   /// Called when recording configuration changes.
   var onRecordingConfigChange: ((_ active: Bool) -> Void)?
+
+  /// Called when SelectedCameraRecordingConfig is written (for persistence).
+  var onSelectedRecordingConfigChange: ((_ config: Data) -> Void)?
 
   // Pending setup endpoint response (written by controller, read back after)
   private var setupEndpointsResponse = Data()
@@ -307,6 +315,11 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
     case Self.iidSupportedAudioRecordingConfig:
       return .string(supportedAudioRecordingConfig().base64())
     case Self.iidSelectedCameraRecordingConfig:
+      if selectedRecordingConfig.isEmpty {
+        logger.warning("SelectedCameraRecordingConfig is empty — hub needs to write config")
+        return nil  // Signal error so hub re-configures
+      }
+      logger.info("Read SelectedCameraRecordingConfig: \(self.selectedRecordingConfig.count) bytes")
       return .string(selectedRecordingConfig.base64EncodedString())
     case Self.iidRecordingAudioActive: return .int(Int(recordingAudioActive))
     case Self.iidRTPStreamActive: return .int(Int(recordingActive))
@@ -416,7 +429,9 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
       return false
     case Self.iidSelectedCameraRecordingConfig:
       if case .string(let b64) = value, let data = Data(base64Encoded: b64) {
+        logger.info("SelectedCameraRecordingConfig written: \(data.count) bytes")
         selectedRecordingConfig = data
+        onSelectedRecordingConfigChange?(data)
         handleSelectedRecordingConfig(data)
         return true
       }
@@ -555,7 +570,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
 
     var config = TLV8.Builder()
     config.add(0x01, tlv: prebuffer)  // Prebuffer length
-    config.add(0x02, byte: 0x01)  // Event trigger options: Motion (bit 0)
+    config.add(0x02, uint64: 0x01)  // Event trigger options: Motion (bit 0)
     config.add(0x03, tlv: container)  // Media container configuration
     return config
   }
@@ -564,9 +579,10 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
   func supportedVideoRecordingConfig() -> TLV8.Builder {
     // H.264 codec parameters for recording
     var codecParams = TLV8.Builder()
-    codecParams.add(0x01, byte: 0x00)  // ProfileID: Constrained Baseline
-    codecParams.add(0x02, byte: 0x00)  // Level: 3.1
+    codecParams.add(0x01, byte: 0x02)  // ProfileID: High
+    codecParams.add(0x02, byte: 0x02)  // Level: 4.0
     codecParams.add(0x03, uint32: 0)  // Bitrate: 0 = no constraint
+    codecParams.add(0x04, uint32: 4000)  // I-frame interval: 4000ms
 
     // Resolution: 1920x1080 @ 30fps
     var attrs1080 = TLV8.Builder()
@@ -628,6 +644,58 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
     var config = TLV8.Builder()
     config.add(0x01, tlv: transferTransport)
     return config
+  }
+
+  /// Generates a default SelectedCameraRecordingConfiguration matching our supported configs.
+  /// Used as a fallback when the hub has already written the config in a previous session
+  /// but it wasn't persisted.
+  func defaultSelectedRecordingConfig() -> Data {
+    // General recording config
+    var prebuffer = TLV8.Builder()
+    prebuffer.add(0x01, uint32: 4000)  // Prebuffer length: 4000ms
+
+    var container = TLV8.Builder()
+    container.add(0x01, byte: 0x00)  // Container type: fragmented MP4
+    container.add(0x02, uint32: 4000)  // Fragment length: 4000ms
+
+    var general = TLV8.Builder()
+    general.add(0x01, tlv: prebuffer)
+    general.add(0x02, uint64: 0x01)  // Event trigger: Motion
+    general.add(0x03, tlv: container)
+
+    // Video recording config
+    var videoCodecParams = TLV8.Builder()
+    videoCodecParams.add(0x01, byte: 0x02)  // Profile: High
+    videoCodecParams.add(0x02, byte: 0x02)  // Level: 4.0
+    videoCodecParams.add(0x03, uint32: 2000)  // Bitrate: 2000 kbps
+    videoCodecParams.add(0x04, uint32: 4000)  // I-frame interval: 4000ms
+
+    var videoAttrs = TLV8.Builder()
+    videoAttrs.add(0x01, uint16: 1280)
+    videoAttrs.add(0x02, uint16: 720)
+    videoAttrs.add(0x03, byte: 30)
+
+    var videoConfig = TLV8.Builder()
+    videoConfig.add(0x01, byte: 0x00)  // Codec: H.264
+    videoConfig.add(0x02, tlv: videoCodecParams)
+    videoConfig.add(0x03, tlv: videoAttrs)
+
+    // Audio recording config
+    var audioCodecParams = TLV8.Builder()
+    audioCodecParams.add(0x01, byte: 1)  // Channels: 1
+    audioCodecParams.add(0x02, byte: 0)  // Bitrate: Variable
+    audioCodecParams.add(0x03, byte: 2)  // Sample rate: 24kHz
+
+    var audioConfig = TLV8.Builder()
+    audioConfig.add(0x01, byte: 3)  // Codec: AAC-LC
+    audioConfig.add(0x02, tlv: audioCodecParams)
+
+    // Top-level selected config
+    var config = TLV8.Builder()
+    config.add(0x01, tlv: general)
+    config.add(0x02, tlv: videoConfig)
+    config.add(0x03, tlv: audioConfig)
+    return config.build()
   }
 
   /// Parse the hub's selected recording configuration.
