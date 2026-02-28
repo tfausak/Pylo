@@ -367,7 +367,8 @@ nonisolated final class HDSConnection: @unchecked Sendable {
   private func handleDecryptedMessage(_ data: Data) {
     // Parse the HDS message
     guard let message = HDSMessage.decode(data) else {
-      logger.warning("Failed to decode HDS message")
+      let hex = data.prefix(64).map { String(format: "%02x", $0) }.joined(separator: " ")
+      logger.warning("Failed to decode HDS message (\(data.count) bytes): \(hex)")
       return
     }
 
@@ -631,30 +632,30 @@ nonisolated struct HDSMessage {
   // MARK: - Encoding
 
   /// Encode this message into the HDS binary format.
-  /// Format: [header opack] [body opack]
-  /// The header and body are each encoded with a simple dictionary serializer.
+  /// Format: [1-byte header length] [header] [body]
+  /// Header and body are each encoded with the HDS DataStream codec.
   func encode() -> Data {
     var header: [String: Any] = [
       "protocol": self.protocol,
-      "event": topic,
     ]
 
     switch type {
     case .event:
-      header["type"] = 1
+      header["event"] = topic
     case .request:
-      header["type"] = 2
+      header["request"] = topic
       header["id"] = identifier
     case .response:
-      header["type"] = 3
+      header["response"] = topic
       header["id"] = identifier
       header["status"] = status.rawValue
     }
 
-    let headerData = OPack.encode(header)
-    let bodyData = OPack.encode(body)
+    let headerData = HDSCodec.encode(header)
+    let bodyData = HDSCodec.encode(body)
 
     var result = Data()
+    result.append(UInt8(headerData.count))  // 1-byte header length prefix
     result.append(headerData)
     result.append(bodyData)
     return result
@@ -663,71 +664,101 @@ nonisolated struct HDSMessage {
   // MARK: - Decoding
 
   /// Decode an HDS message from binary data.
+  /// Format: [1-byte header length] [header] [body]
   static func decode(_ data: Data) -> HDSMessage? {
-    // Decode header
-    var offset = 0
-    guard let (headerDict, headerLen) = OPack.decode(data, offset: offset) as? ([String: Any], Int)
-    else { return nil }
-    offset += headerLen
+    guard data.count >= 1 else { return nil }
 
-    // Decode body (may be empty)
+    let headerLen = Int(data[0])
+    let headerStart = 1
+    let bodyStart = headerStart + headerLen
+
+    guard bodyStart <= data.count else { return nil }
+
+    // Decode header dictionary
+    let headerSlice = Data(data[headerStart..<bodyStart])
+    guard let headerDict = HDSCodec.decode(headerSlice) as? [String: Any] else { return nil }
+
+    // Decode body dictionary (may be empty)
     var bodyDict: [String: Any] = [:]
-    if offset < data.count {
-      if let (bd, _) = OPack.decode(data, offset: offset) as? ([String: Any], Int) {
+    if bodyStart < data.count {
+      let bodySlice = Data(data[bodyStart...])
+      if let bd = HDSCodec.decode(bodySlice) as? [String: Any] {
         bodyDict = bd
       }
     }
 
-    guard let typeRaw = headerDict["type"] as? Int,
-      let messageType = MessageType(rawValue: UInt8(typeRaw)),
-      let proto = headerDict["protocol"] as? String,
-      let topic = headerDict["event"] as? String
-    else { return nil }
+    guard let proto = headerDict["protocol"] as? String else { return nil }
 
-    let identifier = headerDict["id"] as? Int ?? 0
-    let statusRaw = headerDict["status"] as? Int ?? 0
+    // Determine message type from header keys (not a "type" field)
+    let messageType: MessageType
+    let topic: String
+    var identifier = 0
+    var status = Status.success
+
+    if let event = headerDict["event"] as? String {
+      messageType = .event
+      topic = event
+    } else if let request = headerDict["request"] as? String {
+      messageType = .request
+      topic = request
+      identifier = headerDict["id"] as? Int ?? 0
+    } else if let response = headerDict["response"] as? String {
+      messageType = .response
+      topic = response
+      identifier = headerDict["id"] as? Int ?? 0
+      let statusRaw = headerDict["status"] as? Int ?? 0
+      status = Status(rawValue: statusRaw) ?? .success
+    } else {
+      return nil
+    }
 
     return HDSMessage(
       type: messageType,
       protocol: proto,
       topic: topic,
       identifier: identifier,
-      status: Status(rawValue: statusRaw) ?? .success,
+      status: status,
       body: bodyDict
     )
   }
 }
 
-// MARK: - OPack Encoder/Decoder
+// MARK: - HDS DataStream Codec
 
-/// Minimal OPack (Object Pack) encoder/decoder for HDS messages.
-/// OPack is Apple's compact binary dictionary serialization format used in HDS.
-/// It's similar to bplist but with different type tags.
-nonisolated enum OPack {
+/// Binary codec for HDS (HomeKit Data Stream) messages.
+/// This implements the DataStream serialization format used by HomeKit hubs
+/// for the HDS protocol. It uses different tag values from Apple's OPack format.
+nonisolated enum HDSCodec {
 
-  // Type tags
-  private static let typeNull: UInt8 = 0x04
-  private static let typeFalse: UInt8 = 0x05
-  private static let typeTrue: UInt8 = 0x06
-  private static let typeTerminator: UInt8 = 0x03
+  // MARK: - Encode
 
-  /// Encode a dictionary to OPack format.
+  /// Encode a dictionary to HDS binary format.
   static func encode(_ dict: [String: Any]) -> Data {
     var data = Data()
-    // Dictionary marker
-    data.append(0x07)
+    encodeDict(dict, into: &data)
+    return data
+  }
+
+  private static func encodeDict(_ dict: [String: Any], into data: inout Data) {
+    let count = dict.count
+    if count <= 14 {
+      data.append(UInt8(0xE0 + count))  // Length-prefixed dictionary
+    } else {
+      data.append(0xEF)  // Terminated dictionary
+    }
     for (key, value) in dict {
       encodeString(key, into: &data)
       encodeValue(value, into: &data)
     }
-    data.append(typeTerminator)
-    return data
+    if count > 14 {
+      data.append(0x03)  // Terminator
+    }
   }
 
   private static func encodeValue(_ value: Any, into data: inout Data) {
     switch value {
     case let v as Bool:
-      data.append(v ? typeTrue : typeFalse)
+      data.append(v ? 0x01 : 0x02)  // TRUE=0x01, FALSE=0x02
 
     case let v as Int:
       encodeInt(v, into: &data)
@@ -739,42 +770,49 @@ nonisolated enum OPack {
       encodeBinary(v, into: &data)
 
     case let v as [String: Any]:
-      data.append(contentsOf: encode(v))
+      encodeDict(v, into: &data)
 
     case let v as [[String: Any]]:
-      // Array marker
-      data.append(0x06 | 0x80)  // array type
-      for item in v {
-        data.append(contentsOf: encode(item))
-      }
-      data.append(typeTerminator)
+      encodeArray(v.map { $0 as Any }, into: &data)
 
     case let v as [Any]:
-      data.append(0x06 | 0x80)
-      for item in v {
-        encodeValue(item, into: &data)
-      }
-      data.append(typeTerminator)
+      encodeArray(v, into: &data)
 
     default:
-      data.append(typeNull)
+      data.append(0x04)  // NULL
+    }
+  }
+
+  private static func encodeArray(_ arr: [Any], into data: inout Data) {
+    let count = arr.count
+    if count <= 14 {
+      data.append(UInt8(0xD0 + count))  // Length-prefixed array
+    } else {
+      data.append(0xDF)  // Terminated array
+    }
+    for item in arr {
+      encodeValue(item, into: &data)
+    }
+    if count > 14 {
+      data.append(0x03)  // Terminator
     }
   }
 
   private static func encodeInt(_ value: Int, into data: inout Data) {
-    if value >= 0 && value <= 0x27 {
-      // Small positive integer: inline (0x08–0x2F)
-      data.append(UInt8(0x08 + value))
-    } else if value >= 0 && value <= 0xFF {
+    if value == -1 {
+      data.append(0x07)  // INTEGER_MINUS_ONE
+    } else if value >= 0 && value <= 39 {
+      data.append(UInt8(0x08 + value))  // Inline 0–39
+    } else if value >= -128 && value <= 127 {
       data.append(0x30)
-      data.append(UInt8(value))
-    } else if value >= 0 && value <= 0xFFFF {
+      data.append(UInt8(bitPattern: Int8(value)))
+    } else if value >= -32768 && value <= 32767 {
       data.append(0x31)
-      var le = UInt16(value).littleEndian
+      var le = Int16(value).littleEndian
       data.append(Data(bytes: &le, count: 2))
-    } else if value >= 0 && value <= 0xFFFF_FFFF {
+    } else if value >= -2_147_483_648 && value <= 2_147_483_647 {
       data.append(0x32)
-      var le = UInt32(value).littleEndian
+      var le = Int32(value).littleEndian
       data.append(Data(bytes: &le, count: 4))
     } else {
       data.append(0x33)
@@ -786,18 +824,17 @@ nonisolated enum OPack {
   private static func encodeString(_ string: String, into data: inout Data) {
     let utf8 = Data(string.utf8)
     let len = utf8.count
-    if len <= 0x20 {
-      // Short string: length in tag byte (0x48–0x68)
-      data.append(UInt8(0x48 + len))
+    if len <= 32 {
+      data.append(UInt8(0x40 + len))  // Short string (0x40–0x60)
     } else if len <= 0xFF {
-      data.append(0x69)
+      data.append(0x61)
       data.append(UInt8(len))
     } else if len <= 0xFFFF {
-      data.append(0x6A)
+      data.append(0x62)
       var le = UInt16(len).littleEndian
       data.append(Data(bytes: &le, count: 2))
     } else {
-      data.append(0x6B)
+      data.append(0x63)
       var le = UInt32(len).littleEndian
       data.append(Data(bytes: &le, count: 4))
     }
@@ -806,180 +843,288 @@ nonisolated enum OPack {
 
   private static func encodeBinary(_ binary: Data, into data: inout Data) {
     let len = binary.count
-    if len <= 0x20 {
-      data.append(UInt8(0x88 + len))
+    if len <= 32 {
+      data.append(UInt8(0x70 + len))  // Short data (0x70–0x90)
     } else if len <= 0xFF {
-      data.append(0xA9)
+      data.append(0x91)
       data.append(UInt8(len))
     } else if len <= 0xFFFF {
-      data.append(0xAA)
+      data.append(0x92)
       var le = UInt16(len).littleEndian
       data.append(Data(bytes: &le, count: 2))
     } else {
-      data.append(0xAB)
+      data.append(0x93)
       var le = UInt32(len).littleEndian
       data.append(Data(bytes: &le, count: 4))
     }
     data.append(binary)
   }
 
-  /// Decode an OPack value starting at the given offset.
-  /// Returns (value, bytesConsumed).
-  static func decode(_ data: Data, offset: Int) -> (Any, Int)? {
+  // MARK: - Decode
+
+  /// Decode an HDS binary blob into a Swift value (typically a dictionary).
+  static func decode(_ data: Data) -> Any? {
+    var tracked: [Any] = []
+    var offset = 0
+    return decodeValue(data, offset: &offset, tracked: &tracked)
+  }
+
+  private static func decodeValue(
+    _ data: Data, offset: inout Int, tracked: inout [Any]
+  ) -> Any? {
     guard offset < data.count else { return nil }
 
     let tag = data[offset]
+    offset += 1
 
-    // Dictionary
-    if tag == 0x07 {
-      return decodeDictionary(data, offset: offset + 1)
-    }
+    switch tag {
+    case 0x00:  // INVALID
+      return nil
 
-    // Array
-    if tag == (0x06 | 0x80) {
-      return decodeArray(data, offset: offset + 1)
-    }
+    case 0x01:  // TRUE
+      tracked.append(true)
+      return true
 
-    // Null
-    if tag == typeNull {
-      return (NSNull(), 1)
-    }
+    case 0x02:  // FALSE
+      tracked.append(false)
+      return false
 
-    // Bool
-    if tag == typeFalse { return (false, 1) }
-    if tag == typeTrue { return (true, 1) }
+    case 0x04:  // NULL
+      return NSNull()
 
-    // Small positive integer (0x08–0x2F)
-    if tag >= 0x08 && tag <= 0x2F {
-      return (Int(tag - 0x08), 1)
-    }
+    case 0x05:  // UUID (16 bytes big-endian)
+      guard offset + 16 <= data.count else { return nil }
+      let bytes = [UInt8](data[offset..<offset + 16])
+      offset += 16
+      let str = NSUUID(uuidBytes: bytes).uuidString
+      tracked.append(str)
+      return str
 
-    // Integer types
-    if tag == 0x30 {
-      guard offset + 1 < data.count else { return nil }
-      return (Int(data[offset + 1]), 2)
-    }
-    if tag == 0x31 {
-      guard offset + 2 < data.count else { return nil }
-      let v = UInt16(data[offset + 1]) | UInt16(data[offset + 2]) << 8
-      return (Int(v), 3)
-    }
-    if tag == 0x32 {
-      guard offset + 4 < data.count else { return nil }
-      let v = data.withUnsafeBytes { $0.load(fromByteOffset: offset + 1, as: UInt32.self) }
-      return (Int(UInt32(littleEndian: v)), 5)
-    }
-    if tag == 0x33 {
-      guard offset + 8 < data.count else { return nil }
-      let v = data.withUnsafeBytes { $0.load(fromByteOffset: offset + 1, as: Int64.self) }
-      return (Int(Int64(littleEndian: v)), 9)
-    }
+    case 0x06:  // DATE (float64 seconds since 2001-01-01)
+      guard offset + 8 <= data.count else { return nil }
+      let bits = UInt64(data[offset])
+        | UInt64(data[offset + 1]) << 8
+        | UInt64(data[offset + 2]) << 16
+        | UInt64(data[offset + 3]) << 24
+        | UInt64(data[offset + 4]) << 32
+        | UInt64(data[offset + 5]) << 40
+        | UInt64(data[offset + 6]) << 48
+        | UInt64(data[offset + 7]) << 56
+      offset += 8
+      let v = Double(bitPattern: bits)
+      tracked.append(v)
+      return v
 
-    // Negative integer
-    if tag == 0x38 {
-      guard offset + 1 < data.count else { return nil }
-      return (-Int(data[offset + 1]) - 1, 2)
-    }
+    case 0x07:  // INTEGER -1
+      tracked.append(-1)
+      return -1
 
-    // Short string (0x48–0x68)
-    if tag >= 0x48 && tag <= 0x68 {
-      let len = Int(tag - 0x48)
-      guard offset + 1 + len <= data.count else { return nil }
-      let str = String(data: data[offset + 1..<offset + 1 + len], encoding: .utf8) ?? ""
-      return (str, 1 + len)
-    }
+    case 0x08...0x2F:  // Small integer 0–39
+      let v = Int(tag - 0x08)
+      tracked.append(v)
+      return v
 
-    // String with 1-byte length
-    if tag == 0x69 {
-      guard offset + 1 < data.count else { return nil }
-      let len = Int(data[offset + 1])
-      guard offset + 2 + len <= data.count else { return nil }
-      let str = String(data: data[offset + 2..<offset + 2 + len], encoding: .utf8) ?? ""
-      return (str, 2 + len)
-    }
+    case 0x30:  // Int8
+      guard offset < data.count else { return nil }
+      let v = Int(Int8(bitPattern: data[offset]))
+      offset += 1
+      tracked.append(v)
+      return v
 
-    // String with 2-byte length
-    if tag == 0x6A {
-      guard offset + 2 < data.count else { return nil }
-      let len = Int(UInt16(data[offset + 1]) | UInt16(data[offset + 2]) << 8)
-      guard offset + 3 + len <= data.count else { return nil }
-      let str = String(data: data[offset + 3..<offset + 3 + len], encoding: .utf8) ?? ""
-      return (str, 3 + len)
-    }
+    case 0x31:  // Int16 LE
+      guard offset + 2 <= data.count else { return nil }
+      let v = Int(Int16(littleEndian: Int16(data[offset]) | Int16(data[offset + 1]) << 8))
+      offset += 2
+      tracked.append(v)
+      return v
 
-    // Short binary data (0x88–0xA8)
-    if tag >= 0x88 && tag <= 0xA8 {
-      let len = Int(tag - 0x88)
-      guard offset + 1 + len <= data.count else { return nil }
-      return (Data(data[offset + 1..<offset + 1 + len]), 1 + len)
-    }
+    case 0x32:  // Int32 LE
+      guard offset + 4 <= data.count else { return nil }
+      let raw = UInt32(data[offset])
+        | UInt32(data[offset + 1]) << 8
+        | UInt32(data[offset + 2]) << 16
+        | UInt32(data[offset + 3]) << 24
+      let v = Int(Int32(bitPattern: raw))
+      offset += 4
+      tracked.append(v)
+      return v
 
-    // Binary with 1-byte length
-    if tag == 0xA9 {
-      guard offset + 1 < data.count else { return nil }
-      let len = Int(data[offset + 1])
-      guard offset + 2 + len <= data.count else { return nil }
-      return (Data(data[offset + 2..<offset + 2 + len]), 2 + len)
-    }
+    case 0x33:  // Int64 LE
+      guard offset + 8 <= data.count else { return nil }
+      let raw = UInt64(data[offset])
+        | UInt64(data[offset + 1]) << 8
+        | UInt64(data[offset + 2]) << 16
+        | UInt64(data[offset + 3]) << 24
+        | UInt64(data[offset + 4]) << 32
+        | UInt64(data[offset + 5]) << 40
+        | UInt64(data[offset + 6]) << 48
+        | UInt64(data[offset + 7]) << 56
+      let v = Int(Int64(bitPattern: raw))
+      offset += 8
+      tracked.append(v)
+      return v
 
-    // Binary with 2-byte length
-    if tag == 0xAA {
-      guard offset + 2 < data.count else { return nil }
-      let len = Int(UInt16(data[offset + 1]) | UInt16(data[offset + 2]) << 8)
-      guard offset + 3 + len <= data.count else { return nil }
-      return (Data(data[offset + 3..<offset + 3 + len]), 3 + len)
-    }
+    case 0x35:  // Float32 LE
+      guard offset + 4 <= data.count else { return nil }
+      let raw = UInt32(data[offset])
+        | UInt32(data[offset + 1]) << 8
+        | UInt32(data[offset + 2]) << 16
+        | UInt32(data[offset + 3]) << 24
+      offset += 4
+      let v = Double(Float(bitPattern: raw))
+      tracked.append(v)
+      return v
 
-    // Binary with 4-byte length
-    if tag == 0xAB {
-      guard offset + 4 < data.count else { return nil }
-      let v = data.withUnsafeBytes { $0.load(fromByteOffset: offset + 1, as: UInt32.self) }
-      let len = Int(UInt32(littleEndian: v))
-      guard offset + 5 + len <= data.count else { return nil }
-      return (Data(data[offset + 5..<offset + 5 + len]), 5 + len)
-    }
+    case 0x36:  // Float64 LE
+      guard offset + 8 <= data.count else { return nil }
+      let bits = UInt64(data[offset])
+        | UInt64(data[offset + 1]) << 8
+        | UInt64(data[offset + 2]) << 16
+        | UInt64(data[offset + 3]) << 24
+        | UInt64(data[offset + 4]) << 32
+        | UInt64(data[offset + 5]) << 40
+        | UInt64(data[offset + 6]) << 48
+        | UInt64(data[offset + 7]) << 56
+      offset += 8
+      let v = Double(bitPattern: bits)
+      tracked.append(v)
+      return v
 
-    // Unknown tag — skip one byte
-    return (NSNull(), 1)
-  }
+    case 0x40...0x60:  // Short UTF-8 string (len 0–32)
+      let len = Int(tag - 0x40)
+      guard offset + len <= data.count else { return nil }
+      let str = String(data: data[offset..<offset + len], encoding: .utf8) ?? ""
+      offset += len
+      tracked.append(str)
+      return str
 
-  private static func decodeDictionary(_ data: Data, offset: Int) -> (Any, Int)? {
-    var dict: [String: Any] = [:]
-    var pos = offset
+    case 0x61:  // String with 1-byte length
+      guard offset < data.count else { return nil }
+      let len = Int(data[offset]); offset += 1
+      guard offset + len <= data.count else { return nil }
+      let str = String(data: data[offset..<offset + len], encoding: .utf8) ?? ""
+      offset += len
+      tracked.append(str)
+      return str
 
-    while pos < data.count {
-      if data[pos] == typeTerminator {
-        return (dict, pos - offset + 2)  // +2 for dict marker + terminator
+    case 0x62:  // String with 2-byte LE length
+      guard offset + 2 <= data.count else { return nil }
+      let len = Int(UInt16(data[offset]) | UInt16(data[offset + 1]) << 8); offset += 2
+      guard offset + len <= data.count else { return nil }
+      let str = String(data: data[offset..<offset + len], encoding: .utf8) ?? ""
+      offset += len
+      tracked.append(str)
+      return str
+
+    case 0x63:  // String with 4-byte LE length
+      guard offset + 4 <= data.count else { return nil }
+      let len = Int(
+        UInt32(data[offset])
+          | UInt32(data[offset + 1]) << 8
+          | UInt32(data[offset + 2]) << 16
+          | UInt32(data[offset + 3]) << 24)
+      offset += 4
+      guard offset + len <= data.count else { return nil }
+      let str = String(data: data[offset..<offset + len], encoding: .utf8) ?? ""
+      offset += len
+      tracked.append(str)
+      return str
+
+    case 0x6F:  // Null-terminated string
+      var end = offset
+      while end < data.count && data[end] != 0 { end += 1 }
+      let str = String(data: data[offset..<end], encoding: .utf8) ?? ""
+      offset = min(end + 1, data.count)
+      tracked.append(str)
+      return str
+
+    case 0x70...0x90:  // Short binary data (len 0–32)
+      let len = Int(tag - 0x70)
+      guard offset + len <= data.count else { return nil }
+      let d = Data(data[offset..<offset + len])
+      offset += len
+      tracked.append(d)
+      return d
+
+    case 0x91:  // Data with 1-byte length
+      guard offset < data.count else { return nil }
+      let len = Int(data[offset]); offset += 1
+      guard offset + len <= data.count else { return nil }
+      let d = Data(data[offset..<offset + len])
+      offset += len
+      tracked.append(d)
+      return d
+
+    case 0x92:  // Data with 2-byte LE length
+      guard offset + 2 <= data.count else { return nil }
+      let len = Int(UInt16(data[offset]) | UInt16(data[offset + 1]) << 8); offset += 2
+      guard offset + len <= data.count else { return nil }
+      let d = Data(data[offset..<offset + len])
+      offset += len
+      tracked.append(d)
+      return d
+
+    case 0x93:  // Data with 4-byte LE length
+      guard offset + 4 <= data.count else { return nil }
+      let len = Int(
+        UInt32(data[offset])
+          | UInt32(data[offset + 1]) << 8
+          | UInt32(data[offset + 2]) << 16
+          | UInt32(data[offset + 3]) << 24)
+      offset += 4
+      guard offset + len <= data.count else { return nil }
+      let d = Data(data[offset..<offset + len])
+      offset += len
+      tracked.append(d)
+      return d
+
+    case 0xA0...0xCF:  // Compression back-reference
+      let index = Int(tag - 0xA0)
+      guard index < tracked.count else { return nil }
+      return tracked[index]
+
+    case 0xD0...0xDE:  // Array with length (0–14 elements)
+      let count = Int(tag - 0xD0)
+      var arr: [Any] = []
+      for _ in 0..<count {
+        guard let v = decodeValue(data, offset: &offset, tracked: &tracked) else { break }
+        arr.append(v)
       }
+      return arr
 
-      guard let (key, keyLen) = decode(data, offset: pos) else { break }
-      pos += keyLen
-
-      guard let keyStr = key as? String else { break }
-
-      guard let (value, valLen) = decode(data, offset: pos) else { break }
-      pos += valLen
-
-      dict[keyStr] = value
-    }
-
-    return (dict, pos - offset + 1)
-  }
-
-  private static func decodeArray(_ data: Data, offset: Int) -> (Any, Int)? {
-    var arr: [Any] = []
-    var pos = offset
-
-    while pos < data.count {
-      if data[pos] == typeTerminator {
-        return (arr, pos - offset + 2)  // +2 for array marker + terminator
+    case 0xDF:  // Terminated array
+      var arr: [Any] = []
+      while offset < data.count {
+        if data[offset] == 0x03 { offset += 1; break }
+        guard let v = decodeValue(data, offset: &offset, tracked: &tracked) else { break }
+        arr.append(v)
       }
+      return arr
 
-      guard let (value, len) = decode(data, offset: pos) else { break }
-      pos += len
-      arr.append(value)
+    case 0xE0...0xEE:  // Dictionary with length (0–14 entries)
+      let count = Int(tag - 0xE0)
+      var dict: [String: Any] = [:]
+      for _ in 0..<count {
+        guard let key = decodeValue(data, offset: &offset, tracked: &tracked) as? String
+        else { break }
+        guard let value = decodeValue(data, offset: &offset, tracked: &tracked) else { break }
+        dict[key] = value
+      }
+      return dict
+
+    case 0xEF:  // Terminated dictionary
+      var dict: [String: Any] = [:]
+      while offset < data.count {
+        if data[offset] == 0x03 { offset += 1; break }
+        guard let key = decodeValue(data, offset: &offset, tracked: &tracked) as? String
+        else { break }
+        guard let value = decodeValue(data, offset: &offset, tracked: &tracked) else { break }
+        dict[key] = value
+      }
+      return dict
+
+    default:
+      return nil
     }
-
-    return (arr, pos - offset + 1)
   }
 }
