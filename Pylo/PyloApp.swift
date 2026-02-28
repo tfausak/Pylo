@@ -522,13 +522,12 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
 
     // Restore selectedRecordingConfig from previous session.
     // The hub writes this once during initial HKSV setup and expects it to persist.
+    // If it's not persisted, readCharacteristic returns nil (error status) which
+    // should prompt the hub to re-write the configuration.
     if let savedConfig = UserDefaults.standard.data(forKey: "selectedRecordingConfig"),
       !savedConfig.isEmpty
     {
       camera.restoreSelectedRecordingConfig(savedConfig)
-    } else if savedRecordingActive != 0 {
-      // Recording was active but config was lost — provide sensible default
-      camera.restoreSelectedRecordingConfig(camera.defaultSelectedRecordingConfig())
     }
 
     camera.onRecordingConfigChange = { [weak camera] active in

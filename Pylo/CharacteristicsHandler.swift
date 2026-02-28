@@ -72,6 +72,20 @@ nonisolated enum CharacteristicsHandler {
       return errorResponse(status: 400)
     }
 
+    // Log PUT summary for diagnostics
+    let hasPID = json["pid"] != nil
+    var putSummary: [String] = []
+    for c in characteristics {
+      let aid = c["aid"] as? Int ?? 0
+      let iid = c["iid"] as? Int ?? 0
+      var flags = ""
+      if c["value"] != nil { flags += "v" }
+      if c["ev"] != nil { flags += "e" }
+      if c["r"] as? Bool == true { flags += "r" }
+      putSummary.append("\(aid).\(iid)[\(flags)]")
+    }
+    logger.info("PUT chars: \(putSummary.joined(separator: ", "))\(hasPID ? " (timed)" : "")")
+
     var results: [[String: Any]] = []
     var allOK = true
     var hasWriteResponse = false
@@ -115,8 +129,8 @@ nonisolated enum CharacteristicsHandler {
           results.append(entry)
           continue
         }
-      } else {
-        // No value to write — validate the characteristic exists (for ev-only PUTs).
+      } else if char["ev"] == nil {
+        // No value to write and no event subscription — validate the characteristic exists.
         guard server.accessory(aid: aid)?.readCharacteristic(iid: iid) != nil else {
           allOK = false
           results.append(["aid": aid, "iid": iid, "status": -70409])
@@ -128,6 +142,7 @@ nonisolated enum CharacteristicsHandler {
       if let ev = char["ev"] as? Bool {
         let charID = CharacteristicID(aid: aid, iid: iid)
         if ev {
+          logger.debug("Subscribe \(aid).\(iid)")
           connection.subscribe(to: charID)
         } else {
           connection.unsubscribe(from: charID)
