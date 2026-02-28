@@ -123,20 +123,24 @@ nonisolated final class HAPDataStream: @unchecked Sendable {
     // Derive HDS encryption keys via HKDF-SHA512
     // Salt = controllerKeySalt || accessoryKeySalt
     // IKM = shared secret from pair-verify
+    //
+    // Key names are from the controller's perspective:
+    //   "HDS-Read-Encryption-Key"  = what the controller reads (accessory→controller)
+    //   "HDS-Write-Encryption-Key" = what the controller writes (controller→accessory)
     let hkdfSalt = controllerKeySalt + accessoryKeySalt
     let sharedSecretData = sharedSecret.withUnsafeBytes { Data($0) }
 
     let readKey = HKDF<SHA512>.deriveSymmetricKey(
       inputKeyMaterial: sharedSecretData,
       salt: hkdfSalt,
-      info: Data("HDS-Read-Encryption-Key".utf8),
+      info: Data("HDS-Write-Encryption-Key".utf8),
       outputByteCount: 32
     )
 
     let writeKey = HKDF<SHA512>.deriveSymmetricKey(
       inputKeyMaterial: sharedSecretData,
       salt: hkdfSalt,
-      info: Data("HDS-Write-Encryption-Key".utf8),
+      info: Data("HDS-Read-Encryption-Key".utf8),
       outputByteCount: 32
     )
 
@@ -144,19 +148,16 @@ nonisolated final class HAPDataStream: @unchecked Sendable {
       "HDS keys derived: controllerSalt=\(controllerKeySalt.count)B, accessorySalt=\(accessoryKeySalt.count)B"
     )
 
+    // Cancel any existing connection (hub may be retrying after a failure).
+    // The new TCP connection from the hub will be handled in newConnectionHandler.
+    connection?.cancel()
+    connection = nil
+
     // Store keys — the hub connects AFTER this HAP write completes,
     // so the connection doesn't exist yet.  Keys are applied in
     // newConnectionHandler when the TCP connection actually arrives.
     pendingReadKey = readKey
     pendingWriteKey = writeKey
-
-    // If the connection already exists (hub connected early), apply immediately.
-    if let conn = connection {
-      conn.setupEncryption(readKey: readKey, writeKey: writeKey)
-      conn.start()
-      pendingReadKey = nil
-      pendingWriteKey = nil
-    }
 
     // Build response TLV (flat format matching HAP-NodeJS)
     let listenPort = port ?? 0
@@ -439,7 +440,8 @@ nonisolated final class HDSConnection: @unchecked Sendable {
     activeStreamID = streamID
     dataSequenceNumber = 0
 
-    logger.info("HDS dataSend/open: type=\(type) target=\(target) reason=\(reason) streamId=\(streamID)")
+    logger.info(
+      "HDS dataSend/open: type=\(type) target=\(target) reason=\(reason) streamId=\(streamID)")
 
     // Respond with success
     let response = HDSMessage(
