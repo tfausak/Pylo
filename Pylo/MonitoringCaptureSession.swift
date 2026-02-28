@@ -125,8 +125,9 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     }
 
     // VTCompressionSession setup
-    guard let cs = Self.createCompressionSession(
-      width: width, height: height, fps: fps, bitrate: bitrate, logger: logger)
+    guard
+      let cs = Self.createCompressionSession(
+        width: width, height: height, fps: fps, bitrate: bitrate, logger: logger)
     else {
       lock.withLock { _state.captureSession = nil }
       return

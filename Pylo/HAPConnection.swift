@@ -281,7 +281,8 @@ nonisolated final class HAPConnection: @unchecked Sendable {
             break loop
           case .malformed:
             self.logger.warning("Malformed HTTP request (encrypted), sending 400 and closing")
-            self.sendResponse(HTTPResponse(status: 400, body: nil, contentType: "application/hap+json"))
+            self.sendResponse(
+              HTTPResponse(status: 400, body: nil, contentType: "application/hap+json"))
             self.cancel()
             return
           }
