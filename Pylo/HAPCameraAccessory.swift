@@ -558,6 +558,8 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
   // MARK: - HKSV Recording Configurations (TLV8)
 
   /// SupportedCameraRecordingConfiguration
+  /// Matches hap-nodejs encoding: prebuffer as uint32, event triggers as single byte,
+  /// container config with nested fragment length.
   func supportedCameraRecordingConfig() -> TLV8.Builder {
     // Prebuffer length in milliseconds
     var prebuffer = TLV8.Builder()
@@ -573,19 +575,39 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
 
     var config = TLV8.Builder()
     config.add(0x01, tlv: prebuffer)  // Prebuffer length
-    config.add(0x02, uint64: 0x01)  // Event trigger options: Motion (bit 0)
+    config.add(0x02, byte: 0x01)  // Event trigger options: Motion (bit 0)
     config.add(0x03, tlv: container)  // Media container configuration
     return config
   }
 
   /// SupportedVideoRecordingConfiguration
+  /// Offers multiple H.264 profile/level combos matching hap-nodejs defaults.
+  /// Only includes ProfileID + Level in codec params (no bitrate/iFrame fields —
+  /// Apple hubs reject unexpected fields in the recording config).
   func supportedVideoRecordingConfig() -> TLV8.Builder {
-    // H.264 codec parameters for recording
-    var codecParams = TLV8.Builder()
-    codecParams.add(0x01, byte: 0x02)  // ProfileID: High
-    codecParams.add(0x02, byte: 0x02)  // Level: 4.0
-    codecParams.add(0x03, uint32: 0)  // Bitrate: 0 = no constraint
-    codecParams.add(0x04, uint32: 4000)  // I-frame interval: 4000ms
+    // Offer all three profiles at multiple levels (matching hap-nodejs)
+    let profiles: [(UInt8, UInt8)] = [
+      (0x00, 0x00),  // Baseline, Level 3.1
+      (0x00, 0x01),  // Baseline, Level 3.2
+      (0x00, 0x02),  // Baseline, Level 4.0
+      (0x01, 0x00),  // Main, Level 3.1
+      (0x01, 0x01),  // Main, Level 3.2
+      (0x01, 0x02),  // Main, Level 4.0
+      (0x02, 0x00),  // High, Level 3.1
+      (0x02, 0x01),  // High, Level 3.2
+      (0x02, 0x02),  // High, Level 4.0
+    ]
+
+    var codecConfig = TLV8.Builder()
+    codecConfig.add(0x01, byte: 0x00)  // CodecType: H.264
+
+    // Add each profile/level combo as a separate CodecParameters entry
+    for (profile, level) in profiles {
+      var codecParams = TLV8.Builder()
+      codecParams.add(0x01, byte: profile)
+      codecParams.add(0x02, byte: level)
+      codecConfig.add(0x02, tlv: codecParams)
+    }
 
     // Resolution: 1920x1080 @ 30fps
     var attrs1080 = TLV8.Builder()
@@ -593,15 +615,12 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
     attrs1080.add(0x02, uint16: 1080)
     attrs1080.add(0x03, byte: 30)
 
-    // Resolution: 1280x720 @ 30fps
+    // Resolution: 1280x720 @ 24fps (matches hap-nodejs)
     var attrs720 = TLV8.Builder()
     attrs720.add(0x01, uint16: 1280)
     attrs720.add(0x02, uint16: 720)
-    attrs720.add(0x03, byte: 30)
+    attrs720.add(0x03, byte: 24)
 
-    var codecConfig = TLV8.Builder()
-    codecConfig.add(0x01, byte: 0x00)  // CodecType: H.264
-    codecConfig.add(0x02, tlv: codecParams)
     codecConfig.add(0x03, tlv: attrs1080)
     codecConfig.add(0x03, tlv: attrs720)
 
@@ -612,13 +631,14 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
 
   /// SupportedAudioRecordingConfiguration
   /// Recording codec types differ from streaming: AAC-LC = 0, AAC-ELD = 1.
+  /// Sample rates match hap-nodejs defaults (16kHz + 24kHz for AAC-ELD).
   func supportedAudioRecordingConfig() -> TLV8.Builder {
     // AAC-ELD codec — preferred by Apple HKSV hubs
     var codecParams = TLV8.Builder()
     codecParams.add(0x01, byte: 1)  // Channels: 1 (mono)
     codecParams.add(0x02, byte: 0)  // BitRate: Variable
+    codecParams.add(0x03, byte: 1)  // SampleRate: 16kHz
     codecParams.add(0x03, byte: 2)  // SampleRate: 24kHz
-    codecParams.add(0x03, byte: 5)  // SampleRate: 48kHz
 
     var codecConfig = TLV8.Builder()
     codecConfig.add(0x01, byte: 1)  // CodecType: AAC-ELD (recording enum)
@@ -669,20 +689,18 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
 
     var general = TLV8.Builder()
     general.add(0x01, tlv: prebuffer)
-    general.add(0x02, uint64: 0x01)  // Event trigger: Motion
+    general.add(0x02, byte: 0x01)  // Event trigger: Motion
     general.add(0x03, tlv: container)
 
     // Video recording config
     var videoCodecParams = TLV8.Builder()
     videoCodecParams.add(0x01, byte: 0x02)  // Profile: High
     videoCodecParams.add(0x02, byte: 0x02)  // Level: 4.0
-    videoCodecParams.add(0x03, uint32: 2000)  // Bitrate: 2000 kbps
-    videoCodecParams.add(0x04, uint32: 4000)  // I-frame interval: 4000ms
 
     var videoAttrs = TLV8.Builder()
     videoAttrs.add(0x01, uint16: 1280)
     videoAttrs.add(0x02, uint16: 720)
-    videoAttrs.add(0x03, byte: 30)
+    videoAttrs.add(0x03, byte: 24)
 
     var videoConfig = TLV8.Builder()
     videoConfig.add(0x01, byte: 0x00)  // Codec: H.264
@@ -1309,7 +1327,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
       services.append([
         "iid": Self.iidRecordingManagementService,
         "type": Self.uuidCameraEventRecordingManagement,
-        "linked": [Self.iidMotionSensorService, Self.iidDataStreamService],
+        "linked": [Self.iidCameraService, Self.iidMotionSensorService, Self.iidDataStreamService],
         "characteristics": [
           [
             "iid": Self.iidRecordingActive,
