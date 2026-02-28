@@ -564,9 +564,12 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
     prebuffer.add(0x01, uint32: 4000)  // 4 seconds prebuffer
 
     // Media container config
+    var containerParams = TLV8.Builder()
+    containerParams.add(0x01, uint32: 4000)  // Fragment length 4000ms
+
     var container = TLV8.Builder()
     container.add(0x01, byte: 0x00)  // Container type: fragmented MP4
-    container.add(0x02, uint32: 4000)  // Fragment length 4000ms
+    container.add(0x02, tlv: containerParams)  // Container parameters
 
     var config = TLV8.Builder()
     config.add(0x01, tlv: prebuffer)  // Prebuffer length
@@ -608,30 +611,33 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
   }
 
   /// SupportedAudioRecordingConfiguration
+  /// Recording codec types differ from streaming: AAC-LC = 0, AAC-ELD = 1.
   func supportedAudioRecordingConfig() -> TLV8.Builder {
-    // AAC-LC codec parameters for recording
+    // AAC-ELD codec — preferred by Apple HKSV hubs
     var codecParams = TLV8.Builder()
-    codecParams.add(0x01, byte: 1)  // Channels: 1
+    codecParams.add(0x01, byte: 1)  // Channels: 1 (mono)
     codecParams.add(0x02, byte: 0)  // BitRate: Variable
-    codecParams.add(0x03, byte: 1)  // SampleRate: 16kHz (0x01)
+    codecParams.add(0x03, byte: 2)  // SampleRate: 24kHz
+    codecParams.add(0x03, byte: 5)  // SampleRate: 48kHz
 
     var codecConfig = TLV8.Builder()
-    codecConfig.add(0x01, byte: 3)  // CodecType: AAC-LC (0x03)
+    codecConfig.add(0x01, byte: 1)  // CodecType: AAC-ELD (recording enum)
     codecConfig.add(0x02, tlv: codecParams)
 
-    // Also add 24kHz variant
-    var codecParams24 = TLV8.Builder()
-    codecParams24.add(0x01, byte: 1)
-    codecParams24.add(0x02, byte: 0)
-    codecParams24.add(0x03, byte: 2)  // SampleRate: 24kHz (0x02)
+    // Also offer AAC-LC
+    var lcParams = TLV8.Builder()
+    lcParams.add(0x01, byte: 1)  // Channels: 1
+    lcParams.add(0x02, byte: 0)  // BitRate: Variable
+    lcParams.add(0x03, byte: 2)  // SampleRate: 24kHz
+    lcParams.add(0x03, byte: 3)  // SampleRate: 32kHz
 
-    var codecConfig24 = TLV8.Builder()
-    codecConfig24.add(0x01, byte: 3)
-    codecConfig24.add(0x02, tlv: codecParams24)
+    var lcConfig = TLV8.Builder()
+    lcConfig.add(0x01, byte: 0)  // CodecType: AAC-LC (recording enum)
+    lcConfig.add(0x02, tlv: lcParams)
 
     var config = TLV8.Builder()
     config.add(0x01, tlv: codecConfig)
-    config.add(0x01, tlv: codecConfig24)
+    config.add(0x01, tlv: lcConfig)
     return config
   }
 
@@ -654,9 +660,12 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
     var prebuffer = TLV8.Builder()
     prebuffer.add(0x01, uint32: 4000)  // Prebuffer length: 4000ms
 
+    var containerParams = TLV8.Builder()
+    containerParams.add(0x01, uint32: 4000)  // Fragment length: 4000ms
+
     var container = TLV8.Builder()
     container.add(0x01, byte: 0x00)  // Container type: fragmented MP4
-    container.add(0x02, uint32: 4000)  // Fragment length: 4000ms
+    container.add(0x02, tlv: containerParams)  // Container parameters
 
     var general = TLV8.Builder()
     general.add(0x01, tlv: prebuffer)
@@ -687,7 +696,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
     audioCodecParams.add(0x03, byte: 2)  // Sample rate: 24kHz
 
     var audioConfig = TLV8.Builder()
-    audioConfig.add(0x01, byte: 3)  // Codec: AAC-LC
+    audioConfig.add(0x01, byte: 1)  // Codec: AAC-ELD (recording enum)
     audioConfig.add(0x02, tlv: audioCodecParams)
 
     // Top-level selected config
