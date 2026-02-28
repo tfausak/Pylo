@@ -316,10 +316,10 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
       return .string(supportedAudioRecordingConfig().base64())
     case Self.iidSelectedCameraRecordingConfig:
       if selectedRecordingConfig.isEmpty {
-        logger.warning("SelectedCameraRecordingConfig is empty — hub needs to write config")
-        return nil  // Signal error so hub re-configures
+        logger.info("SelectedCameraRecordingConfig read: empty (not yet configured)")
+      } else {
+        logger.info("SelectedCameraRecordingConfig read: \(self.selectedRecordingConfig.count) bytes")
       }
-      logger.info("Read SelectedCameraRecordingConfig: \(self.selectedRecordingConfig.count) bytes")
       return .string(selectedRecordingConfig.base64EncodedString())
     case Self.iidRecordingAudioActive: return .int(Int(recordingAudioActive))
     case Self.iidRTPStreamActive: return .int(Int(recordingActive))
