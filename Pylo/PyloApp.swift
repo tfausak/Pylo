@@ -519,9 +519,6 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     if savedRecordingActive != 0 {
       camera.restoreRecordingActive(savedRecordingActive)
     }
-    camera.onVideoMotionChange = { [weak camera] detected in
-      camera?.updateMotionDetected(detected)
-    }
     camera.onRecordingConfigChange = { [weak camera] active in
       if active { camera?.videoMotionEnabled = true }
       UserDefaults.standard.set(active ? 1 : 0, forKey: "recordingActive")
@@ -536,6 +533,13 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     let ds = HAPDataStream()
     ds.fragmentWriter = writer
     dataStream = ds
+
+    camera.onVideoMotionChange = { [weak camera, weak ds] detected in
+      camera?.updateMotionDetected(detected)
+      if !detected {
+        ds?.connection?.finishRecording()
+      }
+    }
   }
 
   if config.motionEnabled { enabledAccessories.append(motionSensor) }

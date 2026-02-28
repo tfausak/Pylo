@@ -472,32 +472,60 @@ nonisolated final class HDSConnection: @unchecked Sendable {
 
   private static let maxChunkSize = 262_144  // 256KB
 
+  /// Whether to send endOfStream after the next live fragment completes.
+  private var pendingEndOfStream = false
+
   /// Send prebuffered fragments from the ring buffer, then set up live streaming.
   private func sendPrebufferedFragments() {
-    guard let writer = fragmentWriter else { return }
+    guard let writer = fragmentWriter else {
+      logger.warning("HDS sendPrebufferedFragments: no fragmentWriter")
+      return
+    }
 
     // Send the init segment first (ftyp + moov)
     if let initSeg = writer.initSegment {
-      sendDataChunks(initSeg, isLast: false)
+      logger.info("HDS sending init segment: \(initSeg.count) bytes")
+      sendDataChunks(initSeg, dataType: "mediaInitialization", isLast: false)
+    } else {
+      logger.warning("HDS: no init segment available")
     }
 
     // Send prebuffered fragments
     let fragments = writer.ringBuffer.snapshot()
+    logger.info("HDS sending \(fragments.count) prebuffered fragment(s)")
     for fragment in fragments {
-      sendDataChunks(fragment.data, isLast: false)
+      sendDataChunks(fragment.data, dataType: "mediaFragment", isLast: false)
     }
 
     // Set up live fragment delivery
+    pendingEndOfStream = false
     writer.onFragmentReady = { [weak self] fragment in
       self?.queue.async {
-        guard self?.activeStreamID != nil else { return }
-        self?.sendDataChunks(fragment.data, isLast: false)
+        guard let self, self.activeStreamID != nil else { return }
+        self.sendDataChunks(fragment.data, dataType: "mediaFragment", isLast: false)
+
+        // If motion cleared, send endOfStream after this fragment
+        if self.pendingEndOfStream {
+          self.pendingEndOfStream = false
+          self.sendEndOfStream()
+        }
+      }
+    }
+  }
+
+  /// Signal that the current recording should end after the next fragment completes.
+  func finishRecording() {
+    queue.async { [weak self] in
+      guard let self else { return }
+      if self.activeStreamID != nil {
+        self.logger.info("HDS: finishing recording (will send endOfStream after next fragment)")
+        self.pendingEndOfStream = true
       }
     }
   }
 
   /// Split data into chunks and send as dataSend/data events.
-  private func sendDataChunks(_ data: Data, isLast: Bool) {
+  private func sendDataChunks(_ data: Data, dataType: String, isLast: Bool) {
     guard activeStreamID != nil else { return }
 
     let maxChunk = Self.maxChunkSize
@@ -515,6 +543,7 @@ nonisolated final class HDSConnection: @unchecked Sendable {
           [
             "data": chunk,
             "metadata": [
+              "dataType": dataType,
               "dataSequenceNumber": dataSequenceNumber,
               "dataChunkSequenceNumber": chunkSeq,
               "isLastDataChunk": isLastChunk,
@@ -548,6 +577,7 @@ nonisolated final class HDSConnection: @unchecked Sendable {
   /// Send end-of-stream marker.
   func sendEndOfStream() {
     guard activeStreamID != nil else { return }
+    logger.info("HDS sending endOfStream")
 
     let event = HDSMessage(
       type: .event,
