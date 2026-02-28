@@ -398,7 +398,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
       return false
     // Camera Event Recording Management
     case Self.iidRecordingActive:
-      if case .int(let v) = value {
+      if let v = intFromValue(value) {
         recordingActive = UInt8(v)
         let isActive = v != 0
         onRecordingConfigChange?(isActive)
@@ -422,14 +422,14 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
       }
       return false
     case Self.iidRecordingAudioActive:
-      if case .int(let v) = value {
+      if let v = intFromValue(value) {
         recordingAudioActive = UInt8(v)
         onStateChange?(aid, iid, .int(v))
         return true
       }
       return false
     case Self.iidRTPStreamActive:
-      if case .int(let v) = value {
+      if let v = intFromValue(value) {
         onStateChange?(aid, iid, .int(v))
         return true
       }
@@ -447,6 +447,16 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
     switch value {
     case .bool(let v): return v
     case .int(let v): return v != 0
+    default: return nil
+    }
+  }
+
+  /// Extract an Int from either a .int or .bool HAPValue.
+  /// Handles HomeKit hubs that send JSON `true`/`false` for uint8 characteristics.
+  private func intFromValue(_ value: HAPValue) -> Int? {
+    switch value {
+    case .int(let v): return v
+    case .bool(let v): return v ? 1 : 0
     default: return nil
     }
   }

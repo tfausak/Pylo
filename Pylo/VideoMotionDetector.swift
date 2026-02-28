@@ -40,7 +40,10 @@ nonisolated final class VideoMotionDetector {
   /// Call this from the capture delegate callback. The pixel buffer's base address
   /// must already be locked by the caller (or by AVFoundation's delegate contract).
   func processPixelBuffer(_ pixelBuffer: CVPixelBuffer) {
-    guard let grayscale = downsampleToGrayscale(pixelBuffer) else { return }
+    CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
+    let grayscale = downsampleToGrayscale(pixelBuffer)
+    CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly)
+    guard let grayscale else { return }
 
     guard let previous = previousFrame else {
       previousFrame = grayscale
