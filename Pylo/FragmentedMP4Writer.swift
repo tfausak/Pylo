@@ -209,6 +209,9 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     fragmentStartPTS = .invalid
     hasLoggedFirstFragment = false
     audioLock.withLock { pendingAudioSamples.removeAll() }
+    // Reset format so init segment is rebuilt on next start, reflecting current includeAudioTrack state.
+    videoFormatDescription = nil
+    initSegment = nil
   }
 
   // MARK: - Fragment Construction
@@ -594,7 +597,11 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     let dinf = Self.buildDinf()
 
     // stsd with mp4a + esds
-    let audioConfig: [UInt8] = [0xBC, 0x10, 0x00]  // AAC-ELD 16kHz mono
+    // AudioSpecificConfig for ER AAC-LD (objectType=23):
+    //   objectType(5)=10111, freqIndex(4)=1000(16kHz), channelConfig(4)=0001(mono),
+    //   ELDSpecificConfig: frameLengthFlag=1(480), resilience=000, ldSbrPresent=0,
+    //   epConfig=00
+    let audioConfig: [UInt8] = [0xBC, 0x0C, 0x00]
     let esds = Self.buildEsds(trackID: trackID, audioConfig: Data(audioConfig))
     var mp4aP = Data()
     mp4aP.append(Data(count: 6))  // reserved
