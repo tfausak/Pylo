@@ -182,10 +182,16 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       connection.videoRotationAngle = CGFloat(rotationAngle)
     }
 
+    // Swap encoding dimensions when rotated 90°/270° — the capture connection
+    // physically rotates pixel buffers, so the VT session must match.
+    let swapDims = rotationAngle == 90 || rotationAngle == 270
+    let encWidth = swapDims ? height : width
+    let encHeight = swapDims ? width : height
+
     // VTCompressionSession setup
     guard
       let cs = Self.createCompressionSession(
-        width: width, height: height, fps: fps, bitrate: bitrate, logger: logger)
+        width: encWidth, height: encHeight, fps: fps, bitrate: bitrate, logger: logger)
     else {
       lock.withLock { _state.captureSession = nil }
       return
