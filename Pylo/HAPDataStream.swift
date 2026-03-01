@@ -562,7 +562,7 @@ nonisolated final class HDSConnection: @unchecked Sendable {
 
   /// Split data into chunks and send as dataSend/data events.
   private func sendDataChunks(_ data: Data, dataType: String, isLast: Bool) {
-    guard activeStreamID != nil else { return }
+    guard let streamID = activeStreamID else { return }
 
     let maxChunk = Self.maxChunkSize
     var offset = 0
@@ -575,6 +575,7 @@ nonisolated final class HDSConnection: @unchecked Sendable {
       let isLastChunk = end >= data.count
 
       var body: [String: Any] = [
+        "streamId": streamID,
         "packets": [
           [
             "data": chunk,
@@ -612,7 +613,7 @@ nonisolated final class HDSConnection: @unchecked Sendable {
 
   /// Send end-of-stream marker.
   func sendEndOfStream() {
-    guard activeStreamID != nil else { return }
+    guard let streamID = activeStreamID else { return }
     logger.info("HDS sending endOfStream")
 
     let event = HDSMessage(
@@ -622,6 +623,7 @@ nonisolated final class HDSConnection: @unchecked Sendable {
       identifier: 0,
       status: .success,
       body: [
+        "streamId": streamID,
         "endOfStream": true,
         "packets": [] as [[String: Any]],
       ]
