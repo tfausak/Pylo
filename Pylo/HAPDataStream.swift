@@ -584,6 +584,8 @@ nonisolated final class HDSConnection: @unchecked Sendable {
   }
 
   /// Split data into chunks and send as dataSend/data events.
+  /// Uses manual byte construction to match positron's exact HDS encoding
+  /// (fixed key ordering + DATA_LENGTH32LE for the data field).
   private func sendDataChunks(_ data: Data, dataType: String, isLast: Bool) {
     guard let streamID = activeStreamID else { return }
 
@@ -594,49 +596,155 @@ nonisolated final class HDSConnection: @unchecked Sendable {
 
     while offset < data.count {
       let end = min(offset + maxChunk, data.count)
-      let chunk = data[offset..<end]
+      let chunk = Data(data[offset..<end])
       let isLastChunk = end >= data.count
 
-      var body: [String: Any] = [
-        "streamId": streamID,
-        "packets": [
-          [
-            "data": chunk,
-            "metadata": ({
-              var m: [String: Any] = [
-                "dataType": dataType,
-                "dataSequenceNumber": dataSequenceNumber,
-                "dataChunkSequenceNumber": chunkSeq,
-                "isLastDataChunk": isLastChunk,
-              ]
-              if chunkSeq == 1 {
-                m["dataTotalSize"] = totalSize
-              }
-              return m
-            })() as [String: Any],
-          ]
-        ]
-      ]
-
-      if isLast && isLastChunk {
-        body["endOfStream"] = true
-      }
-
-      let event = HDSMessage(
-        type: .event,
-        protocol: "dataSend",
-        topic: "data",
-        identifier: 0,
-        status: .success,
-        body: body
+      let message = buildRawDataSendEvent(
+        streamID: streamID,
+        dataType: dataType,
+        dataSequenceNumber: dataSequenceNumber,
+        dataChunkSequenceNumber: chunkSeq,
+        isLastDataChunk: isLastChunk,
+        dataTotalSize: chunkSeq == 1 ? totalSize : nil,
+        endOfStream: isLast && isLastChunk,
+        chunk: chunk
       )
-      sendMessage(event)
+      sendFrame(message)
 
       offset = end
       chunkSeq += 1
     }
 
     dataSequenceNumber += 1
+  }
+
+  // MARK: - Raw dataSend/data Message Builder
+
+  /// Build a raw dataSend/data HDS event message with exact byte ordering
+  /// matching positron's known-working implementation. This bypasses HDSCodec's
+  /// generic dictionary encoding which produces non-deterministic key ordering.
+  private func buildRawDataSendEvent(
+    streamID: Int,
+    dataType: String,
+    dataSequenceNumber: Int,
+    dataChunkSequenceNumber: Int,
+    isLastDataChunk: Bool,
+    dataTotalSize: Int?,
+    endOfStream: Bool,
+    chunk: Data
+  ) -> Data {
+    var buf = Data()
+
+    // ---- Header: dict{protocol: "dataSend", event: "data"} ----
+    let headerBytes: [UInt8] = [
+      0xE2,  // dict of 2
+      0x48, 0x70, 0x72, 0x6F, 0x74, 0x6F, 0x63, 0x6F, 0x6C,  // "protocol"
+      0x48, 0x64, 0x61, 0x74, 0x61, 0x53, 0x65, 0x6E, 0x64,  // "dataSend"
+      0x45, 0x65, 0x76, 0x65, 0x6E, 0x74,  // "event"
+      0x44, 0x64, 0x61, 0x74, 0x61,  // "data"
+    ]
+    buf.append(UInt8(headerBytes.count))  // header length
+    buf.append(contentsOf: headerBytes)
+
+    // ---- Body dict (2 or 3 entries) ----
+    buf.append(endOfStream ? 0xE3 : 0xE2)
+
+    // streamId → number
+    buf.append(contentsOf: [0x48, 0x73, 0x74, 0x72, 0x65, 0x61, 0x6D, 0x49, 0x64])
+    Self.appendHDSInt(&buf, streamID)
+
+    // endOfStream → true (optional)
+    if endOfStream {
+      buf.append(contentsOf: [
+        0x4B,  // string of 11
+        0x65, 0x6E, 0x64, 0x4F, 0x66, 0x53, 0x74, 0x72, 0x65, 0x61, 0x6D,
+        0x01,  // TRUE
+      ])
+    }
+
+    // packets → array(1) → dict(2){metadata, data}
+    buf.append(contentsOf: [
+      0x47, 0x70, 0x61, 0x63, 0x6B, 0x65, 0x74, 0x73,  // "packets"
+      0xD1,  // array of 1
+      0xE2,  // dict of 2 (metadata + data)
+      0x48, 0x6D, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61,  // "metadata"
+    ])
+
+    // metadata dict (4 or 5 entries)
+    buf.append(dataTotalSize != nil ? 0xE5 : 0xE4)
+
+    // dataType → string
+    buf.append(contentsOf: [0x48, 0x64, 0x61, 0x74, 0x61, 0x54, 0x79, 0x70, 0x65])
+    let dtBytes = Data(dataType.utf8)
+    buf.append(UInt8(0x40 + dtBytes.count))
+    buf.append(dtBytes)
+
+    // dataSequenceNumber → number
+    buf.append(contentsOf: [
+      0x52,  // string of 18
+      0x64, 0x61, 0x74, 0x61, 0x53, 0x65, 0x71, 0x75, 0x65, 0x6E, 0x63, 0x65,
+      0x4E, 0x75, 0x6D, 0x62, 0x65, 0x72,
+    ])
+    Self.appendHDSInt(&buf, dataSequenceNumber)
+
+    // isLastDataChunk → bool
+    buf.append(contentsOf: [
+      0x4F,  // string of 15
+      0x69, 0x73, 0x4C, 0x61, 0x73, 0x74, 0x44, 0x61, 0x74, 0x61, 0x43, 0x68,
+      0x75, 0x6E, 0x6B,
+    ])
+    buf.append(isLastDataChunk ? 0x01 : 0x02)
+
+    // dataChunkSequenceNumber → number
+    buf.append(contentsOf: [
+      0x57,  // string of 23
+      0x64, 0x61, 0x74, 0x61, 0x43, 0x68, 0x75, 0x6E, 0x6B, 0x53, 0x65, 0x71,
+      0x75, 0x65, 0x6E, 0x63, 0x65, 0x4E, 0x75, 0x6D, 0x62, 0x65, 0x72,
+    ])
+    Self.appendHDSInt(&buf, dataChunkSequenceNumber)
+
+    // dataTotalSize → number (only on first chunk)
+    if let totalSize = dataTotalSize {
+      buf.append(contentsOf: [
+        0x4D,  // string of 13
+        0x64, 0x61, 0x74, 0x61, 0x54, 0x6F, 0x74, 0x61, 0x6C, 0x53, 0x69,
+        0x7A, 0x65,
+      ])
+      Self.appendHDSInt(&buf, totalSize)
+    }
+
+    // data → binary (always DATA_LENGTH32LE = 0x93, matching positron)
+    buf.append(contentsOf: [0x44, 0x64, 0x61, 0x74, 0x61])  // "data"
+    buf.append(0x93)
+    var dataLen = UInt32(chunk.count).littleEndian
+    buf.append(Data(bytes: &dataLen, count: 4))
+    buf.append(chunk)
+
+    return buf
+  }
+
+  /// Append an integer in HDS codec format (matching positron's writeNumber).
+  private static func appendHDSInt(_ buf: inout Data, _ value: Int) {
+    if value == -1 {
+      buf.append(0x07)
+    } else if value >= 0 && value <= 39 {
+      buf.append(UInt8(0x08 + value))
+    } else if value >= -128 && value <= 127 {
+      buf.append(0x30)
+      buf.append(UInt8(bitPattern: Int8(value)))
+    } else if value >= -32768 && value <= 32767 {
+      buf.append(0x31)
+      var le = Int16(value).littleEndian
+      buf.append(Data(bytes: &le, count: 2))
+    } else if value >= Int(Int32.min) && value <= Int(Int32.max) {
+      buf.append(0x32)
+      var le = Int32(value).littleEndian
+      buf.append(Data(bytes: &le, count: 4))
+    } else {
+      buf.append(0x33)
+      var le = Int64(value).littleEndian
+      buf.append(Data(bytes: &le, count: 8))
+    }
   }
 
 }
