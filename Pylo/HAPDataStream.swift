@@ -411,10 +411,12 @@ nonisolated final class HDSConnection: @unchecked Sendable {
     case ("dataSend", "close", .event):
       // Hub may send close events for specific streams or for cleanup.
       // Only clear our active stream if the event matches.
+      // Reason codes: 0=normal, 5=unexpected_failure, 6=timeout, 7=bad_data, 9=invalid_config
       let closeStreamID = message.body["streamId"] as? Int
       let closeReason = message.body["reason"] as? Int
-      logger.info(
-        "HDS dataSend/close event (streamId=\(closeStreamID.map(String.init) ?? "nil"), reason=\(closeReason.map(String.init) ?? "nil"), active=\(self.activeStreamID.map(String.init) ?? "nil"))"
+      let bodyKeys = message.body.keys.sorted().joined(separator: ",")
+      logger.warning(
+        "HDS dataSend/close event: streamId=\(closeStreamID.map(String.init) ?? "nil"), reason=\(closeReason.map(String.init) ?? "nil"), active=\(self.activeStreamID.map(String.init) ?? "nil"), bodyKeys=[\(bodyKeys)]"
       )
       if closeStreamID == nil || closeStreamID == activeStreamID {
         activeStreamID = nil

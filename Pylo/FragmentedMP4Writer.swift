@@ -115,10 +115,10 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
   /// Whether the first fragment has been logged for diagnostics.
   private var hasLoggedFirstFragment = false
 
-  // Audio track (AAC-ELD silent filler matching hub's SelectedCameraRecordingConfig)
-  // Disabled: silent 2-byte AAC-ELD frames may be invalid. Re-enable once we have
-  // real microphone audio or a validated silence frame.
-  private let includeAudioTrack = false
+  // Audio track (AAC-ELD silent filler matching hub's SelectedCameraRecordingConfig).
+  // The hub selects audio in SelectedCameraRecordingConfig and expects a two-track fMP4.
+  // Without this track the hub rejects recordings with an immediate dataSend/close.
+  private let includeAudioTrack = true
   private let audioTimescale: UInt32 = 16000  // AAC-ELD sample rate
   private let audioFrameDuration: UInt32 = 480  // AAC-ELD frame size (samples)
   /// A single encoded AAC-ELD silence frame, cached for reuse in every fragment.
@@ -219,14 +219,16 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
       guard status == noErr else { break }
       let outSize = Int(outputList.mBuffers.mDataByteSize)
       if outSize > 0 {
-        silentAudioFrame = Data(bytes: outputBuf, count: outSize)
-        logger.info("Silent AAC-ELD frame: \(outSize) bytes")
+        let frame = Data(bytes: outputBuf, count: outSize)
+        let hex = frame.prefix(32).map { String(format: "%02x", $0) }.joined(separator: " ")
+        logger.info("Silent AAC-ELD frame: \(outSize) bytes, hex: \(hex)")
+        silentAudioFrame = frame
         break
       }
     }
 
     if silentAudioFrame == nil {
-      logger.warning("Failed to generate silent AAC-ELD frame")
+      logger.warning("Failed to generate silent AAC-ELD frame — audio track will be omitted")
     }
   }
 
