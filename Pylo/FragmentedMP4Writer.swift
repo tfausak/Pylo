@@ -98,8 +98,10 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
 
   /// Video format description (contains H.264 SPS/PPS) captured from the first sample.
   private var videoFormatDescription: CMFormatDescription?
-  /// Video track timescale from the source sample buffers.
-  private var videoTimescale: UInt32 = 600
+  /// Video track timescale used in mdhd, tfdt, and trun durations.
+  /// Fixed at 600 (Apple's standard for MP4/QuickTime) rather than the source's
+  /// nanosecond timescale (1,000,000,000) which some parsers may not handle.
+  private let videoTimescale: UInt32 = 600
 
   // Manual fragment construction state
   private var pendingSamples: [VideoSample] = []
@@ -128,8 +130,6 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
       let fmt = CMSampleBufferGetFormatDescription(sampleBuffer)
     {
       videoFormatDescription = fmt
-      let ts = pts.timescale
-      if ts > 0 { videoTimescale = UInt32(ts) }
       initSegment = buildInitSegment(videoFormat: fmt)
     }
 
@@ -401,17 +401,16 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     mvhdP.append(Data(count: 10))  // reserved
     Self.appendIdentityMatrix(&mvhdP)
     mvhdP.append(Data(count: 24))  // pre_defined
-    Self.putU32BE(&mvhdP, 3)  // next_track_ID
+    Self.putU32BE(&mvhdP, 2)  // next_track_ID
     let mvhd = Self.mp4FullBox("mvhd", payload: mvhdP)
 
     let videoTrack = buildVideoTrack(
       trackID: 1, width: width, height: height, sps: sps, pps: pps)
-    let audioTrack = buildAudioTrack(trackID: 2)
 
     // mvex (movie extends — required for fragmented MP4)
-    let mvex = Self.mp4Box("mvex", Self.buildTrex(trackID: 1) + Self.buildTrex(trackID: 2))
+    let mvex = Self.mp4Box("mvex", Self.buildTrex(trackID: 1))
 
-    let moov = Self.mp4Box("moov", mvhd + videoTrack + audioTrack + mvex)
+    let moov = Self.mp4Box("moov", mvhd + videoTrack + mvex)
 
     var result = ftyp
     result.append(moov)

@@ -406,9 +406,15 @@ nonisolated final class HDSConnection: @unchecked Sendable {
       handleDataSendClose(message)
 
     case ("dataSend", "close", .event):
-      // Hub may also send close as an event (e.g. after endOfStream)
-      logger.info("HDS dataSend/close event")
-      activeStreamID = nil
+      // Hub may send close events for specific streams or for cleanup.
+      // Only clear our active stream if the event matches.
+      let closeStreamID = message.body["streamId"] as? Int
+      logger.info(
+        "HDS dataSend/close event (streamId=\(closeStreamID.map(String.init) ?? "nil"), active=\(self.activeStreamID.map(String.init) ?? "nil"))"
+      )
+      if closeStreamID == nil || closeStreamID == activeStreamID {
+        activeStreamID = nil
+      }
 
     case ("dataSend", "ack", .event):
       // Hub acknowledges received data — log and continue
@@ -476,8 +482,13 @@ nonisolated final class HDSConnection: @unchecked Sendable {
   }
 
   private func handleDataSendClose(_ message: HDSMessage) {
-    logger.info("HDS dataSend/close")
-    activeStreamID = nil
+    let closeStreamID = message.body["streamId"] as? Int
+    logger.info(
+      "HDS dataSend/close request (streamId=\(closeStreamID.map(String.init) ?? "nil"), active=\(self.activeStreamID.map(String.init) ?? "nil"))"
+    )
+    if closeStreamID == nil || closeStreamID == activeStreamID {
+      activeStreamID = nil
+    }
 
     let response = HDSMessage(
       type: .response,
