@@ -460,7 +460,7 @@ nonisolated final class HDSConnection: @unchecked Sendable {
 
     let streamID = message.body["streamId"] as? Int ?? 1
     activeStreamID = streamID
-    dataSequenceNumber = 0
+    dataSequenceNumber = 1
     initSegmentSent = false
 
     logger.info(
@@ -577,7 +577,7 @@ nonisolated final class HDSConnection: @unchecked Sendable {
 
     let maxChunk = Self.maxChunkSize
     var offset = 0
-    var chunkSeq = 0
+    var chunkSeq = 1
     let totalSize = data.count
 
     while offset < data.count {
@@ -590,13 +590,18 @@ nonisolated final class HDSConnection: @unchecked Sendable {
         "packets": [
           [
             "data": chunk,
-            "metadata": [
-              "dataType": dataType,
-              "dataSequenceNumber": dataSequenceNumber,
-              "dataChunkSequenceNumber": chunkSeq,
-              "isLastDataChunk": isLastChunk,
-              "dataTotalSize": totalSize,
-            ] as [String: Any],
+            "metadata": ({
+              var m: [String: Any] = [
+                "dataType": dataType,
+                "dataSequenceNumber": dataSequenceNumber,
+                "dataChunkSequenceNumber": chunkSeq,
+                "isLastDataChunk": isLastChunk,
+              ]
+              if chunkSeq == 1 {
+                m["dataTotalSize"] = totalSize
+              }
+              return m
+            })() as [String: Any],
           ]
         ]
       ]
