@@ -1,3 +1,4 @@
+import AudioToolbox
 import CoreMedia
 import os
 
@@ -113,10 +114,116 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
   /// Whether the first fragment has been logged for diagnostics.
   private var hasLoggedFirstFragment = false
 
+  // Audio track (AAC-ELD silent filler matching hub's SelectedCameraRecordingConfig)
+  private let audioTimescale: UInt32 = 16000  // AAC-ELD sample rate
+  private let audioFrameDuration: UInt32 = 480  // AAC-ELD frame size (samples)
+  /// A single encoded AAC-ELD silence frame, cached for reuse in every fragment.
+  private var silentAudioFrame: Data?
+  /// Accumulated audio decode time in audio timescale ticks across all emitted fragments.
+  private var accumulatedAudioDecodeTime: UInt64 = 0
+
   func configure(width: Int, height: Int, fps: Int) {
     self.videoWidth = width
     self.videoHeight = height
     self.fps = fps
+  }
+
+  // MARK: - Silent Audio Setup
+
+  /// Generate a single silent AAC-ELD frame using AudioToolbox's AudioConverter.
+  /// Called lazily from buildInitSegment so the audio track is ready before the first fragment.
+  private func setupSilentAudio() {
+    guard silentAudioFrame == nil else { return }
+
+    var srcDesc = AudioStreamBasicDescription(
+      mSampleRate: Float64(audioTimescale),
+      mFormatID: kAudioFormatLinearPCM,
+      mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked,
+      mBytesPerPacket: 4,
+      mFramesPerPacket: 1,
+      mBytesPerFrame: 4,
+      mChannelsPerFrame: 1,
+      mBitsPerChannel: 32,
+      mReserved: 0
+    )
+
+    var dstDesc = AudioStreamBasicDescription(
+      mSampleRate: Float64(audioTimescale),
+      mFormatID: kAudioFormatMPEG4AAC_ELD,
+      mFormatFlags: 0,
+      mBytesPerPacket: 0,
+      mFramesPerPacket: UInt32(audioFrameDuration),
+      mBytesPerFrame: 0,
+      mChannelsPerFrame: 1,
+      mBitsPerChannel: 0,
+      mReserved: 0
+    )
+
+    var converter: AudioConverterRef?
+    guard AudioConverterNew(&srcDesc, &dstDesc, &converter) == noErr,
+      let conv = converter
+    else {
+      logger.warning("Failed to create AAC-ELD encoder for silent audio")
+      return
+    }
+    defer { AudioConverterDispose(conv) }
+
+    var bitrate: UInt32 = 24000
+    AudioConverterSetProperty(
+      conv, kAudioConverterEncodeBitRate,
+      UInt32(MemoryLayout<UInt32>.size), &bitrate)
+
+    // Feed silence (zero-filled PCM) until the encoder produces output.
+    // AAC-ELD may require 1-2 priming frames before generating output.
+    let frameSizeBytes = Int(audioFrameDuration) * 4  // 480 Float32 samples
+    let silenceBytes = [UInt8](repeating: 0, count: frameSizeBytes)
+    let outputBufSize: UInt32 = 2048
+    let outputBuf = UnsafeMutablePointer<UInt8>.allocate(capacity: Int(outputBufSize))
+    defer { outputBuf.deallocate() }
+
+    for _ in 0..<10 {
+      var packetCount: UInt32 = 1
+      var outputList = AudioBufferList(
+        mNumberBuffers: 1,
+        mBuffers: AudioBuffer(
+          mNumberChannels: 1, mDataByteSize: outputBufSize, mData: outputBuf))
+      var packetDesc = AudioStreamPacketDescription()
+
+      var consumed = false
+      let status: OSStatus = silenceBytes.withUnsafeBufferPointer { srcBuf in
+        var ctx = (ptr: srcBuf.baseAddress!, size: UInt32(frameSizeBytes), done: consumed)
+        return withUnsafeMutablePointer(to: &ctx) { ctxPtr in
+          AudioConverterFillComplexBuffer(
+            conv,
+            { (_, ioCount, ioData, _, inUser) -> OSStatus in
+              guard let user = inUser else { ioCount.pointee = 0; return noErr }
+              let c = user.assumingMemoryBound(
+                to: (ptr: UnsafePointer<UInt8>, size: UInt32, done: Bool).self)
+              if c.pointee.done { ioCount.pointee = 0; return noErr }
+              c.pointee.done = true
+              ioCount.pointee = UInt32(c.pointee.size / 4)
+              ioData.pointee.mBuffers.mData = UnsafeMutableRawPointer(mutating: c.pointee.ptr)
+              ioData.pointee.mBuffers.mDataByteSize = c.pointee.size
+              ioData.pointee.mBuffers.mNumberChannels = 1
+              return noErr
+            },
+            ctxPtr, &packetCount, &outputList, &packetDesc)
+        }
+      }
+      consumed = true  // prevent reuse warning
+
+      guard status == noErr else { break }
+      let outSize = Int(outputList.mBuffers.mDataByteSize)
+      if outSize > 0 {
+        silentAudioFrame = Data(bytes: outputBuf, count: outSize)
+        logger.info("Silent AAC-ELD frame: \(outSize) bytes")
+        break
+      }
+    }
+
+    if silentAudioFrame == nil {
+      logger.warning("Failed to generate silent AAC-ELD frame")
+    }
   }
 
   // MARK: - Writing
@@ -165,10 +272,10 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     pendingSamples.append(VideoSample(data: sampleData, pts: pts, isKeyframe: isKeyframe))
   }
 
-  /// Append an audio sample buffer (currently unused — video-only fragments).
+  /// Append an audio sample buffer (not used — silent AAC-ELD is generated automatically).
   func appendAudioSample(_ sampleBuffer: CMSampleBuffer) {
-    // Audio track is declared in the init segment but not yet populated.
-    // HKSV hubs accept video-only fragments.
+    // Silent audio is auto-generated in emitFragment(). Real microphone audio
+    // could be mixed in here in the future.
   }
 
   /// Stop the writer and flush any pending samples as a final fragment.
@@ -178,6 +285,7 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     }
     fragmentStartPTS = .invalid
     accumulatedDecodeTime = 0
+    accumulatedAudioDecodeTime = 0
     moofSequenceNumber = 0
     hasLoggedFirstFragment = false
   }
@@ -185,6 +293,8 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
   // MARK: - Fragment Construction
 
   /// Build and emit a moof+mdat fragment from the buffered samples.
+  /// Produces a two-track moof when silent audio is available: video traf (track 1)
+  /// followed by audio traf (track 2) with AAC-ELD silence frames.
   private func emitFragment() {
     guard pendingSamples.count >= 1 else { return }
 
@@ -202,40 +312,102 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
         let ticks = CMTimeConvertScale(delta, timescale: Int32(timescale), method: .roundTowardZero)
         durations.append(UInt32(max(ticks.value, 1)))
       } else {
-        // Last sample: use previous duration or default to 1/fps
         let d = durations.isEmpty ? UInt32(timescale / Int64(fps)) : durations.last!
         durations.append(d)
       }
     }
 
-    // Compute total duration for this fragment (in timescale ticks)
     let totalTicks = durations.reduce(UInt64(0)) { $0 + UInt64($1) }
-
-    // Build sample sizes and flags arrays
     let sizes = samples.map { UInt32($0.data.count) }
-    let flags: [UInt32] = samples.map { sample in
-      // ISO 14496-12 §8.8.3.1 sample_flags:
-      // Keyframe (sync): sample_depends_on=2 (doesn't depend on others)
-      // Non-keyframe: sample_depends_on=1 + sample_is_non_sync_sample=1
+    let sampleFlags: [UInt32] = samples.map { sample in
       sample.isKeyframe ? 0x0200_0000 : 0x0101_0000
     }
 
     moofSequenceNumber += 1
 
-    // Build moof box
-    let moof = buildMoof(
-      sequenceNumber: moofSequenceNumber,
-      trackID: 1,
-      baseDecodeTime: accumulatedDecodeTime,
-      durations: durations,
-      sizes: sizes,
-      sampleFlags: flags
-    )
+    // Audio: compute silent frames to cover this fragment's duration
+    let hasAudio = silentAudioFrame != nil
+    let audioFrameCount: Int
+    let silentFrameSize: UInt32
+    if hasAudio {
+      let audioTicks = totalTicks * UInt64(audioTimescale) / UInt64(videoTimescale)
+      audioFrameCount = max(1, Int(audioTicks / UInt64(audioFrameDuration)))
+      silentFrameSize = UInt32(silentAudioFrame!.count)
+    } else {
+      audioFrameCount = 0
+      silentFrameSize = 0
+    }
 
-    // Build mdat box (concatenated sample data)
+    // Pre-compute moof size for data_offset calculation.
+    // Video traf: traf(8) + tfhd(16) + tfdt(20) + trun(20 + Nv*12) = 64 + Nv*12
+    // Audio traf: traf(8) + tfhd(28) + tfdt(20) + trun(20) = 76  (all defaults, no per-sample)
+    // moof: header(8) + mfhd(16) + videoTraf + audioTraf
+    let nv = samples.count
+    let audioTrafSize = hasAudio ? 76 : 0
+    let moofSize = 8 + 16 + (64 + nv * 12) + audioTrafSize
+    let totalVideoBytes = samples.reduce(0) { $0 + $1.data.count }
+    let videoDataOffset = UInt32(moofSize + 8)  // +8 for mdat header
+    let audioDataOffset = UInt32(moofSize + 8 + totalVideoBytes)
+
+    // mfhd
+    var mfhdP = Data()
+    Self.putU32BE(&mfhdP, moofSequenceNumber)
+    let mfhd = Self.mp4FullBox("mfhd", payload: mfhdP)
+
+    // Video traf (track 1): tfhd + tfdt + trun with per-sample entries
+    var vTfhdP = Data()
+    Self.putU32BE(&vTfhdP, 1)
+    let vTfhd = Self.mp4FullBox("tfhd", flags: 0x02_0000, payload: vTfhdP)
+
+    var vTfdtP = Data()
+    Self.putU32BE(&vTfdtP, UInt32((accumulatedDecodeTime >> 32) & 0xFFFF_FFFF))
+    Self.putU32BE(&vTfdtP, UInt32(accumulatedDecodeTime & 0xFFFF_FFFF))
+    let vTfdt = Self.mp4FullBox("tfdt", version: 1, payload: vTfdtP)
+
+    var vTrunP = Data()
+    Self.putU32BE(&vTrunP, UInt32(nv))
+    Self.putU32BE(&vTrunP, videoDataOffset)
+    for i in 0..<nv {
+      Self.putU32BE(&vTrunP, durations[i])
+      Self.putU32BE(&vTrunP, sizes[i])
+      Self.putU32BE(&vTrunP, sampleFlags[i])
+    }
+    let vTrun = Self.mp4FullBox("trun", flags: 0x000701, payload: vTrunP)
+    let videoTraf = Self.mp4Box("traf", vTfhd + vTfdt + vTrun)
+
+    // Audio traf (track 2): defaults in tfhd, minimal trun (data-offset only)
+    var audioTraf = Data()
+    if hasAudio {
+      // tfhd flags 0x020038: default-base-is-moof | default-sample-duration |
+      //                       default-sample-size | default-sample-flags
+      var aTfhdP = Data()
+      Self.putU32BE(&aTfhdP, 2)  // trackID
+      Self.putU32BE(&aTfhdP, audioFrameDuration)  // default_sample_duration
+      Self.putU32BE(&aTfhdP, silentFrameSize)  // default_sample_size
+      Self.putU32BE(&aTfhdP, 0x0200_0000)  // default_sample_flags (sync)
+      let aTfhd = Self.mp4FullBox("tfhd", flags: 0x02_0038, payload: aTfhdP)
+
+      var aTfdtP = Data()
+      Self.putU32BE(&aTfdtP, UInt32((accumulatedAudioDecodeTime >> 32) & 0xFFFF_FFFF))
+      Self.putU32BE(&aTfdtP, UInt32(accumulatedAudioDecodeTime & 0xFFFF_FFFF))
+      let aTfdt = Self.mp4FullBox("tfdt", version: 1, payload: aTfdtP)
+
+      // trun flags 0x000001: data-offset only (durations/sizes/flags from tfhd defaults)
+      var aTrunP = Data()
+      Self.putU32BE(&aTrunP, UInt32(audioFrameCount))
+      Self.putU32BE(&aTrunP, audioDataOffset)
+      let aTrun = Self.mp4FullBox("trun", flags: 0x00_0001, payload: aTrunP)
+
+      audioTraf = Self.mp4Box("traf", aTfhd + aTfdt + aTrun)
+    }
+
+    let moof = Self.mp4Box("moof", mfhd + videoTraf + audioTraf)
+
+    // mdat: video sample data followed by silent audio frames
     var mdatPayload = Data()
-    for sample in samples {
-      mdatPayload.append(sample.data)
+    for sample in samples { mdatPayload.append(sample.data) }
+    if hasAudio, let frame = silentAudioFrame {
+      for _ in 0..<audioFrameCount { mdatPayload.append(frame) }
     }
     let mdat = Self.mp4Box("mdat", mdatPayload)
 
@@ -244,14 +416,18 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
 
     // Log first fragment diagnostics
     if !hasLoggedFirstFragment {
+      let audioInfo = hasAudio ? ", audioFrames=\(audioFrameCount)" : ""
       logger.info(
-        "First moof: seq=\(self.moofSequenceNumber), samples=\(samples.count), baseDecodeTime=\(self.accumulatedDecodeTime), totalTicks=\(totalTicks), moof=\(moof.count)B, mdat=\(mdat.count)B"
+        "First moof: seq=\(self.moofSequenceNumber), samples=\(nv)\(audioInfo), baseDecodeTime=\(self.accumulatedDecodeTime), totalTicks=\(totalTicks), moof=\(moof.count)B, mdat=\(mdat.count)B"
       )
       hasLoggedFirstFragment = true
     }
 
-    // Advance accumulated decode time for next fragment's tfdt
+    // Advance accumulated decode times for next fragment's tfdt
     accumulatedDecodeTime += totalTicks
+    if hasAudio {
+      accumulatedAudioDecodeTime += UInt64(audioFrameCount) * UInt64(audioFrameDuration)
+    }
 
     // Compute total duration as CMTime
     let totalDuration: CMTime
@@ -271,65 +447,7 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     onFragmentReady?(fragment)
 
     let durSec = String(format: "%.2f", CMTimeGetSeconds(totalDuration))
-    logger.debug("Fragment #\(seq): \(fragmentData.count) bytes, \(samples.count) samples, \(durSec)s")
-  }
-
-  /// Build a moof box: mfhd + traf (tfhd + tfdt + trun).
-  /// ISO 14496-12 §8.8.4 (moof), §8.8.5 (mfhd), §8.8.7 (traf),
-  /// §8.8.7.1 (tfhd), §8.8.12 (tfdt), §8.8.8 (trun).
-  private func buildMoof(
-    sequenceNumber: UInt32,
-    trackID: UInt32,
-    baseDecodeTime: UInt64,
-    durations: [UInt32],
-    sizes: [UInt32],
-    sampleFlags: [UInt32]
-  ) -> Data {
-    let sampleCount = durations.count
-
-    // mfhd: sequence_number
-    var mfhdP = Data()
-    Self.putU32BE(&mfhdP, sequenceNumber)
-    let mfhd = Self.mp4FullBox("mfhd", payload: mfhdP)
-
-    // tfhd: track_id with default-base-is-moof flag (0x020000)
-    var tfhdP = Data()
-    Self.putU32BE(&tfhdP, trackID)
-    let tfhd = Self.mp4FullBox("tfhd", flags: 0x02_0000, payload: tfhdP)
-
-    // tfdt v1: 64-bit baseMediaDecodeTime
-    var tfdtP = Data()
-    Self.putU32BE(&tfdtP, UInt32((baseDecodeTime >> 32) & 0xFFFF_FFFF))
-    Self.putU32BE(&tfdtP, UInt32(baseDecodeTime & 0xFFFF_FFFF))
-    let tfdt = Self.mp4FullBox("tfdt", version: 1, payload: tfdtP)
-
-    // trun: sample_count, data_offset, per-sample (duration, size, flags)
-    // flags: 0x000701 = data-offset-present | sample-duration-present |
-    //                    sample-size-present | sample-flags-present
-    //
-    // Pre-compute moof size to set data_offset correctly.
-    // data_offset = moof_size + 8 (mdat header), relative to moof start
-    // (because default-base-is-moof is set in tfhd).
-    //
-    // trun payload: version+flags(4) + sample_count(4) + data_offset(4) + N*(4+4+4)
-    // trun box: 8 + 4 + 4 + 4 + N*12 = 20 + N*12
-    // tfhd box: 16, tfdt box: 20, mfhd box: 16, traf header: 8, moof header: 8
-    // moof_size = 8 + 16 + (8 + 16 + 20 + 20 + N*12) = 88 + N*12
-    let moofSize = 88 + sampleCount * 12
-    let dataOffset = UInt32(moofSize + 8)  // +8 for mdat box header
-
-    var trunP = Data()
-    Self.putU32BE(&trunP, UInt32(sampleCount))
-    Self.putU32BE(&trunP, dataOffset)
-    for i in 0..<sampleCount {
-      Self.putU32BE(&trunP, durations[i])
-      Self.putU32BE(&trunP, sizes[i])
-      Self.putU32BE(&trunP, sampleFlags[i])
-    }
-    let trun = Self.mp4FullBox("trun", flags: 0x000701, payload: trunP)
-
-    let traf = Self.mp4Box("traf", tfhd + tfdt + trun)
-    return Self.mp4Box("moof", mfhd + traf)
+    logger.debug("Fragment #\(seq): \(fragmentData.count) bytes, \(nv) samples, \(durSec)s")
   }
 
   // MARK: - Init Segment Construction
@@ -377,8 +495,12 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     let width = UInt16(dims.width)
     let height = UInt16(dims.height)
 
+    // Generate silent AAC-ELD frame for audio track
+    setupSilentAudio()
+    let hasAudio = silentAudioFrame != nil
+
     logger.info(
-      "buildInitSegment: \(width)x\(height), SPS=\(sps.count)B, PPS=\(pps.count)B, timescale=\(self.videoTimescale)"
+      "buildInitSegment: \(width)x\(height), SPS=\(sps.count)B, PPS=\(pps.count)B, timescale=\(self.videoTimescale), audio=\(hasAudio)"
     )
 
     // ftyp box
@@ -401,16 +523,22 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     mvhdP.append(Data(count: 10))  // reserved
     Self.appendIdentityMatrix(&mvhdP)
     mvhdP.append(Data(count: 24))  // pre_defined
-    Self.putU32BE(&mvhdP, 2)  // next_track_ID
+    Self.putU32BE(&mvhdP, hasAudio ? 3 : 2)  // next_track_ID
     let mvhd = Self.mp4FullBox("mvhd", payload: mvhdP)
 
     let videoTrack = buildVideoTrack(
       trackID: 1, width: width, height: height, sps: sps, pps: pps)
 
     // mvex (movie extends — required for fragmented MP4)
-    let mvex = Self.mp4Box("mvex", Self.buildTrex(trackID: 1))
+    var mvexContent = Self.buildTrex(trackID: 1)
+    var tracks = videoTrack
+    if hasAudio {
+      tracks.append(buildAudioTrack(trackID: 2))
+      mvexContent.append(Self.buildTrex(trackID: 2))
+    }
+    let mvex = Self.mp4Box("mvex", mvexContent)
 
-    let moov = Self.mp4Box("moov", mvhd + videoTrack + mvex)
+    let moov = Self.mp4Box("moov", mvhd + tracks + mvex)
 
     var result = ftyp
     result.append(moov)
@@ -492,7 +620,7 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
   }
 
   private func buildAudioTrack(trackID: UInt32) -> Data {
-    let sampleRate: UInt32 = 24000
+    let sampleRate = audioTimescale  // 16000 for AAC-ELD
     let channels: UInt16 = 1
 
     // tkhd
@@ -536,9 +664,11 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     // dinf/dref
     let dinf = Self.buildDinf()
 
-    // stsd with mp4a
-    let esds = Self.buildEsds(
-      trackID: trackID, sampleRate: sampleRate, channels: channels)
+    // stsd with mp4a — AAC-ELD AudioSpecificConfig:
+    // objectType=23(ELD), freqIndex=8(16kHz), channelConfig=1(mono),
+    // frameLengthFlag=0(480), resilience=0000, ldSbr=0, epConfig=00
+    let aacEldConfig = Data([0xBC, 0x10, 0x00])
+    let esds = Self.buildEsds(trackID: trackID, audioConfig: aacEldConfig)
     var mp4aP = Data()
     mp4aP.append(Data(count: 6))  // reserved
     Self.putU16BE(&mp4aP, 1)  // data_reference_index
@@ -640,25 +770,8 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     return mp4Box("avcC", p)
   }
 
-  private static func buildEsds(
-    trackID: UInt32, sampleRate: UInt32, channels: UInt16
-  ) -> Data {
-    // AudioSpecificConfig: objectType=2(AAC-LC), freqIndex, channelConfig
-    let freqIndex: UInt8 = {
-      switch sampleRate {
-      case 96000: return 0; case 88200: return 1; case 64000: return 2
-      case 48000: return 3; case 44100: return 4; case 32000: return 5
-      case 24000: return 6; case 22050: return 7; case 16000: return 8
-      case 12000: return 9; case 11025: return 10; case 8000: return 11
-      default: return 6
-      }
-    }()
-    let ch = UInt8(channels & 0x0F)
-    let audioConfig = Data([
-      UInt8((2 << 3) | Int(freqIndex >> 1)),
-      UInt8(Int(freqIndex & 1) << 7 | Int(ch) << 3),
-    ])
-
+  /// Build an ESDS box with a pre-computed AudioSpecificConfig (e.g., AAC-ELD).
+  private static func buildEsds(trackID: UInt32, audioConfig: Data) -> Data {
     // DecoderSpecificInfo
     var dsi = Data([0x05, UInt8(audioConfig.count)])
     dsi.append(audioConfig)
@@ -668,8 +781,8 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     dcd.append(0x40)  // objectTypeIndication: Audio ISO/IEC 14496-3
     dcd.append(0x15)  // streamType=audio | reserved
     dcd.append(contentsOf: [0x00, 0x00, 0x00])  // bufferSizeDB
-    putU32BE(&dcd, 64000)  // maxBitrate
-    putU32BE(&dcd, 64000)  // avgBitrate
+    putU32BE(&dcd, 24000)  // maxBitrate
+    putU32BE(&dcd, 24000)  // avgBitrate
     dcd.append(dsi)
 
     // ES_Descriptor
