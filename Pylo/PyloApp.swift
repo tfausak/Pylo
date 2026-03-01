@@ -595,6 +595,7 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
       guard let camera else { return }
       if needed {
         monitoring?.videoMotionDetector = camera.videoMotionDetector
+        monitoring?.audioRecordingEnabled = camera.recordingAudioActive != 0
         if let device = camera.resolvedCamera {
           monitoring?.start(camera: device)
         }
@@ -607,6 +608,7 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     // Auto-start monitoring if recordingActive was restored from a previous session
     if camera.recordingActive != 0, camera.streamSession == nil {
       monitoring.videoMotionDetector = camera.videoMotionDetector
+      monitoring.audioRecordingEnabled = camera.recordingAudioActive != 0
       if let device = camera.resolvedCamera {
         monitoring.start(camera: device)
       }
@@ -625,6 +627,7 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
       let device = camera.resolvedCamera
     {
       monitoringSession?.videoMotionDetector = camera.videoMotionDetector
+      monitoringSession?.audioRecordingEnabled = camera.recordingAudioActive != 0
       monitoringSession?.start(camera: device)
     }
   }

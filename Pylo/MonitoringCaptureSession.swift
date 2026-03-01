@@ -18,6 +18,10 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   /// Optional fMP4 writer for HKSV recording — feeds encoded H.264 samples.
   var fragmentWriter: FragmentedMP4Writer?
 
+  /// Whether the hub has enabled audio recording (recordingAudioActive == 1).
+  /// When false, microphone capture and AAC-ELD encoding are skipped entirely.
+  var audioRecordingEnabled = false
+
   private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "MonitoringCapture")
   private let lock = NSLock()
 
@@ -135,9 +139,9 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     output.setSampleBufferDelegate(delegate, queue: captureQueue)
     if session.canAddOutput(output) { session.addOutput(output) }
 
-    // Add microphone input for audio capture
+    // Add microphone input for audio capture (only when hub has enabled recording audio)
     var audioReady = false
-    if let mic = AVCaptureDevice.default(for: .audio),
+    if audioRecordingEnabled, let mic = AVCaptureDevice.default(for: .audio),
       let micInput = try? AVCaptureDeviceInput(device: mic),
       session.canAddInput(micInput)
     {
@@ -163,7 +167,11 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       }
     }
     if !audioReady {
-      logger.info("Monitoring capture: microphone unavailable, video-only mode")
+      if !audioRecordingEnabled {
+        logger.info("Monitoring capture: recording audio disabled by hub, video-only mode")
+      } else {
+        logger.info("Monitoring capture: microphone unavailable, video-only mode")
+      }
     }
 
     // Rotate output to match device orientation.
