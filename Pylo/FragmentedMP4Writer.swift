@@ -177,15 +177,15 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
       conv, kAudioConverterEncodeBitRate,
       UInt32(MemoryLayout<UInt32>.size), &bitrate)
 
-    // Feed silence (zero-filled PCM) until the encoder produces output.
-    // AAC-ELD may require 1-2 priming frames before generating output.
+    // Feed silence (zero-filled PCM) repeatedly until the encoder produces a full frame.
+    // AAC-ELD encoders emit a tiny 2-byte priming frame first; keep iterating past it.
     let frameSizeBytes = Int(audioFrameDuration) * 4  // 480 Float32 samples
     let silenceBytes = [UInt8](repeating: 0, count: frameSizeBytes)
     let outputBufSize: UInt32 = 2048
     let outputBuf = UnsafeMutablePointer<UInt8>.allocate(capacity: Int(outputBufSize))
     defer { outputBuf.deallocate() }
 
-    for _ in 0..<10 {
+    for i in 0..<20 {
       var packetCount: UInt32 = 1
       var outputList = AudioBufferList(
         mNumberBuffers: 1,
@@ -221,9 +221,12 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
       if outSize > 0 {
         let frame = Data(bytes: outputBuf, count: outSize)
         let hex = frame.prefix(32).map { String(format: "%02x", $0) }.joined(separator: " ")
-        logger.info("Silent AAC-ELD frame: \(outSize) bytes, hex: \(hex)")
-        silentAudioFrame = frame
-        break
+        logger.info("Silent AAC-ELD iteration \(i): \(outSize) bytes, hex: \(hex)")
+        // Skip tiny priming frames (e.g. 2-byte); wait for a real encoded frame.
+        if outSize >= 8 {
+          silentAudioFrame = frame
+          break
+        }
       }
     }
 
@@ -241,11 +244,16 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     // Detect PTS gaps from capture source transitions (snapshot pause, live stream
     // start/stop). Flush pending samples so fragments don't span transitions — a
     // PTS gap inflates sample durations and causes fragments to exceed the hub's
-    // 4000ms fragment limit.
+    // 4000ms fragment limit. Require at least ~1 second of data (30 samples) to
+    // avoid emitting tiny fragments from startup jitter.
     if let lastSamplePTS = pendingSamples.last?.pts {
       let gap = CMTimeGetSeconds(CMTimeSubtract(pts, lastSamplePTS))
-      if gap > 0.5 || gap < 0 {
+      if (gap > 0.5 || gap < 0) && pendingSamples.count >= 30 {
         emitFragment()
+      } else if gap > 0.5 || gap < 0 {
+        // Gap detected with too few samples — discard to avoid a tiny fragment.
+        pendingSamples.removeAll()
+        fragmentStartPTS = .invalid
       }
     }
 
