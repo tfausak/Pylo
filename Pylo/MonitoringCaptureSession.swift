@@ -197,9 +197,11 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       return _state.encodeFrameCount
     }
 
-    // Force keyframe on first frame
+    // Force keyframe every 120 frames (4s at 30fps) to ensure predictable fragment
+    // boundaries. Using only MaxKeyFrameInterval/Duration is insufficient because the
+    // encoder's internal counter doesn't reset after an externally-forced keyframe.
     let props: CFDictionary? =
-      frameCount == 1
+      frameCount % 120 == 1
       ? [kVTEncodeFrameOptionKey_ForceKeyFrame: true] as CFDictionary
       : nil
 
