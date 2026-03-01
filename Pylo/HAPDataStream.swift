@@ -549,12 +549,14 @@ nonisolated final class HDSConnection: @unchecked Sendable {
           self.initSegmentSent = true
         }
 
-        self.sendDataChunks(fragment.data, dataType: "mediaFragment", isLast: false)
+        // Embed endOfStream in the last chunk of the last fragment (HAP-NodeJS pattern)
+        let isLast = self.pendingEndOfStream
+        self.sendDataChunks(fragment.data, dataType: "mediaFragment", isLast: isLast)
 
-        // If motion cleared, send endOfStream after this fragment
-        if self.pendingEndOfStream {
+        if isLast {
           self.pendingEndOfStream = false
-          self.sendEndOfStream()
+          self.logger.info("HDS endOfStream sent with final fragment")
+          self.activeStreamID = nil
         }
       }
     }
@@ -627,26 +629,6 @@ nonisolated final class HDSConnection: @unchecked Sendable {
     dataSequenceNumber += 1
   }
 
-  /// Send end-of-stream marker.
-  func sendEndOfStream() {
-    guard let streamID = activeStreamID else { return }
-    logger.info("HDS sending endOfStream")
-
-    let event = HDSMessage(
-      type: .event,
-      protocol: "dataSend",
-      topic: "data",
-      identifier: 0,
-      status: .success,
-      body: [
-        "streamId": streamID,
-        "endOfStream": true,
-        "packets": [] as [[String: Any]],
-      ]
-    )
-    sendMessage(event)
-    activeStreamID = nil
-  }
 }
 
 // MARK: - HDS Message
