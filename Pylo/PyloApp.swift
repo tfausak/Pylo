@@ -520,6 +520,12 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
       camera.restoreRecordingActive(savedRecordingActive)
     }
 
+    // Restore recordingAudioActive from previous session.
+    let savedAudioActive = UInt8(UserDefaults.standard.integer(forKey: "recordingAudioActive"))
+    if savedAudioActive != 0 {
+      camera.restoreRecordingAudioActive(savedAudioActive)
+    }
+
     // Restore selectedRecordingConfig from previous session.
     // The hub writes this once during initial HKSV setup and expects it to persist.
     // If it's not persisted, readCharacteristic returns nil (error status) which
@@ -611,6 +617,18 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
       monitoring.audioRecordingEnabled = camera.recordingAudioActive != 0
       if let device = camera.resolvedCamera {
         monitoring.start(camera: device)
+      }
+    }
+
+    // Restart monitoring when recordingAudioActive changes so audio state takes effect
+    camera.onRecordingAudioActiveChange = { [weak monitoring, weak camera] active in
+      UserDefaults.standard.set(active ? 1 : 0, forKey: "recordingAudioActive")
+      if let camera, camera.recordingActive != 0, camera.streamSession == nil {
+        monitoring?.stop()
+        monitoring?.audioRecordingEnabled = active
+        if let device = camera.resolvedCamera {
+          monitoring?.start(camera: device)
+        }
       }
     }
   }

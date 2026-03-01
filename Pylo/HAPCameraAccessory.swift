@@ -153,6 +153,11 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
     recordingActive = value
   }
 
+  /// Restores `recordingAudioActive` from persisted state without triggering callbacks.
+  func restoreRecordingAudioActive(_ value: UInt8) {
+    recordingAudioActive = value
+  }
+
   /// Restores `selectedRecordingConfig` from persisted state.
   func restoreSelectedRecordingConfig(_ data: Data) {
     selectedRecordingConfig = data
@@ -173,6 +178,9 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
 
   /// Called when recording configuration changes.
   var onRecordingConfigChange: ((_ active: Bool) -> Void)?
+
+  /// Called when recordingAudioActive changes (for persistence and monitoring restart).
+  var onRecordingAudioActiveChange: ((_ active: Bool) -> Void)?
 
   /// Called when SelectedCameraRecordingConfig is written (for persistence).
   var onSelectedRecordingConfigChange: ((_ config: Data) -> Void)?
@@ -441,6 +449,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
       if let v = intFromValue(value) {
         recordingAudioActive = UInt8(v)
         onStateChange?(aid, iid, .int(v))
+        onRecordingAudioActiveChange?(v != 0)
         return true
       }
       return false
