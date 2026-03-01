@@ -213,6 +213,9 @@ nonisolated final class HDSConnection: @unchecked Sendable {
   /// Whether the init segment has been sent for the current recording session.
   private var initSegmentSent = false
 
+  /// Whether we've logged the first data event for diagnostics.
+  private var hasLoggedFirstDataEvent = false
+
   /// Data sequence counter for dataSend chunks.
   private var dataSequenceNumber = 0
 
@@ -409,8 +412,9 @@ nonisolated final class HDSConnection: @unchecked Sendable {
       // Hub may send close events for specific streams or for cleanup.
       // Only clear our active stream if the event matches.
       let closeStreamID = message.body["streamId"] as? Int
+      let closeReason = message.body["reason"] as? Int
       logger.info(
-        "HDS dataSend/close event (streamId=\(closeStreamID.map(String.init) ?? "nil"), active=\(self.activeStreamID.map(String.init) ?? "nil"))"
+        "HDS dataSend/close event (streamId=\(closeStreamID.map(String.init) ?? "nil"), reason=\(closeReason.map(String.init) ?? "nil"), active=\(self.activeStreamID.map(String.init) ?? "nil"))"
       )
       if closeStreamID == nil || closeStreamID == activeStreamID {
         activeStreamID = nil
@@ -418,7 +422,11 @@ nonisolated final class HDSConnection: @unchecked Sendable {
 
     case ("dataSend", "ack", .event):
       // Hub acknowledges received data — log and continue
-      logger.debug("HDS dataSend ack received")
+      let ackStreamID = message.body["streamId"] as? Int
+      let ackEndOfStream = message.body["endOfStream"] as? Bool
+      logger.info(
+        "HDS dataSend/ack (streamId=\(ackStreamID.map(String.init) ?? "nil"), endOfStream=\(ackEndOfStream.map(String.init) ?? "nil"))"
+      )
 
     default:
       logger.info("HDS unhandled: \(message.protocol)/\(message.topic)")
@@ -462,6 +470,7 @@ nonisolated final class HDSConnection: @unchecked Sendable {
     activeStreamID = streamID
     dataSequenceNumber = 1
     initSegmentSent = false
+    hasLoggedFirstDataEvent = false
 
     logger.info(
       "HDS dataSend/open: type=\(type) target=\(target) reason=\(reason) streamId=\(streamID)")
@@ -483,8 +492,9 @@ nonisolated final class HDSConnection: @unchecked Sendable {
 
   private func handleDataSendClose(_ message: HDSMessage) {
     let closeStreamID = message.body["streamId"] as? Int
+    let closeReason = message.body["reason"] as? Int
     logger.info(
-      "HDS dataSend/close request (streamId=\(closeStreamID.map(String.init) ?? "nil"), active=\(self.activeStreamID.map(String.init) ?? "nil"))"
+      "HDS dataSend/close request (streamId=\(closeStreamID.map(String.init) ?? "nil"), reason=\(closeReason.map(String.init) ?? "nil"), active=\(self.activeStreamID.map(String.init) ?? "nil"))"
     )
     if closeStreamID == nil || closeStreamID == activeStreamID {
       activeStreamID = nil
@@ -524,7 +534,8 @@ nonisolated final class HDSConnection: @unchecked Sendable {
 
     // Send the init segment first (ftyp + moov)
     if let initSeg = writer.initSegment {
-      logger.info("HDS sending init segment: \(initSeg.count) bytes")
+      let hex = initSeg.prefix(128).map { String(format: "%02x", $0) }.joined(separator: " ")
+      logger.info("HDS sending init segment: \(initSeg.count) bytes, hex: \(hex)")
       sendDataChunks(initSeg, dataType: "mediaInitialization", isLast: false)
       initSegmentSent = true
     } else {
@@ -609,6 +620,15 @@ nonisolated final class HDSConnection: @unchecked Sendable {
         endOfStream: isLast && isLastChunk,
         chunk: chunk
       )
+
+      // Log first data event for diagnostics (header + metadata only, not the bulk data)
+      if !hasLoggedFirstDataEvent {
+        hasLoggedFirstDataEvent = true
+        let headerEnd = min(message.count, 200)
+        let hex = message.prefix(headerEnd).map { String(format: "%02x", $0) }.joined(separator: " ")
+        logger.info("HDS first data event (\(message.count) bytes): \(hex)")
+      }
+
       sendFrame(message)
 
       offset = end

@@ -554,11 +554,8 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
       trackID: 1, width: width, height: height, sps: sps, pps: pps)
 
     // mvex (movie extends — required for fragmented MP4)
-    // mehd (Movie Extends Header) with duration=0
-    var mehdP = Data()
-    Self.putU32BE(&mehdP, 0)  // fragment_duration
-    var mvexContent = Self.mp4FullBox("mehd", payload: mehdP)
-    mvexContent.append(Self.buildTrex(trackID: 1))
+    // No mehd box — positron's working implementation omits it, and it's optional per ISO 14496-12.
+    var mvexContent = Self.buildTrex(trackID: 1)
     var tracks = videoTrack
     if hasAudio {
       tracks.append(buildAudioTrack(trackID: 2))
