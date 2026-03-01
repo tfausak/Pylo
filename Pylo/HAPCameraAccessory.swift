@@ -1020,12 +1020,13 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
     session.speakerMuted = settings.speakerMuted
     session.speakerVolume = settings.speakerVolume
     session.videoMotionDetector = videoMotionDetector
-    session.fragmentWriter = fragmentWriter
     session.onSnapshotFrame = { [weak self] jpeg in
       self?.cachedSnapshot = jpeg
     }
 
-    // Stop monitoring capture — live stream takes over motion detection + fMP4 feeding
+    // Stop monitoring capture — live stream takes over motion detection.
+    // fMP4 prebuffering pauses because the live stream encodes at a different
+    // resolution that doesn't match the init segment.
     onMonitoringCaptureNeeded?(false)
 
     let effectiveBitrate = max(bitrate, minimumBitrate)

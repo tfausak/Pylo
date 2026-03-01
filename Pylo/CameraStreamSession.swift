@@ -72,8 +72,6 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   /// Optional video motion detector — runs on every captured frame when set.
   var videoMotionDetector: VideoMotionDetector?
 
-  /// Optional fMP4 writer for HKSV recording — feeds from the same encoded H.264 samples.
-  var fragmentWriter: FragmentedMP4Writer?
 
   // Audio flags — written from the server queue, read from captureQueue/rtpQueue.
   private struct AudioFlags {
@@ -594,8 +592,6 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
           return
         }
         guard let sampleBuffer, let self else { return }
-        // Feed to fMP4 writer for HKSV prebuffering (if active)
-        self.fragmentWriter?.appendVideoSample(sampleBuffer)
         // CMSampleBuffer is immutable after creation and safe to send across threads.
         nonisolated(unsafe) let buffer = sampleBuffer
         self.rtpQueue.async {

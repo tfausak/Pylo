@@ -102,9 +102,8 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
   /// Video format description (contains H.264 SPS/PPS) captured from the first sample.
   private var videoFormatDescription: CMFormatDescription?
   /// Video track timescale used in mdhd, tfdt, and trun durations.
-  /// Fixed at 600 (Apple's standard for MP4/QuickTime) rather than the source's
-  /// nanosecond timescale (1,000,000,000) which some parsers may not handle.
-  private let videoTimescale: UInt32 = 600
+  /// 1000 = millisecond precision, matching positron/wyrecam's working HKSV implementation.
+  private let videoTimescale: UInt32 = 1000
 
   // Manual fragment construction state
   private var pendingSamples: [VideoSample] = []
@@ -237,6 +236,17 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
   func appendVideoSample(_ sampleBuffer: CMSampleBuffer) {
     let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
 
+    // Detect PTS gaps from capture source transitions (snapshot pause, live stream
+    // start/stop). Flush pending samples so fragments don't span transitions — a
+    // PTS gap inflates sample durations and causes fragments to exceed the hub's
+    // 4000ms fragment limit.
+    if let lastSamplePTS = pendingSamples.last?.pts {
+      let gap = CMTimeGetSeconds(CMTimeSubtract(pts, lastSamplePTS))
+      if gap > 0.5 || gap < 0 {
+        emitFragment()
+      }
+    }
+
     // Capture video format description and eagerly build init segment
     if videoFormatDescription == nil,
       let fmt = CMSampleBufferGetFormatDescription(sampleBuffer)
@@ -284,14 +294,13 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
   }
 
   /// Stop the writer and flush any pending samples as a final fragment.
+  /// Continuity counters (accumulatedDecodeTime, moofSequenceNumber) are preserved
+  /// so prebuffered fragments in the ring buffer form a valid continuous fMP4 stream.
   func stop() {
     if !pendingSamples.isEmpty {
       emitFragment()
     }
     fragmentStartPTS = .invalid
-    accumulatedDecodeTime = 0
-    accumulatedAudioDecodeTime = 0
-    moofSequenceNumber = 0
     hasLoggedFirstFragment = false
   }
 
@@ -324,9 +333,7 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
 
     let totalTicks = durations.reduce(UInt64(0)) { $0 + UInt64($1) }
     let sizes = samples.map { UInt32($0.data.count) }
-    let sampleFlags: [UInt32] = samples.map { sample in
-      sample.isKeyframe ? 0x0200_0000 : 0x0101_0000
-    }
+    let firstIsKeyframe = samples.first?.isKeyframe ?? false
 
     moofSequenceNumber += 1
 
@@ -344,12 +351,17 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     }
 
     // Pre-compute moof size for data_offset calculation.
-    // Video traf: traf(8) + tfhd(16) + tfdt(20) + trun(20 + Nv*12) = 64 + Nv*12
-    // Audio traf: traf(8) + tfhd(28) + tfdt(20) + trun(20) = 76  (all defaults, no per-sample)
-    // moof: header(8) + mfhd(16) + videoTraf + audioTraf
+    // tfhd: 8(box) + 4(ver/flags) + 4(trackID) + 4(default_sample_flags) = 20
+    // tfdt: 8(box) + 4(ver/flags) + 8(baseMediaDecodeTime v1) = 20
+    // trun: 8(box) + 4(ver/flags) + 4(sample_count) + 4(data_offset)
+    //       + [4(first_sample_flags) if keyframe] + Nv*8(duration+size) = 20+[4]+Nv*8
+    // Video traf: 8(traf) + 20(tfhd) + 20(tfdt) + trun = 48 + trunSize
     let nv = samples.count
+    let trunPayloadSize = 4 + 4 + (firstIsKeyframe ? 4 : 0) + nv * 8  // count + offset + [fsf] + samples
+    let trunBoxSize = 8 + 4 + trunPayloadSize  // box header + ver/flags + payload
+    let videoTrafSize = 8 + 20 + 20 + trunBoxSize
     let audioTrafSize = hasAudio ? 76 : 0
-    let moofSize = 8 + 16 + (64 + nv * 12) + audioTrafSize
+    let moofSize = 8 + 16 + videoTrafSize + audioTrafSize
     let totalVideoBytes = samples.reduce(0) { $0 + $1.data.count }
     let videoDataOffset = UInt32(moofSize + 8)  // +8 for mdat header
     let audioDataOffset = UInt32(moofSize + 8 + totalVideoBytes)
@@ -359,25 +371,32 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     Self.putU32BE(&mfhdP, moofSequenceNumber)
     let mfhd = Self.mp4FullBox("mfhd", payload: mfhdP)
 
-    // Video traf (track 1): tfhd + tfdt + trun with per-sample entries
+    // Video traf (track 1): tfhd with default_sample_flags + tfdt + trun
+    // tfhd flags 0x20020: default-base-is-moof + default-sample-flags-present
     var vTfhdP = Data()
-    Self.putU32BE(&vTfhdP, 1)
-    let vTfhd = Self.mp4FullBox("tfhd", flags: 0x02_0000, payload: vTfhdP)
+    Self.putU32BE(&vTfhdP, 1)  // track_ID
+    Self.putU32BE(&vTfhdP, 0x0101_0000)  // default_sample_flags (non-sync)
+    let vTfhd = Self.mp4FullBox("tfhd", flags: 0x02_0020, payload: vTfhdP)
 
     var vTfdtP = Data()
     Self.putU32BE(&vTfdtP, UInt32((accumulatedDecodeTime >> 32) & 0xFFFF_FFFF))
     Self.putU32BE(&vTfdtP, UInt32(accumulatedDecodeTime & 0xFFFF_FFFF))
     let vTfdt = Self.mp4FullBox("tfdt", version: 1, payload: vTfdtP)
 
+    // trun flags: 0x001=data-offset, 0x100=sample-duration, 0x200=sample-size
+    // + 0x004=first-sample-flags-present (only when first sample is keyframe)
+    let trunFlags: UInt32 = firstIsKeyframe ? 0x000305 : 0x000301
     var vTrunP = Data()
     Self.putU32BE(&vTrunP, UInt32(nv))
     Self.putU32BE(&vTrunP, videoDataOffset)
+    if firstIsKeyframe {
+      Self.putU32BE(&vTrunP, 0x0200_0000)  // first_sample_flags (sync/keyframe)
+    }
     for i in 0..<nv {
       Self.putU32BE(&vTrunP, durations[i])
       Self.putU32BE(&vTrunP, sizes[i])
-      Self.putU32BE(&vTrunP, sampleFlags[i])
     }
-    let vTrun = Self.mp4FullBox("trun", flags: 0x000701, payload: vTrunP)
+    let vTrun = Self.mp4FullBox("trun", flags: trunFlags, payload: vTrunP)
     let videoTraf = Self.mp4Box("traf", vTfhd + vTfdt + vTrun)
 
     // Audio traf (track 2): defaults in tfhd, minimal trun (data-offset only)
@@ -508,11 +527,11 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
       "buildInitSegment: \(width)x\(height), SPS=\(sps.count)B, PPS=\(pps.count)B, timescale=\(self.videoTimescale), audio=\(hasAudio)"
     )
 
-    // ftyp box
+    // ftyp box — mp42 major brand matching positron's working HKSV implementation
     var ftypPayload = Data()
-    ftypPayload.append(contentsOf: Array("isom".utf8))
-    Self.putU32BE(&ftypPayload, 0x200)
-    for brand in ["isom", "iso2", "avc1", "mp41"] {
+    ftypPayload.append(contentsOf: Array("mp42".utf8))
+    Self.putU32BE(&ftypPayload, 1)  // minor_version
+    for brand in ["isom", "mp42", "avc1"] {
       ftypPayload.append(contentsOf: Array(brand.utf8))
     }
     let ftyp = Self.mp4Box("ftyp", ftypPayload)
@@ -521,21 +540,25 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     var mvhdP = Data()
     Self.putU32BE(&mvhdP, 0)  // creation_time
     Self.putU32BE(&mvhdP, 0)  // modification_time
-    Self.putU32BE(&mvhdP, 600)  // timescale
+    Self.putU32BE(&mvhdP, 1000)  // timescale
     Self.putU32BE(&mvhdP, 0)  // duration
     Self.putU32BE(&mvhdP, 0x0001_0000)  // rate = 1.0
     Self.putU16BE(&mvhdP, 0x0100)  // volume = 1.0
     mvhdP.append(Data(count: 10))  // reserved
     Self.appendIdentityMatrix(&mvhdP)
     mvhdP.append(Data(count: 24))  // pre_defined
-    Self.putU32BE(&mvhdP, hasAudio ? 3 : 2)  // next_track_ID
+    Self.putU32BE(&mvhdP, 0xFFFF_FFFF)  // next_track_ID
     let mvhd = Self.mp4FullBox("mvhd", payload: mvhdP)
 
     let videoTrack = buildVideoTrack(
       trackID: 1, width: width, height: height, sps: sps, pps: pps)
 
     // mvex (movie extends — required for fragmented MP4)
-    var mvexContent = Self.buildTrex(trackID: 1)
+    // mehd (Movie Extends Header) with duration=0
+    var mehdP = Data()
+    Self.putU32BE(&mehdP, 0)  // fragment_duration
+    var mvexContent = Self.mp4FullBox("mehd", payload: mehdP)
+    mvexContent.append(Self.buildTrex(trackID: 1))
     var tracks = videoTrack
     if hasAudio {
       tracks.append(buildAudioTrack(trackID: 2))
@@ -569,7 +592,7 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     Self.appendIdentityMatrix(&tkhdP)
     Self.putU32BE(&tkhdP, UInt32(width) << 16)  // width fixed 16.16
     Self.putU32BE(&tkhdP, UInt32(height) << 16)  // height fixed 16.16
-    let tkhd = Self.mp4FullBox("tkhd", flags: 3, payload: tkhdP)
+    let tkhd = Self.mp4FullBox("tkhd", flags: 7, payload: tkhdP)
 
     // mdhd
     var mdhdP = Data()
@@ -643,7 +666,7 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     Self.appendIdentityMatrix(&tkhdP)
     Self.putU32BE(&tkhdP, 0)  // width
     Self.putU32BE(&tkhdP, 0)  // height
-    let tkhd = Self.mp4FullBox("tkhd", flags: 3, payload: tkhdP)
+    let tkhd = Self.mp4FullBox("tkhd", flags: 7, payload: tkhdP)
 
     // mdhd
     var mdhdP = Data()
