@@ -549,9 +549,15 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     dataStream = ds
 
     camera.onVideoMotionChange = { [weak camera, weak ds] detected in
-      camera?.updateMotionDetected(detected)
-      if !detected {
-        ds?.connection?.finishRecording()
+      if detected {
+        camera?.updateMotionDetected(true)
+      } else {
+        // Finish recording and send endOfStream BEFORE notifying hub that
+        // motion cleared. Otherwise the hub closes the dataSend stream
+        // when it receives MotionDetected=false, racing with our endOfStream.
+        ds?.connection?.finishRecording { [weak camera] in
+          camera?.updateMotionDetected(false)
+        }
       }
     }
   }

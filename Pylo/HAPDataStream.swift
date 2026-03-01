@@ -512,6 +512,8 @@ nonisolated final class HDSConnection: @unchecked Sendable {
 
   /// Whether to send endOfStream after the next live fragment completes.
   private var pendingEndOfStream = false
+  /// Called after endOfStream is sent, so the caller can delay notifications.
+  private var endOfStreamCompletion: (() -> Void)?
 
   /// Send prebuffered fragments from the ring buffer, then set up live streaming.
   private func sendPrebufferedFragments() {
@@ -557,18 +559,26 @@ nonisolated final class HDSConnection: @unchecked Sendable {
           self.pendingEndOfStream = false
           self.logger.info("HDS endOfStream sent with final fragment")
           self.activeStreamID = nil
+          let completion = self.endOfStreamCompletion
+          self.endOfStreamCompletion = nil
+          completion?()
         }
       }
     }
   }
 
   /// Signal that the current recording should end after the next fragment completes.
-  func finishRecording() {
+  /// The optional completion handler is called after endOfStream is sent, allowing
+  /// the caller to delay motion-cleared notifications until the stream is done.
+  func finishRecording(completion: (() -> Void)? = nil) {
     queue.async { [weak self] in
       guard let self else { return }
       if self.activeStreamID != nil {
         self.logger.info("HDS: finishing recording (will send endOfStream after next fragment)")
         self.pendingEndOfStream = true
+        self.endOfStreamCompletion = completion
+      } else {
+        completion?()
       }
     }
   }
