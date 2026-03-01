@@ -90,8 +90,10 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
   private var videoHeight: Int = 1080
   private var fps: Int = 30
 
-  /// Target fragment duration in seconds.
-  private let fragmentDuration: TimeInterval = 4.0
+  /// Minimum elapsed time before emitting a fragment at the next keyframe.
+  /// Set below the hub's 4000ms fragment limit so we don't overshoot when
+  /// keyframes land slightly early (e.g., frame 119 at 3.97s instead of 120 at 4.0s).
+  private let fragmentDuration: TimeInterval = 3.5
 
   /// The initialization segment (ftyp + moov) — manually constructed from the video
   /// format description with H.264 SPS/PPS and AAC codec parameters.

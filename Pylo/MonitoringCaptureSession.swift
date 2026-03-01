@@ -72,7 +72,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     let width = 1920
     let height = 1080
     let fps = 30
-    let bitrate = 1000  // kbps — lower than live stream, sufficient for HKSV pre-buffer
+    let bitrate = 2000  // kbps — match hub's SelectedCameraRecordingConfig
 
     // Configure camera frame rate
     do {
@@ -255,10 +255,10 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       value: (bitrate * 1000) as CFNumber)
     VTSessionSetProperty(
       cs, key: kVTCompressionPropertyKey_MaxKeyFrameInterval,
-      value: (fps * 2) as CFNumber)
+      value: (fps * 4) as CFNumber)  // 120 frames = 4s (match hub's I-frame interval)
     VTSessionSetProperty(
       cs, key: kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration,
-      value: 2.0 as CFNumber)
+      value: 4.0 as CFNumber)
     VTSessionSetProperty(
       cs, key: kVTCompressionPropertyKey_ExpectedFrameRate,
       value: fps as CFNumber)
