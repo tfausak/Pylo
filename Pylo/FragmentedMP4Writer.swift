@@ -605,11 +605,12 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     let dinf = Self.buildDinf()
 
     // stsd with mp4a + esds
-    // AudioSpecificConfig for ER AAC-LD (objectType=23):
-    //   objectType(5)=10111, freqIndex(4)=1000(16kHz), channelConfig(4)=0001(mono),
-    //   ELDSpecificConfig: frameLengthFlag=1(480), resilience=000, ldSbrPresent=0,
+    // AudioSpecificConfig for ER AAC-ELD (objectType=39):
+    //   objectType(5)=11111(escape), objectTypeExt(6)=000111(39-32=7),
+    //   freqIndex(4)=1000(16kHz), channelConfig(4)=0001(mono),
+    //   ELDSpecificConfig: frameLengthFlag=1(480), resilience=0000, ldSbrPresent=0,
     //   epConfig=00
-    let audioConfig: [UInt8] = [0xBC, 0x0C, 0x00]
+    let audioConfig: [UInt8] = [0xF8, 0xF0, 0x30, 0x00]
     let esds = Self.buildEsds(trackID: trackID, audioConfig: Data(audioConfig))
     var mp4aP = Data()
     mp4aP.append(Data(count: 6))  // reserved
