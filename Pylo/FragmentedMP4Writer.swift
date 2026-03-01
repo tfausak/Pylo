@@ -1,4 +1,3 @@
-import AVFoundation
 import CoreMedia
 import os
 
@@ -64,8 +63,17 @@ nonisolated final class FragmentRingBuffer {
 
 // MARK: - Fragmented MP4 Writer
 
-/// Generates fragmented MP4 segments from H.264 sample buffers using AVAssetWriter.
-/// Each segment is a ~4-second fMP4 fragment stored in the ring buffer for HKSV prebuffering.
+/// A buffered video sample extracted from a CMSampleBuffer.
+private struct VideoSample {
+  let data: Data        // Raw H.264 AVCC data (4-byte length-prefixed NAL units)
+  let pts: CMTime       // Presentation timestamp
+  let isKeyframe: Bool  // Whether this is a sync (IDR) sample
+}
+
+/// Generates fragmented MP4 segments from H.264 sample buffers by manually
+/// constructing moof+mdat boxes (ISO 14496-12). AVAssetWriter on iOS does not
+/// produce fragmented MP4 regardless of movieFragmentInterval, so we bypass it
+/// entirely and build the ISO BMFF boxes from raw CMSampleBuffer data.
 nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
 
   /// Ring buffer holding completed fragments for HKSV prebuffering.
@@ -81,37 +89,27 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
   private var videoHeight: Int = 1080
   private var fps: Int = 30
 
-  // Writer state
-  private var assetWriter: AVAssetWriter?
-  private var videoInput: AVAssetWriterInput?
-  private var audioInput: AVAssetWriterInput?
-  private var outputURL: URL?
-  private var fragmentStartTime: CMTime = .invalid
-  private var lastVideoTime: CMTime = .invalid
-  private var sampleCount = 0
-  private var isStarted = false
-
   /// Target fragment duration in seconds.
   private let fragmentDuration: TimeInterval = 4.0
 
   /// The initialization segment (ftyp + moov) — manually constructed from the video
-  /// format description since AVAssetWriter's fragmented mode produces a minimal moov
-  /// without track descriptions or H.264 SPS/PPS codec parameters.
+  /// format description with H.264 SPS/PPS and AAC codec parameters.
   private(set) var initSegment: Data?
 
   /// Video format description (contains H.264 SPS/PPS) captured from the first sample.
   private var videoFormatDescription: CMFormatDescription?
   /// Video track timescale from the source sample buffers.
   private var videoTimescale: UInt32 = 600
-  /// Whether moof diagnostic info has been logged for the first fragment.
-  private var hasLoggedMoofInfo = false
 
-  // Temp directory for fragment files
-  private static let tempDir: URL = {
-    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("hksv-fragments")
-    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-    return dir
-  }()
+  // Manual fragment construction state
+  private var pendingSamples: [VideoSample] = []
+  private var fragmentStartPTS: CMTime = .invalid
+  /// Accumulated decode time in timescale ticks across all emitted fragments (for tfdt).
+  private var accumulatedDecodeTime: UInt64 = 0
+  /// Global moof sequence number (ISO 14496-12 §8.8.5).
+  private var moofSequenceNumber: UInt32 = 0
+  /// Whether the first fragment has been logged for diagnostics.
+  private var hasLoggedFirstFragment = false
 
   func configure(width: Int, height: Int, fps: Int) {
     self.videoWidth = width
@@ -125,331 +123,213 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
   func appendVideoSample(_ sampleBuffer: CMSampleBuffer) {
     let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
 
-    // Check if we need to start a new fragment
-    if !isStarted {
-      let fmt = CMSampleBufferGetFormatDescription(sampleBuffer)
-      startNewFragment(at: pts, formatDescription: fmt)
-    }
-
-    // Check if the current fragment has reached the target duration
-    if fragmentStartTime.isValid {
-      let elapsed = CMTimeGetSeconds(CMTimeSubtract(pts, fragmentStartTime))
-      if elapsed >= fragmentDuration {
-        // Check if this is a keyframe — only split on keyframes
-        let attachments =
-          CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false)
-          as? [[CFString: Any]]
-        let isKeyframe = !(attachments?.first?[kCMSampleAttachmentKey_NotSync] as? Bool ?? false)
-
-        if isKeyframe {
-          finishCurrentFragment()
-          let fmt = CMSampleBufferGetFormatDescription(sampleBuffer)
-          startNewFragment(at: pts, formatDescription: fmt)
-        }
-      }
-    }
-
-    guard let videoInput, videoInput.isReadyForMoreMediaData else { return }
-    videoInput.append(sampleBuffer)
-    lastVideoTime = pts
-    sampleCount += 1
-  }
-
-  /// Append an audio sample buffer to the current fragment.
-  func appendAudioSample(_ sampleBuffer: CMSampleBuffer) {
-    guard isStarted, let audioInput, audioInput.isReadyForMoreMediaData else { return }
-    audioInput.append(sampleBuffer)
-  }
-
-  /// Stop the writer and finalize any in-progress fragment.
-  func stop() {
-    finishCurrentFragment()
-    isStarted = false
-  }
-
-  // MARK: - Fragment Lifecycle
-
-  private func startNewFragment(at time: CMTime, formatDescription: CMFormatDescription? = nil) {
     // Capture video format description and eagerly build init segment
-    // so it's available when the hub opens a recording channel.
-    if videoFormatDescription == nil, let fmt = formatDescription {
+    if videoFormatDescription == nil,
+      let fmt = CMSampleBufferGetFormatDescription(sampleBuffer)
+    {
       videoFormatDescription = fmt
-      let ts = time.timescale
+      let ts = pts.timescale
       if ts > 0 { videoTimescale = UInt32(ts) }
       initSegment = buildInitSegment(videoFormat: fmt)
     }
 
-    let filename = "fragment-\(ProcessInfo.processInfo.globallyUniqueString).mp4"
-    let url = Self.tempDir.appendingPathComponent(filename)
+    // Determine if this is a keyframe (sync sample)
+    let attachments =
+      CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false)
+      as? [[CFString: Any]]
+    let isKeyframe = !(attachments?.first?[kCMSampleAttachmentKey_NotSync] as? Bool ?? false)
 
-    do {
-      let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
-
-      // Video input — pass-through pre-encoded H.264 (outputSettings: nil)
-      let vInput = AVAssetWriterInput(
-        mediaType: .video, outputSettings: nil, sourceFormatHint: formatDescription)
-      vInput.expectsMediaDataInRealTime = true
-      if writer.canAdd(vInput) { writer.add(vInput) }
-
-      // Audio input — AAC-LC
-      let audioSettings: [String: Any] = [
-        AVFormatIDKey: kAudioFormatMPEG4AAC,
-        AVNumberOfChannelsKey: 1,
-        AVSampleRateKey: 24000,
-        AVEncoderBitRateKey: 64000,
-      ]
-      let aInput = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
-      aInput.expectsMediaDataInRealTime = true
-      if writer.canAdd(aInput) { writer.add(aInput) }
-
-      // Configure for fragmented output. The interval MUST be shorter than the
-      // writer's session length (fragmentDuration), otherwise AVAssetWriter produces
-      // a non-fragmented file (moov+mdat) with no moof boxes at all.
-      writer.movieFragmentInterval = CMTime(seconds: 2.0, preferredTimescale: 600)
-      writer.shouldOptimizeForNetworkUse = false
-
-      writer.startWriting()
-      writer.startSession(atSourceTime: time)
-
-      self.assetWriter = writer
-      self.videoInput = vInput
-      self.audioInput = aInput
-      self.outputURL = url
-      self.fragmentStartTime = time
-      self.sampleCount = 0
-      self.isStarted = true
-
-    } catch {
-      logger.error("Failed to create AVAssetWriter: \(error)")
+    // If this is a keyframe and we have enough buffered data, emit a fragment
+    if isKeyframe && !pendingSamples.isEmpty && fragmentStartPTS.isValid {
+      let elapsed = CMTimeGetSeconds(CMTimeSubtract(pts, fragmentStartPTS))
+      if elapsed >= fragmentDuration {
+        emitFragment()
+      }
     }
+
+    // Extract raw H.264 data from the CMBlockBuffer
+    guard let dataBuffer = sampleBuffer.dataBuffer else { return }
+    var totalLength = 0
+    var dataPointer: UnsafeMutablePointer<CChar>?
+    let status = CMBlockBufferGetDataPointer(
+      dataBuffer, atOffset: 0, lengthAtOffsetOut: nil,
+      totalLengthOut: &totalLength, dataPointerOut: &dataPointer)
+    guard status == kCMBlockBufferNoErr, let ptr = dataPointer, totalLength > 0 else { return }
+    let sampleData = Data(bytes: ptr, count: totalLength)
+
+    // Track fragment start time
+    if !fragmentStartPTS.isValid {
+      fragmentStartPTS = pts
+    }
+
+    pendingSamples.append(VideoSample(data: sampleData, pts: pts, isKeyframe: isKeyframe))
   }
 
-  private func finishCurrentFragment() {
-    guard let writer = assetWriter, let url = outputURL else { return }
+  /// Append an audio sample buffer (currently unused — video-only fragments).
+  func appendAudioSample(_ sampleBuffer: CMSampleBuffer) {
+    // Audio track is declared in the init segment but not yet populated.
+    // HKSV hubs accept video-only fragments.
+  }
 
-    videoInput?.markAsFinished()
-    audioInput?.markAsFinished()
-
-    let semaphore = DispatchSemaphore(value: 0)
-    writer.finishWriting {
-      semaphore.signal()
+  /// Stop the writer and flush any pending samples as a final fragment.
+  func stop() {
+    if !pendingSamples.isEmpty {
+      emitFragment()
     }
-    _ = semaphore.wait(timeout: .now() + 5)
+    fragmentStartPTS = .invalid
+    accumulatedDecodeTime = 0
+    moofSequenceNumber = 0
+    hasLoggedFirstFragment = false
+  }
 
-    guard writer.status == .completed else {
-      if let error = writer.error {
-        logger.error("AVAssetWriter failed: \(error)")
+  // MARK: - Fragment Construction
+
+  /// Build and emit a moof+mdat fragment from the buffered samples.
+  private func emitFragment() {
+    guard pendingSamples.count >= 1 else { return }
+
+    let samples = pendingSamples
+    pendingSamples = []
+    let fragStart = fragmentStartPTS
+    fragmentStartPTS = .invalid
+
+    // Compute per-sample durations from PTS deltas (in timescale ticks)
+    let timescale = Int64(videoTimescale)
+    var durations: [UInt32] = []
+    for i in 0..<samples.count {
+      if i + 1 < samples.count {
+        let delta = CMTimeSubtract(samples[i + 1].pts, samples[i].pts)
+        let ticks = CMTimeConvertScale(delta, timescale: Int32(timescale), method: .roundTowardZero)
+        durations.append(UInt32(max(ticks.value, 1)))
+      } else {
+        // Last sample: use previous duration or default to 1/fps
+        let d = durations.isEmpty ? UInt32(timescale / Int64(fps)) : durations.last!
+        durations.append(d)
       }
-      cleanup(url: url)
-      return
     }
 
-    // Read the completed fragment
-    guard let fragmentData = try? Data(contentsOf: url) else {
-      logger.error("Failed to read fragment file")
-      cleanup(url: url)
-      return
+    // Compute total duration for this fragment (in timescale ticks)
+    let totalTicks = durations.reduce(UInt64(0)) { $0 + UInt64($1) }
+
+    // Build sample sizes and flags arrays
+    let sizes = samples.map { UInt32($0.data.count) }
+    let flags: [UInt32] = samples.map { sample in
+      // ISO 14496-12 §8.8.3.1 sample_flags:
+      // Keyframe (sync): sample_depends_on=2 (doesn't depend on others)
+      // Non-keyframe: sample_depends_on=1 + sample_is_non_sync_sample=1
+      sample.isKeyframe ? 0x0200_0000 : 0x0101_0000
     }
 
-    let totalDuration =
-      lastVideoTime.isValid && fragmentStartTime.isValid
-      ? CMTimeSubtract(lastVideoTime, fragmentStartTime)
-      : CMTime(seconds: fragmentDuration, preferredTimescale: 600)
+    moofSequenceNumber += 1
 
-    // Strip ftyp+moov from fragment data — only keep moof+mdat segments
-    let mediaData = extractMediaSegments(from: fragmentData)
+    // Build moof box
+    let moof = buildMoof(
+      sequenceNumber: moofSequenceNumber,
+      trackID: 1,
+      baseDecodeTime: accumulatedDecodeTime,
+      durations: durations,
+      sizes: sizes,
+      sampleFlags: flags
+    )
 
-    // Split into individual moof+mdat pairs. AVAssetWriter with a short
-    // movieFragmentInterval produces multiple moof+mdat pairs per session.
-    // The hub expects one moof+mdat pair per mediaFragment message.
-    let pairs = Self.splitMoofMdatPairs(from: mediaData)
+    // Build mdat box (concatenated sample data)
+    var mdatPayload = Data()
+    for sample in samples {
+      mdatPayload.append(sample.data)
+    }
+    let mdat = Self.mp4Box("mdat", mdatPayload)
 
-    if pairs.isEmpty {
-      // Fallback: no moof boxes found — send raw data as single fragment
-      logger.warning("No moof+mdat pairs in writer output (\(mediaData.count) bytes)")
-      let seq = ringBuffer.nextSequenceNumber()
-      let fragment = MP4Fragment(
-        data: mediaData, timestamp: fragmentStartTime,
-        duration: totalDuration, sequenceNumber: seq)
-      ringBuffer.append(fragment)
-      onFragmentReady?(fragment)
-    } else {
-      let pairInterval = CMTimeGetSeconds(totalDuration) / Double(pairs.count)
-      for (i, pair) in pairs.enumerated() {
-        let seq = ringBuffer.nextSequenceNumber()
-        var patched = pair
-        Self.patchMoofSequenceNumber(&patched, sequenceNumber: UInt32(seq + 1))
+    var fragmentData = moof
+    fragmentData.append(mdat)
 
-        if !hasLoggedMoofInfo {
-          Self.logMoofInfo(patched, logger: logger)
-          hasLoggedMoofInfo = true
-        }
-
-        let ts = CMTimeAdd(
-          fragmentStartTime,
-          CMTime(seconds: Double(i) * pairInterval, preferredTimescale: 600))
-        let dur = CMTime(seconds: pairInterval, preferredTimescale: 600)
-        let fragment = MP4Fragment(
-          data: patched, timestamp: ts, duration: dur, sequenceNumber: seq)
-        ringBuffer.append(fragment)
-        onFragmentReady?(fragment)
-        logger.debug("Fragment #\(seq) complete: \(patched.count) bytes")
-      }
-      logger.debug(
-        "Writer session: \(pairs.count) fragment(s), \(String(format: "%.1f", CMTimeGetSeconds(totalDuration)))s"
+    // Log first fragment diagnostics
+    if !hasLoggedFirstFragment {
+      logger.info(
+        "First moof: seq=\(self.moofSequenceNumber), samples=\(samples.count), baseDecodeTime=\(self.accumulatedDecodeTime), totalTicks=\(totalTicks), moof=\(moof.count)B, mdat=\(mdat.count)B"
       )
+      hasLoggedFirstFragment = true
     }
 
-    cleanup(url: url)
+    // Advance accumulated decode time for next fragment's tfdt
+    accumulatedDecodeTime += totalTicks
 
-    // Reset state
-    assetWriter = nil
-    videoInput = nil
-    audioInput = nil
-    outputURL = nil
-    fragmentStartTime = .invalid
-    lastVideoTime = .invalid
-  }
-
-  private func cleanup(url: URL) {
-    try? FileManager.default.removeItem(at: url)
-  }
-
-  // MARK: - Fragment Splitting
-
-  /// Split media data into individual moof+mdat pairs.
-  /// AVAssetWriter with a short movieFragmentInterval produces multiple
-  /// moof+mdat pairs in one file. Each pair should be sent as a separate
-  /// mediaFragment to the HKSV hub.
-  private static func splitMoofMdatPairs(from data: Data) -> [Data] {
-    var pairs: [Data] = []
-    var offset = 0
-    while offset + 8 <= data.count {
-      let size =
-        Int(data[offset]) << 24 | Int(data[offset + 1]) << 16
-        | Int(data[offset + 2]) << 8 | Int(data[offset + 3])
-      let type = String(bytes: data[offset + 4..<offset + 8], encoding: .ascii)
-      guard size > 0 else { break }
-
-      if type == "moof" {
-        // Found moof — look for the following mdat
-        let moofEnd = offset + size
-        if moofEnd + 8 <= data.count {
-          let mdatSize =
-            Int(data[moofEnd]) << 24 | Int(data[moofEnd + 1]) << 16
-            | Int(data[moofEnd + 2]) << 8 | Int(data[moofEnd + 3])
-          let mdatType = String(bytes: data[moofEnd + 4..<moofEnd + 8], encoding: .ascii)
-          if mdatType == "mdat" && mdatSize > 0 {
-            let pairEnd = moofEnd + mdatSize
-            pairs.append(Data(data[offset..<min(pairEnd, data.count)]))
-            offset = pairEnd
-            continue
-          }
-        }
-      }
-      offset += size
+    // Compute total duration as CMTime
+    let totalDuration: CMTime
+    if fragStart.isValid, let lastPTS = samples.last?.pts {
+      let delta = CMTimeSubtract(lastPTS, fragStart)
+      let lastDur = CMTime(value: Int64(durations.last ?? 0), timescale: Int32(timescale))
+      totalDuration = CMTimeAdd(delta, lastDur)
+    } else {
+      totalDuration = CMTime(seconds: fragmentDuration, preferredTimescale: Int32(timescale))
     }
-    return pairs
+
+    let seq = ringBuffer.nextSequenceNumber()
+    let fragment = MP4Fragment(
+      data: fragmentData, timestamp: fragStart,
+      duration: totalDuration, sequenceNumber: seq)
+    ringBuffer.append(fragment)
+    onFragmentReady?(fragment)
+
+    let durSec = String(format: "%.2f", CMTimeGetSeconds(totalDuration))
+    logger.debug("Fragment #\(seq): \(fragmentData.count) bytes, \(samples.count) samples, \(durSec)s")
   }
 
-  // MARK: - Moof Patching
+  /// Build a moof box: mfhd + traf (tfhd + tfdt + trun).
+  /// ISO 14496-12 §8.8.4 (moof), §8.8.5 (mfhd), §8.8.7 (traf),
+  /// §8.8.7.1 (tfhd), §8.8.12 (tfdt), §8.8.8 (trun).
+  private func buildMoof(
+    sequenceNumber: UInt32,
+    trackID: UInt32,
+    baseDecodeTime: UInt64,
+    durations: [UInt32],
+    sizes: [UInt32],
+    sampleFlags: [UInt32]
+  ) -> Data {
+    let sampleCount = durations.count
 
-  /// Patch the mfhd.sequence_number inside a moof box.
-  /// Each AVAssetWriter instance always starts at 1, but the hub expects
-  /// globally incrementing sequence numbers (ISO 14496-12 §8.8.5).
-  private static func patchMoofSequenceNumber(_ data: inout Data, sequenceNumber: UInt32) {
-    guard let moofRange = findBoxRange(in: data, type: "moof") else { return }
-    let moofContent = moofRange.lowerBound + 8
-    guard let mfhdRange = findBoxRange(
-      in: data, type: "mfhd",
-      within: moofContent..<moofRange.upperBound
-    ) else { return }
-    // mfhd: [size:4][type:4][version:1][flags:3][sequence_number:4]
-    let seqOffset = mfhdRange.lowerBound + 12
-    guard seqOffset + 4 <= data.count else { return }
-    data[seqOffset] = UInt8((sequenceNumber >> 24) & 0xFF)
-    data[seqOffset + 1] = UInt8((sequenceNumber >> 16) & 0xFF)
-    data[seqOffset + 2] = UInt8((sequenceNumber >> 8) & 0xFF)
-    data[seqOffset + 3] = UInt8(sequenceNumber & 0xFF)
-  }
+    // mfhd: sequence_number
+    var mfhdP = Data()
+    Self.putU32BE(&mfhdP, sequenceNumber)
+    let mfhd = Self.mp4FullBox("mfhd", payload: mfhdP)
 
-  /// Find a top-level MP4 box of the given type within a data range.
-  private static func findBoxRange(
-    in data: Data, type: String, within range: Range<Int>? = nil
-  ) -> Range<Int>? {
-    let searchRange = range ?? 0..<data.count
-    var offset = searchRange.lowerBound
-    while offset + 8 <= searchRange.upperBound {
-      let size =
-        Int(data[offset]) << 24 | Int(data[offset + 1]) << 16
-        | Int(data[offset + 2]) << 8 | Int(data[offset + 3])
-      let boxType = String(bytes: data[offset + 4..<offset + 8], encoding: .ascii)
-      guard size > 0 else { break }
-      let boxEnd = offset + size
-      if boxType == type {
-        return offset..<min(boxEnd, searchRange.upperBound)
-      }
-      offset = boxEnd
+    // tfhd: track_id with default-base-is-moof flag (0x020000)
+    var tfhdP = Data()
+    Self.putU32BE(&tfhdP, trackID)
+    let tfhd = Self.mp4FullBox("tfhd", flags: 0x02_0000, payload: tfhdP)
+
+    // tfdt v1: 64-bit baseMediaDecodeTime
+    var tfdtP = Data()
+    Self.putU32BE(&tfdtP, UInt32((baseDecodeTime >> 32) & 0xFFFF_FFFF))
+    Self.putU32BE(&tfdtP, UInt32(baseDecodeTime & 0xFFFF_FFFF))
+    let tfdt = Self.mp4FullBox("tfdt", version: 1, payload: tfdtP)
+
+    // trun: sample_count, data_offset, per-sample (duration, size, flags)
+    // flags: 0x000701 = data-offset-present | sample-duration-present |
+    //                    sample-size-present | sample-flags-present
+    //
+    // Pre-compute moof size to set data_offset correctly.
+    // data_offset = moof_size + 8 (mdat header), relative to moof start
+    // (because default-base-is-moof is set in tfhd).
+    //
+    // trun payload: version+flags(4) + sample_count(4) + data_offset(4) + N*(4+4+4)
+    // trun box: 8 + 4 + 4 + 4 + N*12 = 20 + N*12
+    // tfhd box: 16, tfdt box: 20, mfhd box: 16, traf header: 8, moof header: 8
+    // moof_size = 8 + 16 + (8 + 16 + 20 + 20 + N*12) = 88 + N*12
+    let moofSize = 88 + sampleCount * 12
+    let dataOffset = UInt32(moofSize + 8)  // +8 for mdat box header
+
+    var trunP = Data()
+    Self.putU32BE(&trunP, UInt32(sampleCount))
+    Self.putU32BE(&trunP, dataOffset)
+    for i in 0..<sampleCount {
+      Self.putU32BE(&trunP, durations[i])
+      Self.putU32BE(&trunP, sizes[i])
+      Self.putU32BE(&trunP, sampleFlags[i])
     }
-    return nil
-  }
+    let trun = Self.mp4FullBox("trun", flags: 0x000701, payload: trunP)
 
-  /// Log diagnostic info about the first fragment's moof structure.
-  private static func logMoofInfo(_ data: Data, logger: Logger) {
-    guard let moofRange = findBoxRange(in: data, type: "moof") else {
-      logger.warning("First fragment: no moof box found")
-      return
-    }
-    let moofContent = moofRange.lowerBound + 8
-    // Find traf(s) and their tfhd track IDs
-    var searchStart = moofContent
-    var trackInfo: [String] = []
-    while let trafRange = findBoxRange(
-      in: data, type: "traf", within: searchStart..<moofRange.upperBound
-    ) {
-      let trafContent = trafRange.lowerBound + 8
-      if let tfhdRange = findBoxRange(
-        in: data, type: "tfhd", within: trafContent..<trafRange.upperBound
-      ) {
-        let trackIDOffset = tfhdRange.lowerBound + 12
-        if trackIDOffset + 4 <= data.count {
-          let trackID =
-            UInt32(data[trackIDOffset]) << 24
-            | UInt32(data[trackIDOffset + 1]) << 16
-            | UInt32(data[trackIDOffset + 2]) << 8
-            | UInt32(data[trackIDOffset + 3])
-          trackInfo.append("track=\(trackID)")
-        }
-      }
-      if let tfdtRange = findBoxRange(
-        in: data, type: "tfdt", within: trafContent..<trafRange.upperBound
-      ) {
-        let version = data[tfdtRange.lowerBound + 8]
-        trackInfo.append("tfdt_v\(version)")
-      }
-      searchStart = trafRange.upperBound
-    }
-    logger.info("First fragment moof: \(trackInfo.joined(separator: ", "))")
-  }
-
-  // MARK: - Media Segment Extraction
-
-  /// Extract media segments (moof + mdat) from a complete fMP4 file,
-  /// skipping the ftyp and moov boxes at the beginning.
-  private func extractMediaSegments(from data: Data) -> Data {
-    var offset = 0
-    while offset + 8 <= data.count {
-      let size =
-        Int(data[offset]) << 24 | Int(data[offset + 1]) << 16
-        | Int(data[offset + 2]) << 8 | Int(data[offset + 3])
-      let type = String(bytes: data[offset + 4..<offset + 8], encoding: .ascii)
-      guard size > 0 else { break }
-      if type == "moof" || type == "mdat" {
-        return Data(data[offset...])
-      }
-      offset += size
-    }
-    return data
+    let traf = Self.mp4Box("traf", tfhd + tfdt + trun)
+    return Self.mp4Box("moof", mfhd + traf)
   }
 
   // MARK: - Init Segment Construction
