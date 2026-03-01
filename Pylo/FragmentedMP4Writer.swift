@@ -116,7 +116,15 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
 
   // Audio track state
   /// Set externally by the capture session when mic + encoder are ready.
-  var includeAudioTrack = false
+  /// Invalidates the cached init segment when changed so it's rebuilt with/without the audio track.
+  var includeAudioTrack = false {
+    didSet {
+      if includeAudioTrack != oldValue {
+        videoFormatDescription = nil
+        initSegment = nil
+      }
+    }
+  }
   private let audioTimescale: UInt32 = 16000
   private let audioFrameDuration: UInt32 = 480
   /// Buffered encoded AAC-ELD frames (appended from captureQueue, drained from VT callback thread).
