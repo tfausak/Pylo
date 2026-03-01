@@ -115,6 +115,9 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
   private var hasLoggedFirstFragment = false
 
   // Audio track (AAC-ELD silent filler matching hub's SelectedCameraRecordingConfig)
+  // Disabled: silent 2-byte AAC-ELD frames may be invalid. Re-enable once we have
+  // real microphone audio or a validated silence frame.
+  private let includeAudioTrack = false
   private let audioTimescale: UInt32 = 16000  // AAC-ELD sample rate
   private let audioFrameDuration: UInt32 = 480  // AAC-ELD frame size (samples)
   /// A single encoded AAC-ELD silence frame, cached for reuse in every fragment.
@@ -326,7 +329,7 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     moofSequenceNumber += 1
 
     // Audio: compute silent frames to cover this fragment's duration
-    let hasAudio = silentAudioFrame != nil
+    let hasAudio = includeAudioTrack && silentAudioFrame != nil
     let audioFrameCount: Int
     let silentFrameSize: UInt32
     if hasAudio {
@@ -495,9 +498,9 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     let width = UInt16(dims.width)
     let height = UInt16(dims.height)
 
-    // Generate silent AAC-ELD frame for audio track
-    setupSilentAudio()
-    let hasAudio = silentAudioFrame != nil
+    // Generate silent AAC-ELD frame for audio track (if enabled)
+    if includeAudioTrack { setupSilentAudio() }
+    let hasAudio = includeAudioTrack && silentAudioFrame != nil
 
     logger.info(
       "buildInitSegment: \(width)x\(height), SPS=\(sps.count)B, PPS=\(pps.count)B, timescale=\(self.videoTimescale), audio=\(hasAudio)"
