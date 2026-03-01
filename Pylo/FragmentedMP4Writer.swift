@@ -69,7 +69,7 @@ nonisolated final class FragmentRingBuffer {
 nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
 
   /// Ring buffer holding completed fragments for HKSV prebuffering.
-  let ringBuffer = FragmentRingBuffer(capacity: 3)
+  let ringBuffer = FragmentRingBuffer(capacity: 6)
 
   /// Called when a new fragment is completed.
   var onFragmentReady: ((MP4Fragment) -> Void)?
@@ -103,6 +103,8 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
   private var videoFormatDescription: CMFormatDescription?
   /// Video track timescale from the source sample buffers.
   private var videoTimescale: UInt32 = 600
+  /// Whether moof diagnostic info has been logged for the first fragment.
+  private var hasLoggedMoofInfo = false
 
   // Temp directory for fragment files
   private static let tempDir: URL = {
@@ -200,8 +202,10 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
       aInput.expectsMediaDataInRealTime = true
       if writer.canAdd(aInput) { writer.add(aInput) }
 
-      // Configure for fragmented output
-      writer.movieFragmentInterval = CMTime(seconds: fragmentDuration, preferredTimescale: 600)
+      // Configure for fragmented output. The interval MUST be shorter than the
+      // writer's session length (fragmentDuration), otherwise AVAssetWriter produces
+      // a non-fragmented file (moov+mdat) with no moof boxes at all.
+      writer.movieFragmentInterval = CMTime(seconds: 2.0, preferredTimescale: 600)
       writer.shouldOptimizeForNetworkUse = false
 
       writer.startWriting()
@@ -247,37 +251,54 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
       return
     }
 
-    let duration =
+    let totalDuration =
       lastVideoTime.isValid && fragmentStartTime.isValid
       ? CMTimeSubtract(lastVideoTime, fragmentStartTime)
       : CMTime(seconds: fragmentDuration, preferredTimescale: 600)
 
-    let seq = ringBuffer.nextSequenceNumber()
-
     // Strip ftyp+moov from fragment data — only keep moof+mdat segments
-    var mediaData = extractMediaSegments(from: fragmentData)
+    let mediaData = extractMediaSegments(from: fragmentData)
 
-    // Patch the moof's sequence_number — each AVAssetWriter instance starts at 1,
-    // but the hub expects globally incrementing sequence numbers across fragments.
-    Self.patchMoofSequenceNumber(&mediaData, sequenceNumber: UInt32(seq + 1))
+    // Split into individual moof+mdat pairs. AVAssetWriter with a short
+    // movieFragmentInterval produces multiple moof+mdat pairs per session.
+    // The hub expects one moof+mdat pair per mediaFragment message.
+    let pairs = Self.splitMoofMdatPairs(from: mediaData)
 
-    // Log first fragment's moof structure for diagnostics
-    if seq == 0 {
-      Self.logMoofInfo(mediaData, logger: logger)
+    if pairs.isEmpty {
+      // Fallback: no moof boxes found — send raw data as single fragment
+      logger.warning("No moof+mdat pairs in writer output (\(mediaData.count) bytes)")
+      let seq = ringBuffer.nextSequenceNumber()
+      let fragment = MP4Fragment(
+        data: mediaData, timestamp: fragmentStartTime,
+        duration: totalDuration, sequenceNumber: seq)
+      ringBuffer.append(fragment)
+      onFragmentReady?(fragment)
+    } else {
+      let pairInterval = CMTimeGetSeconds(totalDuration) / Double(pairs.count)
+      for (i, pair) in pairs.enumerated() {
+        let seq = ringBuffer.nextSequenceNumber()
+        var patched = pair
+        Self.patchMoofSequenceNumber(&patched, sequenceNumber: UInt32(seq + 1))
+
+        if !hasLoggedMoofInfo {
+          Self.logMoofInfo(patched, logger: logger)
+          hasLoggedMoofInfo = true
+        }
+
+        let ts = CMTimeAdd(
+          fragmentStartTime,
+          CMTime(seconds: Double(i) * pairInterval, preferredTimescale: 600))
+        let dur = CMTime(seconds: pairInterval, preferredTimescale: 600)
+        let fragment = MP4Fragment(
+          data: patched, timestamp: ts, duration: dur, sequenceNumber: seq)
+        ringBuffer.append(fragment)
+        onFragmentReady?(fragment)
+        logger.debug("Fragment #\(seq) complete: \(patched.count) bytes")
+      }
+      logger.debug(
+        "Writer session: \(pairs.count) fragment(s), \(String(format: "%.1f", CMTimeGetSeconds(totalDuration)))s"
+      )
     }
-    let fragment = MP4Fragment(
-      data: mediaData,
-      timestamp: fragmentStartTime,
-      duration: duration,
-      sequenceNumber: seq
-    )
-
-    ringBuffer.append(fragment)
-    onFragmentReady?(fragment)
-
-    logger.debug(
-      "Fragment #\(seq) complete: \(mediaData.count) bytes, \(String(format: "%.1f", CMTimeGetSeconds(duration)))s"
-    )
 
     cleanup(url: url)
 
@@ -292,6 +313,43 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
 
   private func cleanup(url: URL) {
     try? FileManager.default.removeItem(at: url)
+  }
+
+  // MARK: - Fragment Splitting
+
+  /// Split media data into individual moof+mdat pairs.
+  /// AVAssetWriter with a short movieFragmentInterval produces multiple
+  /// moof+mdat pairs in one file. Each pair should be sent as a separate
+  /// mediaFragment to the HKSV hub.
+  private static func splitMoofMdatPairs(from data: Data) -> [Data] {
+    var pairs: [Data] = []
+    var offset = 0
+    while offset + 8 <= data.count {
+      let size =
+        Int(data[offset]) << 24 | Int(data[offset + 1]) << 16
+        | Int(data[offset + 2]) << 8 | Int(data[offset + 3])
+      let type = String(bytes: data[offset + 4..<offset + 8], encoding: .ascii)
+      guard size > 0 else { break }
+
+      if type == "moof" {
+        // Found moof — look for the following mdat
+        let moofEnd = offset + size
+        if moofEnd + 8 <= data.count {
+          let mdatSize =
+            Int(data[moofEnd]) << 24 | Int(data[moofEnd + 1]) << 16
+            | Int(data[moofEnd + 2]) << 8 | Int(data[moofEnd + 3])
+          let mdatType = String(bytes: data[moofEnd + 4..<moofEnd + 8], encoding: .ascii)
+          if mdatType == "mdat" && mdatSize > 0 {
+            let pairEnd = moofEnd + mdatSize
+            pairs.append(Data(data[offset..<min(pairEnd, data.count)]))
+            offset = pairEnd
+            continue
+          }
+        }
+      }
+      offset += size
+    }
+    return pairs
   }
 
   // MARK: - Moof Patching
