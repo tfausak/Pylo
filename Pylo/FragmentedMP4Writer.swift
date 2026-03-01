@@ -114,6 +114,18 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
   /// Whether the first fragment has been logged for diagnostics.
   private var hasLoggedFirstFragment = false
 
+  // Audio track state
+  /// Set externally by the capture session when mic + encoder are ready.
+  var includeAudioTrack = false
+  private let audioTimescale: UInt32 = 16000
+  private let audioFrameDuration: UInt32 = 480
+  /// Buffered encoded AAC-ELD frames (appended from captureQueue, drained from VT callback thread).
+  private var pendingAudioSamples: [Data] = []
+  /// Accumulated decode time in audio timescale ticks across all emitted fragments.
+  private var accumulatedAudioDecodeTime: UInt64 = 0
+  /// Protects pendingAudioSamples (written from captureQueue, read from encode callback thread).
+  private let audioLock = NSLock()
+
   func configure(width: Int, height: Int, fps: Int) {
     self.videoWidth = width
     self.videoHeight = height
@@ -121,6 +133,11 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
   }
 
   // MARK: - Writing
+
+  /// Append an encoded AAC-ELD frame to be included in the next fragment.
+  func appendAudioSample(_ encodedFrame: Data) {
+    audioLock.withLock { pendingAudioSamples.append(encodedFrame) }
+  }
 
   /// Append an encoded H.264 sample buffer to the current fragment.
   func appendVideoSample(_ sampleBuffer: CMSampleBuffer) {
@@ -191,13 +208,14 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     }
     fragmentStartPTS = .invalid
     hasLoggedFirstFragment = false
+    audioLock.withLock { pendingAudioSamples.removeAll() }
   }
 
   // MARK: - Fragment Construction
 
   /// Build and emit a moof+mdat fragment from the buffered samples.
-  /// Produces a two-track moof when silent audio is available: video traf (track 1)
-  /// followed by audio traf (track 2) with AAC-ELD silence frames.
+  /// Produces a two-track moof when audio samples are available: video traf (track 1)
+  /// followed by audio traf (track 2) with real AAC-ELD frames.
   private func emitFragment() {
     guard pendingSamples.count >= 1 else { return }
 
@@ -205,6 +223,14 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     pendingSamples = []
     let fragStart = fragmentStartPTS
     fragmentStartPTS = .invalid
+
+    // Drain pending audio samples under lock (needed early for moof size calculation)
+    let audioFrames: [Data] = audioLock.withLock {
+      let frames = pendingAudioSamples
+      pendingAudioSamples.removeAll()
+      return frames
+    }
+    let na = audioFrames.count
 
     // Compute per-sample durations from PTS deltas (in timescale ticks)
     let timescale = Int64(videoTimescale)
@@ -236,7 +262,11 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     let trunPayloadSize = 4 + 4 + (firstIsKeyframe ? 4 : 0) + nv * 8  // count + offset + [fsf] + samples
     let trunBoxSize = 8 + 4 + trunPayloadSize  // box header + ver/flags + payload
     let videoTrafSize = 8 + 20 + 20 + trunBoxSize
-    let moofSize = 8 + 16 + videoTrafSize
+
+    // Audio traf: 8(traf) + 24(tfhd) + 20(tfdt) + 20+Na*4(trun) = 72 + Na*4
+    let audioTrafSize = na > 0 ? 72 + na * 4 : 0
+
+    let moofSize = 8 + 16 + videoTrafSize + audioTrafSize
     let videoDataOffset = UInt32(moofSize + 8)  // +8 for mdat header
 
     // mfhd
@@ -272,11 +302,44 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     let vTrun = Self.mp4FullBox("trun", flags: trunFlags, payload: vTrunP)
     let videoTraf = Self.mp4Box("traf", vTfhd + vTfdt + vTrun)
 
-    let moof = Self.mp4Box("moof", mfhd + videoTraf)
+    // Build audio traf (track 2) if we have audio samples
+    var audioTraf = Data()
+    var audioMdatPayload = Data()
+    if na > 0 {
+      let videoMdatSize = sizes.reduce(UInt32(0), +)
+      let audioDataOffset = UInt32(moofSize + 8) + videoMdatSize  // past moof + mdat header + video data
 
-    // mdat: video sample data
+      // tfhd flags 0x020028: default-base-is-moof + default-sample-duration + default-sample-flags
+      var aTfhdP = Data()
+      Self.putU32BE(&aTfhdP, 2)  // track_ID
+      Self.putU32BE(&aTfhdP, audioFrameDuration)  // default_sample_duration = 480
+      Self.putU32BE(&aTfhdP, 0x0200_0000)  // default_sample_flags (sync)
+      let aTfhd = Self.mp4FullBox("tfhd", flags: 0x02_0028, payload: aTfhdP)
+
+      var aTfdtP = Data()
+      Self.putU32BE(&aTfdtP, UInt32((accumulatedAudioDecodeTime >> 32) & 0xFFFF_FFFF))
+      Self.putU32BE(&aTfdtP, UInt32(accumulatedAudioDecodeTime & 0xFFFF_FFFF))
+      let aTfdt = Self.mp4FullBox("tfdt", version: 1, payload: aTfdtP)
+
+      // trun flags 0x000201: data-offset + sample-size (variable per frame)
+      var aTrunP = Data()
+      Self.putU32BE(&aTrunP, UInt32(na))
+      Self.putU32BE(&aTrunP, audioDataOffset)
+      for frame in audioFrames {
+        Self.putU32BE(&aTrunP, UInt32(frame.count))
+      }
+      let aTrun = Self.mp4FullBox("trun", flags: 0x000201, payload: aTrunP)
+      audioTraf = Self.mp4Box("traf", aTfhd + aTfdt + aTrun)
+
+      for frame in audioFrames { audioMdatPayload.append(frame) }
+    }
+
+    let moof = Self.mp4Box("moof", mfhd + videoTraf + audioTraf)
+
+    // mdat: video sample data + audio frame data
     var mdatPayload = Data()
     for sample in samples { mdatPayload.append(sample.data) }
+    mdatPayload.append(audioMdatPayload)
     let mdat = Self.mp4Box("mdat", mdatPayload)
 
     var fragmentData = moof
@@ -285,13 +348,16 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     // Log first fragment diagnostics
     if !hasLoggedFirstFragment {
       logger.info(
-        "First moof: seq=\(self.moofSequenceNumber), samples=\(nv), baseDecodeTime=\(self.accumulatedDecodeTime), totalTicks=\(totalTicks), moof=\(moof.count)B, mdat=\(mdat.count)B"
+        "First moof: seq=\(self.moofSequenceNumber), samples=\(nv), baseDecodeTime=\(self.accumulatedDecodeTime), totalTicks=\(totalTicks), audioFrames=\(na), audio=\(self.includeAudioTrack), moof=\(moof.count)B, mdat=\(mdat.count)B"
       )
       hasLoggedFirstFragment = true
     }
 
-    // Advance accumulated decode time for next fragment's tfdt
+    // Advance accumulated decode times for next fragment's tfdt
     accumulatedDecodeTime += totalTicks
+    if na > 0 {
+      accumulatedAudioDecodeTime += UInt64(na) * UInt64(audioFrameDuration)
+    }
 
     // Compute total duration as CMTime
     let totalDuration: CMTime
@@ -311,7 +377,7 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     onFragmentReady?(fragment)
 
     let durSec = String(format: "%.2f", CMTimeGetSeconds(totalDuration))
-    logger.debug("Fragment #\(seq): \(fragmentData.count) bytes, \(nv) samples, \(durSec)s")
+    logger.debug("Fragment #\(seq): \(fragmentData.count) bytes, \(nv) samples, audioFrames=\(na), \(durSec)s")
   }
 
   // MARK: - Init Segment Construction
@@ -359,8 +425,10 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     let width = UInt16(dims.width)
     let height = UInt16(dims.height)
 
+    let hasAudio = includeAudioTrack
+
     logger.info(
-      "buildInitSegment: \(width)x\(height), SPS=\(sps.count)B, PPS=\(pps.count)B, timescale=\(self.videoTimescale)"
+      "buildInitSegment: \(width)x\(height), SPS=\(sps.count)B, PPS=\(pps.count)B, timescale=\(self.videoTimescale), audio=\(hasAudio)"
     )
 
     // ftyp box — mp42 major brand matching positron's working HKSV implementation
@@ -383,7 +451,7 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     mvhdP.append(Data(count: 10))  // reserved
     Self.appendIdentityMatrix(&mvhdP)
     mvhdP.append(Data(count: 24))  // pre_defined
-    Self.putU32BE(&mvhdP, 0xFFFF_FFFF)  // next_track_ID
+    Self.putU32BE(&mvhdP, hasAudio ? 3 : 2)  // next_track_ID
     let mvhd = Self.mp4FullBox("mvhd", payload: mvhdP)
 
     let videoTrack = buildVideoTrack(
@@ -391,10 +459,18 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
 
     // mvex (movie extends — required for fragmented MP4)
     // No mehd box — positron's working implementation omits it, and it's optional per ISO 14496-12.
-    let mvexContent = Self.buildTrex(trackID: 1)
+    var mvexContent = Self.buildTrex(trackID: 1)
+    if hasAudio {
+      mvexContent.append(Self.buildTrex(trackID: 2))
+    }
     let mvex = Self.mp4Box("mvex", mvexContent)
 
-    let moov = Self.mp4Box("moov", mvhd + videoTrack + mvex)
+    var moovContent = mvhd + videoTrack
+    if hasAudio {
+      moovContent.append(buildAudioTrack(trackID: 2))
+    }
+    moovContent.append(mvex)
+    let moov = Self.mp4Box("moov", moovContent)
 
     var result = ftyp
     result.append(moov)
@@ -473,6 +549,108 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     let minf = Self.mp4Box("minf", vmhd + dinf + stbl)
     let mdia = Self.mp4Box("mdia", mdhd + hdlr + minf)
     return Self.mp4Box("trak", tkhd + mdia)
+  }
+
+  private func buildAudioTrack(trackID: UInt32) -> Data {
+    // tkhd
+    var tkhdP = Data()
+    Self.putU32BE(&tkhdP, 0)  // creation_time
+    Self.putU32BE(&tkhdP, 0)  // modification_time
+    Self.putU32BE(&tkhdP, trackID)
+    Self.putU32BE(&tkhdP, 0)  // reserved
+    Self.putU32BE(&tkhdP, 0)  // duration
+    tkhdP.append(Data(count: 8))  // reserved
+    Self.putU16BE(&tkhdP, 0)  // layer
+    Self.putU16BE(&tkhdP, 1)  // alternate_group
+    Self.putU16BE(&tkhdP, 0x0100)  // volume = 1.0
+    Self.putU16BE(&tkhdP, 0)  // reserved
+    Self.appendIdentityMatrix(&tkhdP)
+    Self.putU32BE(&tkhdP, 0)  // width (0 for audio)
+    Self.putU32BE(&tkhdP, 0)  // height (0 for audio)
+    let tkhd = Self.mp4FullBox("tkhd", flags: 7, payload: tkhdP)
+
+    // mdhd
+    var mdhdP = Data()
+    Self.putU32BE(&mdhdP, 0)  // creation_time
+    Self.putU32BE(&mdhdP, 0)  // modification_time
+    Self.putU32BE(&mdhdP, audioTimescale)  // 16000
+    Self.putU32BE(&mdhdP, 0)  // duration
+    Self.putU16BE(&mdhdP, 0x55C4)  // language: "und"
+    Self.putU16BE(&mdhdP, 0)
+    let mdhd = Self.mp4FullBox("mdhd", payload: mdhdP)
+
+    // hdlr
+    var hdlrP = Data()
+    Self.putU32BE(&hdlrP, 0)  // pre_defined
+    hdlrP.append(contentsOf: Array("soun".utf8))
+    hdlrP.append(Data(count: 12))  // reserved
+    hdlrP.append(contentsOf: Array("SoundHandler\0".utf8))
+    let hdlr = Self.mp4FullBox("hdlr", payload: hdlrP)
+
+    // smhd (sound media header)
+    let smhd = Self.mp4FullBox("smhd", payload: Data(count: 4))  // balance + reserved
+
+    // dinf/dref
+    let dinf = Self.buildDinf()
+
+    // stsd with mp4a + esds
+    let audioConfig: [UInt8] = [0xBC, 0x10, 0x00]  // AAC-ELD 16kHz mono
+    let esds = Self.buildEsds(trackID: trackID, audioConfig: Data(audioConfig))
+    var mp4aP = Data()
+    mp4aP.append(Data(count: 6))  // reserved
+    Self.putU16BE(&mp4aP, 1)  // data_reference_index
+    mp4aP.append(Data(count: 8))  // reserved
+    Self.putU16BE(&mp4aP, 1)  // channel_count
+    Self.putU16BE(&mp4aP, 16)  // sample_size (bits)
+    Self.putU16BE(&mp4aP, 0)  // compression_id
+    Self.putU16BE(&mp4aP, 0)  // packet_size
+    Self.putU32BE(&mp4aP, audioTimescale << 16)  // sample_rate fixed 16.16
+    mp4aP.append(esds)
+    let mp4a = Self.mp4Box("mp4a", mp4aP)
+
+    var stsdP = Data()
+    Self.putU32BE(&stsdP, 1)  // entry_count
+    stsdP.append(mp4a)
+    let stsd = Self.mp4FullBox("stsd", payload: stsdP)
+
+    let stbl = Self.mp4Box("stbl", stsd + Self.emptyStbl())
+    let minf = Self.mp4Box("minf", smhd + dinf + stbl)
+    let mdia = Self.mp4Box("mdia", mdhd + hdlr + minf)
+    return Self.mp4Box("trak", tkhd + mdia)
+  }
+
+  private static func buildEsds(trackID: UInt32, audioConfig: Data) -> Data {
+    // ES_Descriptor
+    let asc = audioConfig  // AudioSpecificConfig
+    // DecoderSpecificInfo tag (0x05)
+    var dsi = Data([0x05, UInt8(asc.count)])
+    dsi.append(asc)
+
+    // DecoderConfigDescriptor tag (0x04)
+    var dcd = Data()
+    dcd.append(0x40)  // objectTypeIndication = AAC
+    dcd.append(0x15)  // streamType = audio (5) << 2 | upstream (0) << 1 | reserved (1)
+    dcd.append(contentsOf: [0x00, 0x00, 0x00])  // bufferSizeDB (3 bytes)
+    putU32BE(&dcd, 24000)  // maxBitrate
+    putU32BE(&dcd, 24000)  // avgBitrate
+    dcd.append(dsi)
+    var dcdTagged = Data([0x04, UInt8(dcd.count)])
+    dcdTagged.append(dcd)
+
+    // SLConfigDescriptor tag (0x06)
+    let slc = Data([0x06, 0x01, 0x02])
+
+    // ES_Descriptor tag (0x03)
+    var esd = Data()
+    putU16BE(&esd, UInt16(trackID))  // ES_ID
+    esd.append(0x00)  // streamDependenceFlag=0, URL_Flag=0, OCRstreamFlag=0, streamPriority=0
+    esd.append(dcdTagged)
+    esd.append(slc)
+    var esdTagged = Data([0x03, UInt8(esd.count)])
+    esdTagged.append(esd)
+
+    // esds box (fullbox version 0)
+    return mp4FullBox("esds", payload: esdTagged)
   }
 
   // MARK: - MP4 Box Helpers

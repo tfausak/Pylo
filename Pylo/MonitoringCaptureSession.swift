@@ -1,4 +1,5 @@
 @preconcurrency import AVFoundation
+import AudioToolbox
 @preconcurrency import CoreMedia
 @preconcurrency import UIKit
 import VideoToolbox
@@ -38,15 +39,21 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     self.encodeQueue = DispatchQueue(label: "me.fausak.taylor.Pylo.monitorEncode")
   }
 
+  /// AAC-ELD frame size in samples (480 for 16kHz).
+  private let aacFrameSamples = 480
+
   private struct State {
     var captureSession: AVCaptureSession?
     var compressionSession: VTCompressionSession?
     var encodeFrameCount: Int = 0
+    var audioConverter: AudioConverterRef?
+    var pcmAccumulator = Data()
   }
   private var _state = State()
 
-  // Strong reference to the delegate to prevent premature deallocation.
+  // Strong references to delegates to prevent premature deallocation.
   private var videoCaptureDelegate: VideoCaptureDelegate?
+  private var audioCaptureDelegate: AudioCaptureDelegate?
 
   private var captureSession: AVCaptureSession? {
     get { lock.withLock { _state.captureSession } }
@@ -91,7 +98,19 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       return
     }
 
-    // AVCaptureSession setup (video only — no audio/mic)
+    // Configure audio session BEFORE creating capture session so the mic is available
+    #if os(iOS)
+      do {
+        let audioSession = AVAudioSession.sharedInstance()
+        try audioSession.setCategory(
+          .playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
+        try audioSession.setPreferredSampleRate(16000)
+        try audioSession.setActive(true)
+      } catch {
+        logger.error("AVAudioSession setup error: \(error)")
+      }
+    #endif
+
     let session = AVCaptureSession()
     session.sessionPreset = .hd1920x1080
 
@@ -115,6 +134,37 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     }
     output.setSampleBufferDelegate(delegate, queue: captureQueue)
     if session.canAddOutput(output) { session.addOutput(output) }
+
+    // Add microphone input for audio capture
+    var audioReady = false
+    if let mic = AVCaptureDevice.default(for: .audio),
+      let micInput = try? AVCaptureDeviceInput(device: mic),
+      session.canAddInput(micInput)
+    {
+      session.addInput(micInput)
+      let audioOut = AVCaptureAudioDataOutput()
+      let audioDelegate = AudioCaptureDelegate { [weak self] sampleBuffer in
+        self?.handleAudioSampleBuffer(sampleBuffer)
+      }
+      audioOut.setSampleBufferDelegate(audioDelegate, queue: captureQueue)
+      if session.canAddOutput(audioOut) {
+        session.addOutput(audioOut)
+        self.audioCaptureDelegate = audioDelegate
+
+        // Create AAC-ELD encoder
+        if let converter = Self.createAudioEncoder(logger: logger) {
+          lock.withLock {
+            _state.audioConverter = converter
+            _state.pcmAccumulator = Data()
+          }
+          audioReady = true
+          logger.info("Monitoring audio capture + AAC-ELD encoder ready")
+        }
+      }
+    }
+    if !audioReady {
+      logger.info("Monitoring capture: microphone unavailable, video-only mode")
+    }
 
     // Rotate output to match device orientation.
     let rotationAngle = Self.currentRotationAngle()
@@ -147,23 +197,29 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       return
     }
     self.videoCaptureDelegate = delegate
+    fragmentWriter?.includeAudioTrack = audioReady
 
     sessionQueue.async {
       session.startRunning()
     }
-    logger.info("Monitoring capture started")
+    logger.info("Monitoring capture started (audio=\(audioReady))")
   }
 
   func stop() {
-    let (oldSession, oldCS): (AVCaptureSession?, VTCompressionSession?) = lock.withLock {
+    let (oldSession, oldCS, oldAudioConverter): (AVCaptureSession?, VTCompressionSession?, AudioConverterRef?) = lock.withLock {
       let s = _state.captureSession
       let cs = _state.compressionSession
+      let ac = _state.audioConverter
       _state.captureSession = nil
       _state.compressionSession = nil
       _state.encodeFrameCount = 0
-      return (s, cs)
+      _state.audioConverter = nil
+      _state.pcmAccumulator = Data()
+      return (s, cs, ac)
     }
     guard oldSession != nil || oldCS != nil else { return }
+
+    fragmentWriter?.includeAudioTrack = false
 
     // stopRunning() is synchronous — blocks until frames stop.
     let stopBlock = { oldSession?.stopRunning() }
@@ -183,7 +239,12 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       encodeQueue.sync {}
     }
 
+    if let ac = oldAudioConverter {
+      AudioConverterDispose(ac)
+    }
+
     videoCaptureDelegate = nil
+    audioCaptureDelegate = nil
     logger.info("Monitoring capture stopped")
   }
 
@@ -222,6 +283,225 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
         self?.fragmentWriter?.appendVideoSample(sampleBuffer)
       }
     )
+  }
+
+  // MARK: - Audio Encoding
+
+  private func handleAudioSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
+    let converter = lock.withLock { _state.audioConverter }
+    guard converter != nil else { return }
+
+    guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { return }
+    var totalLength = 0
+    var dataPointer: UnsafeMutablePointer<CChar>?
+    CMBlockBufferGetDataPointer(
+      blockBuffer, atOffset: 0, lengthAtOffsetOut: nil,
+      totalLengthOut: &totalLength, dataPointerOut: &dataPointer)
+    guard let ptr = dataPointer, totalLength > 0 else { return }
+
+    guard let formatDesc = CMSampleBufferGetFormatDescription(sampleBuffer) else { return }
+    let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc)?.pointee
+
+    let rawData = Data(bytes: ptr, count: totalLength)
+
+    let pcmFloat32: Data
+    if let asbd, asbd.mFormatID == kAudioFormatLinearPCM {
+      pcmFloat32 = Self.convertToFloat32At16kHz(rawData, sourceASBD: asbd)
+    } else {
+      logger.warning("Audio: unexpected format ID \(asbd?.mFormatID ?? 0)")
+      return
+    }
+
+    // Accumulate PCM and encode when we have enough for an AAC-ELD frame
+    lock.withLock { _state.pcmAccumulator.append(pcmFloat32) }
+    let frameSizeBytes = aacFrameSamples * 4  // 480 samples * 4 bytes/sample (Float32)
+
+    while true {
+      let frameData: Data? = lock.withLock {
+        guard _state.pcmAccumulator.count >= frameSizeBytes else { return nil }
+        let frame = Data(_state.pcmAccumulator.prefix(frameSizeBytes))
+        _state.pcmAccumulator = Data(_state.pcmAccumulator.dropFirst(frameSizeBytes))
+        return frame
+      }
+      guard let frameData else { break }
+      encodeAndAppendAudioFrame(frameData)
+    }
+  }
+
+  private func encodeAndAppendAudioFrame(_ pcmData: Data) {
+    let converter = lock.withLock { _state.audioConverter }
+    guard let converter else { return }
+
+    var packetSize: UInt32 = 1
+    let outputBufferSize: UInt32 = 1024
+    let outputBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: Int(outputBufferSize))
+    defer { outputBuffer.deallocate() }
+
+    var outputBufferList = AudioBufferList(
+      mNumberBuffers: 1,
+      mBuffers: AudioBuffer(
+        mNumberChannels: 1,
+        mDataByteSize: outputBufferSize,
+        mData: outputBuffer
+      )
+    )
+
+    var outputPacketDesc = AudioStreamPacketDescription()
+
+    let status: OSStatus = pcmData.withUnsafeBytes { pcmBuf -> OSStatus in
+      guard let pcmBase = pcmBuf.baseAddress else { return -1 }
+
+      var cbData = AudioEncoderInput(
+        srcData: pcmBase,
+        srcSize: UInt32(pcmData.count),
+        consumed: false
+      )
+
+      return withUnsafeMutablePointer(to: &cbData) { cbPtr in
+        AudioConverterFillComplexBuffer(
+          converter,
+          { (_, ioNumberDataPackets, ioData, _, inUserData) -> OSStatus in
+            guard let userData = inUserData else {
+              ioNumberDataPackets.pointee = 0
+              return noErr
+            }
+            let cb = userData.assumingMemoryBound(to: AudioEncoderInput.self)
+
+            if cb.pointee.consumed {
+              ioNumberDataPackets.pointee = 0
+              return noErr
+            }
+            cb.pointee.consumed = true
+
+            ioNumberDataPackets.pointee = UInt32(cb.pointee.srcSize / 4)
+            ioData.pointee.mBuffers.mData = UnsafeMutableRawPointer(mutating: cb.pointee.srcData)
+            ioData.pointee.mBuffers.mDataByteSize = cb.pointee.srcSize
+            ioData.pointee.mBuffers.mNumberChannels = 1
+            return noErr
+          },
+          cbPtr,
+          &packetSize,
+          &outputBufferList,
+          &outputPacketDesc
+        )
+      }
+    }
+
+    guard status == noErr else {
+      logger.warning("AAC-ELD encode error: \(status)")
+      return
+    }
+
+    let encodedSize = Int(outputBufferList.mBuffers.mDataByteSize)
+    guard encodedSize > 0 else { return }  // priming frame — drop silently
+    let aacData = Data(bytes: outputBuffer, count: encodedSize)
+
+    // Append raw AAC-ELD frame to fMP4 writer (no AU header — fMP4 uses raw frames)
+    fragmentWriter?.appendAudioSample(aacData)
+  }
+
+  /// Convert PCM audio data to Float32 at 16kHz mono.
+  private static func convertToFloat32At16kHz(
+    _ data: Data, sourceASBD: AudioStreamBasicDescription
+  ) -> Data {
+    let sourceSampleRate = sourceASBD.mSampleRate
+    let sourceChannels = Int(sourceASBD.mChannelsPerFrame)
+    let isFloat = (sourceASBD.mFormatFlags & kAudioFormatFlagIsFloat) != 0
+    let is16Bit = sourceASBD.mBitsPerChannel == 16
+    let bytesPerSample = Int(sourceASBD.mBitsPerChannel / 8)
+
+    var floatSamples: [Float] = []
+
+    if isFloat && bytesPerSample == 4 {
+      data.withUnsafeBytes { ptr in
+        let floatPtr = ptr.bindMemory(to: Float.self)
+        if sourceChannels == 1 {
+          floatSamples = Array(floatPtr)
+        } else {
+          for i in stride(from: 0, to: floatPtr.count, by: sourceChannels) {
+            var sum: Float = 0
+            for ch in 0..<sourceChannels where i + ch < floatPtr.count {
+              sum += floatPtr[i + ch]
+            }
+            floatSamples.append(sum / Float(sourceChannels))
+          }
+        }
+      }
+    } else if is16Bit {
+      data.withUnsafeBytes { ptr in
+        let int16Ptr = ptr.bindMemory(to: Int16.self)
+        for i in stride(from: 0, to: int16Ptr.count, by: sourceChannels) {
+          var sum: Float = 0
+          for ch in 0..<sourceChannels where i + ch < int16Ptr.count {
+            sum += Float(int16Ptr[i + ch]) / 32768.0
+          }
+          floatSamples.append(sum / Float(sourceChannels))
+        }
+      }
+    } else {
+      return Data()
+    }
+
+    // Resample to 16kHz if needed
+    if abs(sourceSampleRate - 16000) > 1 {
+      let ratio = 16000.0 / sourceSampleRate
+      let outputCount = Int(Double(floatSamples.count) * ratio)
+      var resampled = [Float](repeating: 0, count: outputCount)
+      for i in 0..<outputCount {
+        let srcIdx = Double(i) / ratio
+        let idx = Int(srcIdx)
+        let frac = Float(srcIdx - Double(idx))
+        if idx + 1 < floatSamples.count {
+          resampled[i] = floatSamples[idx] * (1 - frac) + floatSamples[idx + 1] * frac
+        } else if idx < floatSamples.count {
+          resampled[i] = floatSamples[idx]
+        }
+      }
+      floatSamples = resampled
+    }
+
+    return floatSamples.withUnsafeBytes { Data($0) }
+  }
+
+  /// Create an AAC-ELD encoder (PCM Float32 16kHz mono → AAC-ELD 24kbps).
+  private static func createAudioEncoder(logger: Logger) -> AudioConverterRef? {
+    var inputDesc = AudioStreamBasicDescription(
+      mSampleRate: 16000,
+      mFormatID: kAudioFormatLinearPCM,
+      mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked,
+      mBytesPerPacket: 4,
+      mFramesPerPacket: 1,
+      mBytesPerFrame: 4,
+      mChannelsPerFrame: 1,
+      mBitsPerChannel: 32,
+      mReserved: 0
+    )
+
+    var outputDesc = AudioStreamBasicDescription(
+      mSampleRate: 16000,
+      mFormatID: kAudioFormatMPEG4AAC_ELD,
+      mFormatFlags: 0,
+      mBytesPerPacket: 0,
+      mFramesPerPacket: 480,
+      mBytesPerFrame: 0,
+      mChannelsPerFrame: 1,
+      mBitsPerChannel: 0,
+      mReserved: 0
+    )
+
+    var converter: AudioConverterRef?
+    let status = AudioConverterNew(&inputDesc, &outputDesc, &converter)
+    guard status == noErr, let converter else {
+      logger.error("AudioConverter (monitoring encoder) create failed: \(status)")
+      return nil
+    }
+
+    var bitrate: UInt32 = 24000
+    AudioConverterSetProperty(
+      converter, kAudioConverterEncodeBitRate,
+      UInt32(MemoryLayout<UInt32>.size), &bitrate)
+
+    return converter
   }
 
   // MARK: - Helpers
@@ -328,5 +608,33 @@ private nonisolated final class VideoCaptureDelegate: NSObject,
     guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
     let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
     handler(pixelBuffer, pts)
+  }
+}
+
+// MARK: - Audio Converter Callback Data
+
+/// Helper for passing PCM data through the AudioConverter encoder C callback.
+private struct AudioEncoderInput {
+  var srcData: UnsafeRawPointer?
+  var srcSize: UInt32
+  var consumed: Bool
+}
+
+// MARK: - Audio Capture Delegate
+
+private nonisolated final class AudioCaptureDelegate: NSObject,
+  AVCaptureAudioDataOutputSampleBufferDelegate
+{
+  let handler: (CMSampleBuffer) -> Void
+
+  init(handler: @escaping (CMSampleBuffer) -> Void) {
+    self.handler = handler
+  }
+
+  func captureOutput(
+    _ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
+    from connection: AVCaptureConnection
+  ) {
+    handler(sampleBuffer)
   }
 }
