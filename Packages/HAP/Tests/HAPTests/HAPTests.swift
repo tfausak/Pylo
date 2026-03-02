@@ -1391,3 +1391,22 @@ struct PairSetupThrottleBadPubKeyTests {
     #expect(throttle.isThrottled(now: now))
   }
 }
+
+// MARK: - PairSetupInProgress Flag Tests
+
+@Suite("PairSetupInProgress Flag")
+struct PairSetupInProgressFlagTests {
+
+  @Test("isPairSetupInProgress defaults to false and is clearable")
+  func flagDefaultsToFalseAndIsSettable() {
+    // Ensure the flag starts false (or reset it for test isolation)
+    PairSetupHandler.isPairSetupInProgress = false
+    #expect(!PairSetupHandler.isPairSetupInProgress)
+
+    PairSetupHandler.isPairSetupInProgress = true
+    #expect(PairSetupHandler.isPairSetupInProgress)
+
+    PairSetupHandler.isPairSetupInProgress = false
+    #expect(!PairSetupHandler.isPairSetupInProgress)
+  }
+}

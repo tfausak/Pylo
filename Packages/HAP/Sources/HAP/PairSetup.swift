@@ -226,7 +226,6 @@ public nonisolated enum PairSetupHandler {
       logger.warning("Pair-setup M1 received while session already in progress")
       return errorResponse(state: 0x02, error: .busy)
     }
-    isPairSetupInProgress = true
 
     // Reject if rate-limited (HAP spec §5.6.1)
     if throttle.isThrottled() {
@@ -240,9 +239,15 @@ public nonisolated enum PairSetupHandler {
       return errorResponse(state: 0x02, error: .unavailable)
     }
 
+    // All guards passed — mark pair-setup as in progress.
+    // Setting the flag after rejection guards ensures it is never left
+    // stuck if throttle or isPaired rejects the attempt.
+    isPairSetupInProgress = true
+
     // Create SRP session
     // Username for HAP is always "Pair-Setup", password is the setup code.
     guard let srpSession = SRPServer(username: "Pair-Setup", password: setupCode) else {
+      isPairSetupInProgress = false
       return errorResponse(state: 0x02, error: .unknown)
     }
 
