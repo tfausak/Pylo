@@ -290,6 +290,14 @@ public nonisolated final class HDSConnection: @unchecked Sendable {
         | Int(data[data.startIndex + 2]) << 8
         | Int(data[data.startIndex + 3])
 
+      // Cap at 512 KB to prevent memory exhaustion from malformed frames.
+      // Real HDS frames (fMP4 fragments) are well under this limit.
+      guard payloadLen > 0, payloadLen <= 512_000 else {
+        self.logger.error("HDS frame too large (\(payloadLen) bytes), disconnecting")
+        self.cancel()
+        return
+      }
+
       let totalRead = payloadLen + 16  // + Poly1305 tag
 
       self.connection.receive(
