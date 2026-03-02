@@ -477,8 +477,8 @@ public nonisolated final class HDSConnection: @unchecked Sendable {
   // MARK: - Raw dataSend/data Message Builder
 
   /// Build a raw dataSend/data HDS event message with exact byte ordering
-  /// matching positron's known-working implementation. This bypasses HDSCodec's
-  /// generic dictionary encoding which produces non-deterministic key ordering.
+  /// matching positron's known-working implementation. This bypasses HDSCodec
+  /// which sorts keys alphabetically — a different order than the hub expects.
   private func buildRawDataSendEvent(
     streamID: Int,
     dataType: String,

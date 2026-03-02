@@ -129,6 +129,9 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   var audioPlayerNode: AVAudioPlayerNode?
   var audioPlayerStarted: Bool = false
   var incomingSRTPContext: SRTPContext?
+  /// Cached audio format for playback buffers (Float32, 16kHz, mono).
+  let playbackFormat = AVAudioFormat(
+    commonFormat: .pcmFormatFloat32, sampleRate: 16000, channels: 1, interleaved: false)
 
   // Delegate retention — stored as properties instead of ObjC associated objects
   private var videoCaptureDelegate: VideoCaptureDelegate?
