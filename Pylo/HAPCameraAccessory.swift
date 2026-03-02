@@ -191,6 +191,10 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   /// Called when SelectedCameraRecordingConfig is written (for persistence).
   var onSelectedRecordingConfigChange: ((_ config: Data) -> Void)?
 
+  /// Active characteristic on CameraRTPStreamManagement — indicates whether
+  /// the streaming service is enabled. Written by the HomeKit hub.
+  private(set) var rtpStreamActive: UInt8 = 1
+
   // Pending setup endpoint response (written by controller, read back after)
   private var setupEndpointsResponse = Data()
 
@@ -337,7 +341,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
       }
       return .string(selectedRecordingConfig.base64EncodedString())
     case Self.iidRecordingAudioActive: return .int(Int(recordingAudioActive))
-    case Self.iidRTPStreamActive: return .int(Int(recordingActive))
+    case Self.iidRTPStreamActive: return .int(Int(rtpStreamActive))
     // Motion Sensor
     case Self.iidMotionDetected: return .bool(isMotionDetected)
     // DataStream Transport Management
@@ -461,6 +465,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
       return false
     case Self.iidRTPStreamActive:
       if let v = intFromValue(value) {
+        rtpStreamActive = UInt8(v)
         onStateChange?(aid, iid, .int(v))
         return true
       }
