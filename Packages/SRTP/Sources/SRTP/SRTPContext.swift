@@ -388,7 +388,7 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
 
     CCCryptorRelease(cryptor)
 
-    if updateStatus != kCCSuccess {
+    guard updateStatus == kCCSuccess, outLength == data.count else {
       return nil
     }
 
