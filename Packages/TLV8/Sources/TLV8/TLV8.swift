@@ -221,8 +221,11 @@ public nonisolated enum TLV8 {
       add(tag, tlv.data)
     }
 
-    /// Insert a TLV8 list delimiter (tag=0x00, length=0x00).
-    /// Used between entries in a TLV8 list per the HAP spec.
+    /// Insert a camera configuration list-entry delimiter (`[0x00, 0x00]`).
+    /// Used between entries in HAP camera TLV8 lists (video codec configs,
+    /// audio codec configs, etc.) — NOT the same as the pairing record
+    /// separator (`Tag.separator` / `0xFF`), which delimits multi-record
+    /// TLV8 blobs in pairing exchanges.
     public mutating func addDelimiter() {
       data.append(0x00)
       data.append(0x00)
