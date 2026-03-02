@@ -65,6 +65,11 @@ public nonisolated enum HAPValue: Equatable, Sendable {
 // MARK: - HAP Accessory Protocol
 
 /// Common interface for all accessories served by the HAP server.
+///
+/// The mutable `onStateChange` property requires conformers to be `@unchecked Sendable`
+/// with manual lock protection. This is intentional — Swift protocols cannot have stored
+/// properties, and a base class would force a class hierarchy that's worse than the 4-line
+/// boilerplate each conformer duplicates (OSAllocatedUnfairLock + computed get/set).
 public nonisolated protocol HAPAccessoryProtocol: AnyObject {
   var aid: Int { get }
   var name: String { get }
