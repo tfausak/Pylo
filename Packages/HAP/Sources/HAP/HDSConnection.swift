@@ -450,6 +450,10 @@ public nonisolated final class HDSConnection: @unchecked Sendable {
   /// (fixed key ordering + DATA_LENGTH32LE for the data field).
   private func sendDataChunks(_ data: Data, dataType: String, isLast: Bool) {
     guard let streamID = activeStreamID else { return }
+    guard !data.isEmpty else {
+      logger.warning("HDS sendDataChunks called with empty data, skipping")
+      return
+    }
 
     let maxChunk = Self.maxChunkSize
     var offset = 0
