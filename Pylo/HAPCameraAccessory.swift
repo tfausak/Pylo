@@ -62,17 +62,37 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     set { _batteryState.withLock { $0 = newValue } }
   }
 
-  /// Called before/after snapshot capture so the host can pause other capture sessions
-  /// (e.g. the monitoring session) that would conflict with the snapshot session.
-  var onSnapshotWillCapture: (() -> Void)?
-  var onSnapshotDidCapture: (() -> Void)?
+  /// Callback closures set once during setup and called from the server queue.
+  /// Protected by a lock since they are written from createServerSetup (off-main)
+  /// and read from the server queue.
+  private struct Callbacks {
+    var onSnapshotWillCapture: (() -> Void)?
+    var onSnapshotDidCapture: (() -> Void)?
+    var onMonitoringCaptureNeeded: ((_ needed: Bool) -> Void)?
+    var onVideoMotionChange: ((Bool) -> Void)?
+    var onRecordingConfigChange: ((_ active: Bool) -> Void)?
+    var onRecordingAudioActiveChange: ((_ active: Bool) -> Void)?
+    var onSelectedRecordingConfigChange: ((_ config: Data) -> Void)?
+    var onSetupDataStream: ((_ requestData: Data, _ sharedSecret: SharedSecret?, _ respond: @escaping (Data) -> Void) -> Void)?
+  }
+  private let _callbacks = OSAllocatedUnfairLock(initialState: Callbacks())
 
-  /// Called when monitoring capture should start (recording armed, no live stream)
-  /// or stop (live stream started, or recording disarmed).
-  var onMonitoringCaptureNeeded: ((_ needed: Bool) -> Void)?
-
-  /// Called when video-based motion detection fires (replaces accelerometer for HKSV).
-  var onVideoMotionChange: ((Bool) -> Void)?
+  var onSnapshotWillCapture: (() -> Void)? {
+    get { _callbacks.withLock { $0.onSnapshotWillCapture } }
+    set { _callbacks.withLock { $0.onSnapshotWillCapture = newValue } }
+  }
+  var onSnapshotDidCapture: (() -> Void)? {
+    get { _callbacks.withLock { $0.onSnapshotDidCapture } }
+    set { _callbacks.withLock { $0.onSnapshotDidCapture = newValue } }
+  }
+  var onMonitoringCaptureNeeded: ((_ needed: Bool) -> Void)? {
+    get { _callbacks.withLock { $0.onMonitoringCaptureNeeded } }
+    set { _callbacks.withLock { $0.onMonitoringCaptureNeeded = newValue } }
+  }
+  var onVideoMotionChange: ((Bool) -> Void)? {
+    get { _callbacks.withLock { $0.onVideoMotionChange } }
+    set { _callbacks.withLock { $0.onVideoMotionChange = newValue } }
+  }
 
   /// Whether video motion detection is active on the streaming session.
   /// Protected by streamLock so the Bool storage itself is synchronized.
@@ -185,14 +205,18 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   /// Whether HKSV services are enabled on this accessory.
   var hksvEnabled: Bool = false
 
-  /// Called when recording configuration changes.
-  var onRecordingConfigChange: ((_ active: Bool) -> Void)?
-
-  /// Called when recordingAudioActive changes (for persistence and monitoring restart).
-  var onRecordingAudioActiveChange: ((_ active: Bool) -> Void)?
-
-  /// Called when SelectedCameraRecordingConfig is written (for persistence).
-  var onSelectedRecordingConfigChange: ((_ config: Data) -> Void)?
+  var onRecordingConfigChange: ((_ active: Bool) -> Void)? {
+    get { _callbacks.withLock { $0.onRecordingConfigChange } }
+    set { _callbacks.withLock { $0.onRecordingConfigChange = newValue } }
+  }
+  var onRecordingAudioActiveChange: ((_ active: Bool) -> Void)? {
+    get { _callbacks.withLock { $0.onRecordingAudioActiveChange } }
+    set { _callbacks.withLock { $0.onRecordingAudioActiveChange = newValue } }
+  }
+  var onSelectedRecordingConfigChange: ((_ config: Data) -> Void)? {
+    get { _callbacks.withLock { $0.onSelectedRecordingConfigChange } }
+    set { _callbacks.withLock { $0.onSelectedRecordingConfigChange = newValue } }
+  }
 
   /// Active characteristic on CameraRTPStreamManagement — indicates whether
   /// the streaming service is enabled. Written by the HomeKit hub.
@@ -763,7 +787,10 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
 
   /// Callback for DataStream setup — set by HAPDataStream.
   var onSetupDataStream:
-    ((_ request: Data, _ sharedSecret: SharedSecret?, _ respond: @escaping (Data) -> Void) -> Void)?
+    ((_ request: Data, _ sharedSecret: SharedSecret?, _ respond: @escaping (Data) -> Void) -> Void)? {
+    get { _callbacks.withLock { $0.onSetupDataStream } }
+    set { _callbacks.withLock { $0.onSetupDataStream = newValue } }
+  }
 
   // MARK: - Streaming Status
 
