@@ -123,6 +123,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   /// Lock-protected streaming state accessed from multiple queues.
   private struct StreamState {
     var videoMotionDetector: VideoMotionDetector?
+    var ambientLightDetector: AmbientLightDetector?
     var streamSession: CameraStreamSession?
     var videoMotionEnabled: Bool = false
   }
@@ -130,6 +131,10 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   var videoMotionDetector: VideoMotionDetector? {
     get { streamState.withLock { $0.videoMotionDetector } }
     set { streamState.withLock { $0.videoMotionDetector = newValue } }
+  }
+  var ambientLightDetector: AmbientLightDetector? {
+    get { streamState.withLock { $0.ambientLightDetector } }
+    set { streamState.withLock { $0.ambientLightDetector = newValue } }
   }
 
   let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "Camera")

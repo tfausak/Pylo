@@ -78,6 +78,13 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     set { _videoMotionDetector.withLock { $0 = newValue } }
   }
 
+  /// Optional ambient light detector — samples device exposure on every frame (internally throttled).
+  private let _ambientLightDetector = OSAllocatedUnfairLock<AmbientLightDetector?>(initialState: nil)
+  var ambientLightDetector: AmbientLightDetector? {
+    get { _ambientLightDetector.withLock { $0 } }
+    set { _ambientLightDetector.withLock { $0 = newValue } }
+  }
+
   // Audio flags — written from the server queue, read from captureQueue/rtpQueue.
   private struct AudioFlags {
     var isMuted: Bool = false
@@ -464,6 +471,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     output.alwaysDiscardsLateVideoFrames = true
     let delegate = VideoCaptureDelegate { [weak self] pixelBuffer, pts in
       self?.videoMotionDetector?.processPixelBuffer(pixelBuffer)
+      self?.ambientLightDetector?.sample()
       self?.encodeFrame(pixelBuffer, pts: pts)
     }
     output.setSampleBufferDelegate(delegate, queue: captureQueue)

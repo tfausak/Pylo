@@ -264,6 +264,7 @@ extension HAPCameraAccessory {
     session.speakerMuted = settings.speakerMuted
     session.speakerVolume = settings.speakerVolume
     session.videoMotionDetector = videoMotionDetector
+    session.ambientLightDetector = ambientLightDetector
     session.onSnapshotFrame = { [weak self] jpeg in
       self?.cachedSnapshot = jpeg
     }

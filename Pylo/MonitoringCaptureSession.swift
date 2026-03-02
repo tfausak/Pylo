@@ -16,6 +16,9 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   /// Optional video motion detector — runs on every captured frame.
   var videoMotionDetector: VideoMotionDetector?
 
+  /// Optional ambient light detector — samples device exposure on every frame (internally throttled).
+  var ambientLightDetector: AmbientLightDetector?
+
   /// Optional fMP4 writer for HKSV recording — feeds encoded H.264 samples.
   var fragmentWriter: FragmentedMP4Writer?
 
@@ -141,6 +144,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     output.alwaysDiscardsLateVideoFrames = true
     let delegate = VideoCaptureDelegate { [weak self] pixelBuffer, pts in
       self?.videoMotionDetector?.processPixelBuffer(pixelBuffer)
+      self?.ambientLightDetector?.sample()
       self?.encodeFrame(pixelBuffer, pts: pts)
     }
     output.setSampleBufferDelegate(delegate, queue: captureQueue)

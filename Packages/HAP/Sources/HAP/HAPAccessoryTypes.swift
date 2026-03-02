@@ -380,3 +380,113 @@ public nonisolated final class HAPMotionSensorAccessory: HAPAccessoryProtocol, @
     return ["aid": aid, "services": services]
   }
 }
+
+// MARK: - Light Sensor Accessory
+
+/// Standalone ambient light sensor accessory for the bridge.
+public nonisolated final class HAPLightSensorAccessory: HAPAccessoryProtocol, @unchecked Sendable {
+
+  public let aid: Int
+  public let name: String
+  public let model: String
+  public let manufacturer: String
+  public let serialNumber: String
+  public let firmwareRevision: String
+
+  private let _onStateChange = OSAllocatedUnfairLock<
+    (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
+  >(initialState: nil)
+  public var onStateChange: (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)? {
+    get { _onStateChange.withLock { $0 } }
+    set { _onStateChange.withLock { $0 = newValue } }
+  }
+
+  /// Shared battery state — nil means no battery, omit battery service.
+  private let _batteryState = OSAllocatedUnfairLock<BatteryState?>(initialState: nil)
+  public var batteryState: BatteryState? {
+    get { _batteryState.withLock { $0 } }
+    set { _batteryState.withLock { $0 = newValue } }
+  }
+
+  private let _currentLux = OSAllocatedUnfairLock<Float>(initialState: 0.0001)
+  public var currentLux: Float {
+    _currentLux.withLock { $0 }
+  }
+
+  public static let iidLightSensorService = 8
+  public static let iidCurrentAmbientLightLevel = 9
+
+  private static let uuidLightSensor = "84"
+  private static let uuidCurrentAmbientLightLevel = "6B"
+
+  public init(
+    aid: Int,
+    name: String = "Pylo Light Sensor",
+    model: String = "HAP-PoC",
+    manufacturer: String = "DIY",
+    serialNumber: String = "000001",
+    firmwareRevision: String = "0.1.0"
+  ) {
+    self.aid = aid
+    self.name = name
+    self.model = model
+    self.manufacturer = manufacturer
+    self.serialNumber = serialNumber
+    self.firmwareRevision = firmwareRevision
+  }
+
+  public func updateLux(_ lux: Float) {
+    _currentLux.withLock { $0 = lux }
+    onStateChange?(aid, Self.iidCurrentAmbientLightLevel, .float(lux))
+  }
+
+  public func readCharacteristic(iid: Int) -> HAPValue? {
+    switch iid {
+    case AccessoryInfoIID.manufacturer: return .string(manufacturer)
+    case AccessoryInfoIID.model: return .string(model)
+    case AccessoryInfoIID.name: return .string(name)
+    case AccessoryInfoIID.serialNumber: return .string(serialNumber)
+    case AccessoryInfoIID.firmwareRevision: return .string(firmwareRevision)
+    case Self.iidCurrentAmbientLightLevel: return .float(currentLux)
+    case BatteryIID.batteryLevel: return batteryState.map { .int($0.level) }
+    case BatteryIID.chargingState: return batteryState.map { .int($0.chargingState) }
+    case BatteryIID.statusLowBattery: return batteryState.map { .int($0.statusLowBattery) }
+    default: return nil
+    }
+  }
+
+  @discardableResult
+  public func writeCharacteristic(iid: Int, value: HAPValue, sharedSecret: SharedSecret? = nil)
+    -> Bool
+  {
+    if iid == AccessoryInfoIID.identify {
+      identify()
+      return true
+    }
+    return false
+  }
+
+  public func identify() {}
+
+  public func toJSON() -> [String: Any] {
+    var services: [[String: Any]] = [
+      accessoryInformationServiceJSON(),
+      [
+        "iid": Self.iidLightSensorService,
+        "type": Self.uuidLightSensor,
+        "characteristics": [
+          [
+            "iid": Self.iidCurrentAmbientLightLevel,
+            "type": Self.uuidCurrentAmbientLightLevel, "format": "float",
+            "perms": ["pr", "ev"], "value": currentLux,
+            "minValue": 0.0001, "maxValue": 100000, "unit": "lux",
+          ] as [String: Any]
+        ],
+      ],
+    ]
+    if let battery = batteryServiceJSON(state: batteryState) {
+      services.append(battery)
+    }
+    return ["aid": aid, "services": services]
+  }
+}

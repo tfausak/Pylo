@@ -293,6 +293,13 @@ final class HAPViewModel {
         enabledAccessories.append(setup.motionSensor)
       }
 
+      if config.selectedStreamCameraID != nil {
+        setup.lightSensor.onStateChange = { [weak server = setup.server] aid, iid, value in
+          server?.notifySubscribers(aid: aid, iid: iid, value: value)
+        }
+        enabledAccessories.append(setup.lightSensor)
+      }
+
       setup.server.pairingStore.onChange = { [weak self, weak server = setup.server] in
         Task { @MainActor [weak self, weak server] in
           withAnimation { self?.hasPairings = server?.pairingStore.isPaired ?? false }
@@ -307,6 +314,7 @@ final class HAPViewModel {
         setup.lightbulb.batteryState = sharedBatteryState
         setup.camera.batteryState = sharedBatteryState
         setup.motionSensor.batteryState = sharedBatteryState
+        setup.lightSensor.batteryState = sharedBatteryState
 
         battery.onBatteryChange = { [weak server = setup.server] state in
           sharedBatteryState.update(
@@ -406,11 +414,13 @@ private struct ServerSetup: @unchecked Sendable {
   let lightbulb: HAPAccessory
   let camera: HAPCameraAccessory
   let motionSensor: HAPMotionSensorAccessory
+  let lightSensor: HAPLightSensorAccessory
   let server: HAPServer
   let fmp4Writer: FragmentedMP4Writer?
   let dataStream: HAPDataStream?
   let monitoringSession: MonitoringCaptureSession?
   let motionMonitor: MotionMonitor
+  let ambientLightDetector: AmbientLightDetector?
   let isMotionAvailable: Bool
 }
 
@@ -431,6 +441,11 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
   let camera = HAPCameraAccessory(
     aid: 3, name: "Pylo Camera", model: "HAP-PoC", manufacturer: "DIY",
     serialNumber: config.serial + "-cam", firmwareRevision: "0.1.0"
+  )
+
+  let lightSensor = HAPLightSensorAccessory(
+    aid: 4, name: "Pylo Light Sensor", model: "HAP-PoC", manufacturer: "DIY",
+    serialNumber: config.serial + "-light-sensor", firmwareRevision: "0.1.0"
   )
 
   let motionSensor = HAPMotionSensorAccessory(
@@ -513,6 +528,20 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     }
   }
 
+  // Ambient light sensor — auto-enabled when camera is enabled, derives lux
+  // from AVCaptureDevice exposure metadata on every frame (internally throttled).
+  var ambientLightDetector: AmbientLightDetector?
+  if config.selectedStreamCameraID != nil {
+    let detector = AmbientLightDetector()
+    detector.device = camera.resolvedCamera
+    detector.onLuxChange = { [weak lightSensor] lux in
+      lightSensor?.updateLux(lux)
+    }
+    camera.ambientLightDetector = detector
+    ambientLightDetector = detector
+    enabledAccessories.append(lightSensor)
+  }
+
   if config.motionEnabled { enabledAccessories.append(motionSensor) }
 
   // NWListener creation — also benefits from being off MainActor
@@ -546,6 +575,7 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
       guard let camera else { return }
       if needed {
         monitoring?.videoMotionDetector = camera.videoMotionDetector
+        monitoring?.ambientLightDetector = camera.ambientLightDetector
         monitoring?.audioRecordingEnabled = camera.recordingAudioActive != 0
         if let device = camera.resolvedCamera {
           monitoring?.start(camera: device)
@@ -559,6 +589,7 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     // Auto-start monitoring if recordingActive was restored from a previous session
     if camera.recordingActive != 0, camera.streamSession == nil {
       monitoring.videoMotionDetector = camera.videoMotionDetector
+      monitoring.ambientLightDetector = camera.ambientLightDetector
       monitoring.audioRecordingEnabled = camera.recordingAudioActive != 0
       if let device = camera.resolvedCamera {
         monitoring.start(camera: device)
@@ -590,6 +621,7 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
       let device = camera.resolvedCamera
     {
       monitoringSession?.videoMotionDetector = camera.videoMotionDetector
+      monitoringSession?.ambientLightDetector = camera.ambientLightDetector
       monitoringSession?.audioRecordingEnabled = camera.recordingAudioActive != 0
       monitoringSession?.start(camera: device)
     }
@@ -603,10 +635,11 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
 
   return ServerSetup(
     bridge: bridge, lightbulb: lightbulb, camera: camera,
-    motionSensor: motionSensor,
+    motionSensor: motionSensor, lightSensor: lightSensor,
     server: server, fmp4Writer: fmp4Writer, dataStream: dataStream,
     monitoringSession: monitoringSession,
     motionMonitor: motionMonitor,
+    ambientLightDetector: ambientLightDetector,
     isMotionAvailable: motionMonitor.isAvailable
   )
 }
