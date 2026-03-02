@@ -83,12 +83,12 @@ public nonisolated final class PairingStore: @unchecked Sendable {
     let key = Self.normalizeID(pairing.identifier)
     let normalized = Pairing(
       identifier: key, publicKey: pairing.publicKey, isAdmin: pairing.isAdmin)
-    lock.withLock { $0[key] = normalized }
-    if !save() {
-      // Roll back in-memory state so it stays consistent with disk.
-      lock.withLock { _ = $0.removeValue(forKey: key) }
-      return
-    }
+    // Build the target state and persist before updating in-memory,
+    // so no thread can observe a state that isn't backed by disk.
+    var target = lock.withLock { $0 }
+    target[key] = normalized
+    guard save(target) else { return }
+    lock.withLock { $0 = target }
     Self.logger.info("Added pairing: \(key) admin=\(pairing.isAdmin)")
     onChange?()
   }
@@ -101,17 +101,15 @@ public nonisolated final class PairingStore: @unchecked Sendable {
     let key = Self.normalizeID(pairing.identifier)
     let normalized = Pairing(
       identifier: key, publicKey: pairing.publicKey, isAdmin: pairing.isAdmin)
-    let added = lock.withLock { state -> Bool in
-      guard state.isEmpty else { return false }
-      state[key] = normalized
-      return true
+    // Atomically check emptiness and build target state under lock,
+    // but don't commit in-memory until disk write succeeds.
+    let target: [String: Pairing]? = lock.withLock { state in
+      guard state.isEmpty else { return nil }
+      return [key: normalized]
     }
-    guard added else { return false }
-    if !save() {
-      // Roll back — the pairing must not exist only in memory.
-      lock.withLock { _ = $0.removeValue(forKey: key) }
-      return false
-    }
+    guard let target else { return false }
+    guard save(target) else { return false }
+    lock.withLock { $0 = target }
     Self.logger.info("Added first pairing: \(key) admin=\(pairing.isAdmin)")
     onChange?()
     return true
@@ -119,11 +117,10 @@ public nonisolated final class PairingStore: @unchecked Sendable {
 
   public func removePairing(identifier: String) {
     let key = Self.normalizeID(identifier)
-    guard let old = lock.withLock({ $0.removeValue(forKey: key) }) else { return }
-    if !save() {
-      lock.withLock { $0[Self.normalizeID(old.identifier)] = old }
-      return
-    }
+    var target = lock.withLock { $0 }
+    guard target.removeValue(forKey: key) != nil else { return }
+    guard save(target) else { return }
+    lock.withLock { $0 = target }
     onChange?()
   }
 
@@ -133,23 +130,15 @@ public nonisolated final class PairingStore: @unchecked Sendable {
   }
 
   public func removeAll() {
-    let snapshot = lock.withLock { state -> [String: Pairing] in
-      let copy = state
-      state.removeAll()
-      return copy
-    }
-    if !save() {
-      lock.withLock { $0 = snapshot }
-      return
-    }
+    guard save([:]) else { return }
+    lock.withLock { $0.removeAll() }
     onChange?()
   }
 
   @discardableResult
-  private func save() -> Bool {
-    let snapshot = lock.withLock { $0 }
+  private func save(_ state: [String: Pairing]) -> Bool {
     do {
-      let data = try JSONEncoder().encode(snapshot)
+      let data = try JSONEncoder().encode(state)
       try data.write(
         to: Self.storageURL,
         options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]

@@ -9,21 +9,21 @@ import SwiftUI
 /// whether settings have actually diverged (not just toggled and toggled back).
 struct AccessoryConfig: Equatable {
   var flashlightEnabled: Bool
-  var cameraEnabled: Bool
+  var selectedCameraID: String?
   var motionEnabled: Bool
 
   init(
-    flashlightEnabled: Bool, cameraEnabled: Bool,
+    flashlightEnabled: Bool, selectedCameraID: String?,
     motionEnabled: Bool
   ) {
     self.flashlightEnabled = flashlightEnabled
-    self.cameraEnabled = cameraEnabled
+    self.selectedCameraID = selectedCameraID
     self.motionEnabled = motionEnabled
   }
 
   init(from vm: HAPViewModel) {
     flashlightEnabled = vm.flashlightEnabled
-    cameraEnabled = vm.selectedStreamCamera != nil
+    selectedCameraID = vm.selectedStreamCamera?.id
     motionEnabled = vm.motionEnabled
   }
 }
