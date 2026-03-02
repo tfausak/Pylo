@@ -101,36 +101,34 @@ nonisolated enum PairSetupHandler {
     }
   }
 
+  /// Key store for persisting setup code and setup ID.
+  /// Must be set by the app before the server starts.
+  static var keyStore: KeyStore!
+
   /// The setup code displayed to the user (format: XXX-XX-XXX).
-  /// Generated randomly on first launch and persisted to Keychain.
+  /// Generated randomly on first launch and persisted via keyStore.
   static let setupCode: String = {
-    if let data = KeychainHelper.load(key: "setup-code"),
+    if let data = keyStore.load(key: "setup-code"),
       let code = String(data: data, encoding: .utf8)
     {
       return code
     }
     let code = generateSetupCode()
-    KeychainHelper.save(
-      key: "setup-code", data: Data(code.utf8),
-      accessible: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-    )
+    keyStore.save(key: "setup-code", data: Data(code.utf8))
     return code
   }()
 
   /// 4-character alphanumeric Setup ID required for QR code pairing.
-  /// Generated once and persisted to Keychain.
+  /// Generated once and persisted via keyStore.
   static let setupID: String = {
-    if let data = KeychainHelper.load(key: "setup-id"),
+    if let data = keyStore.load(key: "setup-id"),
       let id = String(data: data, encoding: .utf8)
     {
       return id
     }
     let chars = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ")
     let id = String((0..<4).map { _ in chars[Int.random(in: chars.indices)] })
-    KeychainHelper.save(
-      key: "setup-id", data: Data(id.utf8),
-      accessible: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-    )
+    keyStore.save(key: "setup-id", data: Data(id.utf8))
     return id
   }()
 

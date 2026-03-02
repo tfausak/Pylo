@@ -33,7 +33,9 @@ struct CameraOption: Identifiable, Hashable, Sendable {
 
 /// HAP camera sub-accessory exposing CameraRTPStreamManagement.
 /// Handles the full pipeline: TLV8 negotiation → video capture → H.264 → RTP → SRTP → UDP.
-nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sendable {
+nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotProvider,
+  @unchecked Sendable
+{
 
   let aid: Int
   let name: String

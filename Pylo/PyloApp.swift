@@ -45,7 +45,12 @@ enum MotionSensitivity: String, CaseIterable, Identifiable {
 
 @main
 struct PyloApp: App {
-  @State private var viewModel = HAPViewModel()
+  // Ensure keyStore is set before HAPViewModel initializes (which accesses PairSetupHandler.setupCode).
+  private static let _ensureKeyStore: Void = {
+    PairSetupHandler.keyStore = KeychainKeyStore()
+  }()
+
+  @State private var viewModel = { _ensureKeyStore; return HAPViewModel() }()
 
   init() {
     #if os(iOS)
@@ -496,8 +501,10 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
   )
 
   // File I/O and Keychain reads — the main motivation for running off MainActor
+  let keyStore = KeychainKeyStore()
+  PairSetupHandler.keyStore = keyStore
   let pairingStore = PairingStore()
-  let identity = DeviceIdentity()
+  let identity = DeviceIdentity(keyStore: keyStore)
 
   // Build enabled accessories list
   var enabledAccessories: [any HAPAccessoryProtocol] = []
@@ -674,7 +681,10 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
 ///   bits 27–30: accessory category (4 bits)
 ///   bits 31–34: status flags (4 bits, 2 = IP)
 ///   bits 35–44: reserved / version (0)
-func hapSetupURI(setupCode: String, category: Int = HAPAccessoryCategory.bridge.rawValue)
+func hapSetupURI(
+  setupCode: String, category: Int = HAPAccessoryCategory.bridge.rawValue,
+  setupID: String? = nil
+)
   -> String
 {
   let digits = setupCode.filter(\.isWholeNumber)
@@ -688,7 +698,7 @@ func hapSetupURI(setupCode: String, category: Int = HAPAccessoryCategory.bridge.
   // Base-36 encode, uppercase, zero-padded to 9 characters
   var encoded = String(payload, radix: 36, uppercase: true)
   while encoded.count < 9 { encoded = "0" + encoded }
-  return "X-HM://\(encoded)\(PairSetupHandler.setupID)"
+  return "X-HM://\(encoded)\(setupID ?? PairSetupHandler.setupID)"
 }
 
 /// Generate a crisp QR code `UIImage` from a string using CoreImage.

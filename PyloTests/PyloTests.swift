@@ -2385,7 +2385,7 @@ struct SetupURITests {
     //   bits  0-26: 11122333 (0xA9C29D)
     //   bits 27-30: category (2)
     //   bits 31-34: flags (2)
-    let uri = hapSetupURI(setupCode: "111-22-333", category: 2)
+    let uri = hapSetupURI(setupCode: "111-22-333", category: 2, setupID: "T3ST")
     #expect(uri.hasPrefix("X-HM://"))
 
     // Extract base-36 payload (drop "X-HM://" prefix and 4-char setupID suffix)
@@ -2405,7 +2405,7 @@ struct SetupURITests {
 
   @Test("Returns empty string for invalid setup code")
   func invalidCode() {
-    let uri = hapSetupURI(setupCode: "not-a-number")
+    let uri = hapSetupURI(setupCode: "not-a-number", setupID: "T3ST")
     #expect(uri.isEmpty)
   }
 }
