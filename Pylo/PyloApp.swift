@@ -704,8 +704,9 @@ func hapSetupURI(
 }
 
 /// Generate a crisp QR code `UIImage` from a string using CoreImage.
+private let _qrContext = CIContext()
 func generateQRCode(from string: String) -> UIImage? {
-  let context = CIContext()
+  let context = _qrContext
   let filter = CIFilter.qrCodeGenerator()
   filter.message = Data(string.utf8)
   filter.correctionLevel = "M"
