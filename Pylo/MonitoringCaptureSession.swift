@@ -154,7 +154,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       audioOut.setSampleBufferDelegate(audioDelegate, queue: captureQueue)
       if session.canAddOutput(audioOut) {
         session.addOutput(audioOut)
-        self.audioCaptureDelegate = audioDelegate
+        lock.withLock { self.audioCaptureDelegate = audioDelegate }
 
         // Create AAC-ELD encoder
         if let converter = Self.createAudioEncoder(logger: logger) {
@@ -211,7 +211,9 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       logger.info("Monitoring capture start aborted (stop() called concurrently)")
       return
     }
-    self.videoCaptureDelegate = delegate
+    lock.withLock {
+      self.videoCaptureDelegate = delegate
+    }
     fragmentWriter?.includeAudioTrack = audioReady
 
     sessionQueue.async {
@@ -259,8 +261,10 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       AudioConverterDispose(ac)
     }
 
-    videoCaptureDelegate = nil
-    audioCaptureDelegate = nil
+    lock.withLock {
+      videoCaptureDelegate = nil
+      audioCaptureDelegate = nil
+    }
     logger.info("Monitoring capture stopped")
   }
 
