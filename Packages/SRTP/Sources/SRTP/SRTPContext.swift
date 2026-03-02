@@ -126,7 +126,7 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
       if s.packetCount > 0
         && seq < s.lastSequenceNumber && (s.lastSequenceNumber &- seq) > 0x8000
       {
-        s.rolloverCounter += 1
+        s.rolloverCounter &+= 1
       }
       s.lastSequenceNumber = seq
       s.packetCount += 1

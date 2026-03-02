@@ -130,10 +130,13 @@ extension MonitoringCaptureSession {
     let isFloat = (sourceASBD.mFormatFlags & kAudioFormatFlagIsFloat) != 0
     let is16Bit = sourceASBD.mBitsPerChannel == 16
 
+    guard sourceASBD.mBytesPerFrame > 0, sourceChannels > 0 else { return Data() }
+
     // Pre-allocate to avoid repeated heap growth during the per-callback conversion
-    let sampleCount = data.count / Int(sourceASBD.mBytesPerFrame) * (sourceChannels > 0 ? 1 : 0)
+    let totalSamples = data.count / Int(sourceASBD.mBytesPerFrame)
+    let monoSamples = totalSamples / sourceChannels
     var floatSamples: [Float] = []
-    floatSamples.reserveCapacity(sampleCount > 0 ? sampleCount : data.count / 4)
+    floatSamples.reserveCapacity(monoSamples)
 
     if isFloat && sourceASBD.mBitsPerChannel == 32 {
       data.withUnsafeBytes { ptr in
