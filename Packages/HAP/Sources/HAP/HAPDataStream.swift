@@ -14,27 +14,33 @@ public nonisolated final class HAPDataStream: @unchecked Sendable {
 
   private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "DataStream")
 
-  /// TCP listener for HDS connections.
-  private var listener: NWListener?
-
-  /// Active HDS connection to the hub.
-  public private(set) var connection: HDSConnection?
+  /// All mutable state protected by stateLock, since setupTransport runs
+  /// on the HAP queue and newConnectionHandler/listener callbacks run on
+  /// the HDS queue.
+  private struct State {
+    var listener: NWListener?
+    var connection: HDSConnection?
+    var fragmentWriter: FragmentedMP4Writer?
+    var pendingReadKey: SymmetricKey?
+    var pendingWriteKey: SymmetricKey?
+  }
+  private let stateLock = OSAllocatedUnfairLock(initialState: State())
 
   /// Port the listener is bound to.
   public var port: UInt16? {
-    listener?.port?.rawValue
+    stateLock.withLock { $0.listener?.port?.rawValue }
+  }
+
+  /// Active HDS connection to the hub.
+  public var connection: HDSConnection? {
+    stateLock.withLock { $0.connection }
   }
 
   /// The fragment writer to serve prebuffered and live video from.
-  public weak var fragmentWriter: FragmentedMP4Writer?
-
-  /// Encryption keys derived in setupTransport(), stored until the hub
-  /// actually opens the TCP connection (which happens after the HAP write).
-  /// Protected by stateLock since setupTransport runs on the HAP queue
-  /// and newConnectionHandler runs on the HDS queue.
-  private var pendingReadKey: SymmetricKey?
-  private var pendingWriteKey: SymmetricKey?
-  private let stateLock = OSAllocatedUnfairLock(initialState: ())
+  public weak var fragmentWriter: FragmentedMP4Writer? {
+    get { stateLock.withLock { $0.fragmentWriter } }
+    set { stateLock.withLock { $0.fragmentWriter = newValue } }
+  }
 
   public init() {}
 
@@ -48,7 +54,7 @@ public nonisolated final class HAPDataStream: @unchecked Sendable {
     listener.stateUpdateHandler = { [weak self] state in
       switch state {
       case .ready:
-        if let port = self?.listener?.port {
+        if let port = self?.stateLock.withLock({ $0.listener?.port }) {
           self?.logger.info("HDS listener ready on port \(port.rawValue)")
         }
       case .failed(let error):
@@ -63,25 +69,31 @@ public nonisolated final class HAPDataStream: @unchecked Sendable {
       self.logger.info("HDS: new TCP connection from hub")
 
       let conn = HDSConnection(connection: nwConnection, queue: queue)
-      conn.fragmentWriter = self.fragmentWriter
 
-      self.stateLock.withLock { _ in
-        // Only allow one connection at a time
-        self.connection?.cancel()
-        self.connection = conn
-
-        // Apply encryption keys that were derived in setupTransport()
-        if let readKey = self.pendingReadKey, let writeKey = self.pendingWriteKey {
-          conn.setupEncryption(readKey: readKey, writeKey: writeKey)
-          conn.start()
-          self.pendingReadKey = nil
-          self.pendingWriteKey = nil
+      // Snapshot state under lock, then perform side effects outside
+      let (oldConn, writer, keys) = self.stateLock.withLock { s -> (HDSConnection?, FragmentedMP4Writer?, (SymmetricKey, SymmetricKey)?) in
+        let old = s.connection
+        s.connection = conn
+        let w = s.fragmentWriter
+        var k: (SymmetricKey, SymmetricKey)? = nil
+        if let rk = s.pendingReadKey, let wk = s.pendingWriteKey {
+          k = (rk, wk)
+          s.pendingReadKey = nil
+          s.pendingWriteKey = nil
         }
+        return (old, w, k)
+      }
+
+      oldConn?.cancel()
+      conn.fragmentWriter = writer
+      if let (readKey, writeKey) = keys {
+        conn.setupEncryption(readKey: readKey, writeKey: writeKey)
+        conn.start()
       }
     }
 
     listener.start(queue: queue)
-    self.listener = listener
+    stateLock.withLock { $0.listener = listener }
   }
 
   /// Handle the SetupDataStreamTransport write from the hub.
@@ -158,17 +170,19 @@ public nonisolated final class HAPDataStream: @unchecked Sendable {
       "HDS keys derived: controllerSalt=\(controllerKeySalt.count)B, accessorySalt=\(accessoryKeySalt.count)B"
     )
 
-    stateLock.withLock { _ in
+    let oldConn = stateLock.withLock { s -> HDSConnection? in
       // Cancel any existing encrypted connection.
-      connection?.cancel()
-      connection = nil
+      let old = s.connection
+      s.connection = nil
 
       // Store keys — typically the hub connects AFTER this HAP write completes,
       // so the connection doesn't exist yet.  Keys are applied in
       // newConnectionHandler when the TCP connection actually arrives.
-      pendingReadKey = readKey
-      pendingWriteKey = writeKey
+      s.pendingReadKey = readKey
+      s.pendingWriteKey = writeKey
+      return old
     }
+    oldConn?.cancel()
 
     // Build response TLV (flat format matching HAP-NodeJS)
     let listenPort = port ?? 0
@@ -186,13 +200,13 @@ public nonisolated final class HAPDataStream: @unchecked Sendable {
 
   /// Stop the HDS listener and close any active connection.
   public func stop() {
-    let (conn, lst) = stateLock.withLock { _ -> (HDSConnection?, NWListener?) in
-      let c = connection
-      let l = listener
-      connection = nil
-      listener = nil
-      pendingReadKey = nil
-      pendingWriteKey = nil
+    let (conn, lst) = stateLock.withLock { s -> (HDSConnection?, NWListener?) in
+      let c = s.connection
+      let l = s.listener
+      s.connection = nil
+      s.listener = nil
+      s.pendingReadKey = nil
+      s.pendingWriteKey = nil
       return (c, l)
     }
     conn?.cancel()
@@ -312,9 +326,13 @@ public nonisolated final class HDSConnection: @unchecked Sendable {
 
         guard let payload, payload.count == totalRead else { return }
 
-        if let decrypted = self.decryptFrame(type: frameType, header: data, payload: payload) {
-          self.handleDecryptedMessage(decrypted)
+        guard let decrypted = self.decryptFrame(type: frameType, header: data, payload: payload)
+        else {
+          self.logger.error("HDS decryption failed, closing connection")
+          self.cancel()
+          return
         }
+        self.handleDecryptedMessage(decrypted)
 
         self.receiveFrame()
       }

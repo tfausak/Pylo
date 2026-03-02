@@ -109,7 +109,13 @@ public nonisolated enum CharacteristicsHandler {
       // Handle value write first, then apply event subscription only on success.
       // writeCharacteristic returns false for unknown iids, so it doubles as an
       // existence check for write-only characteristics (HAP spec §6.7.2.2).
-      if let rawValue = char["value"], let value = HAPValue(fromJSON: rawValue) {
+      if let rawValue = char["value"] {
+        guard let value = HAPValue(fromJSON: rawValue) else {
+          allOK = false
+          logger.warning("PUT write \(aid).\(iid) invalid value type")
+          results.append(["aid": aid, "iid": iid, "status": -70410])
+          continue
+        }
         logger.debug("PUT write \(aid).\(iid) = \(String(describing: value))")
         // Pass the writing connection's shared secret so that downstream
         // callbacks (e.g. SetupDataStreamTransport) can derive HDS keys

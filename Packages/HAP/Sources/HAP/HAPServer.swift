@@ -265,6 +265,19 @@ public nonisolated final class HAPServer: @unchecked Sendable {
     }
   }
 
+  /// Terminate sessions after a short delay to let the current response flush.
+  /// Used by pairing removal (HAP §5.11) to ensure M2 is delivered before teardown.
+  public func terminateSessionsAfterResponse(forController controllerID: String) {
+    queue.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+      guard let self else { return }
+      let toRemove = self.connections.filter { $0.value.verifiedControllerID == controllerID }
+      for (id, conn) in toRemove {
+        conn.cancel()
+        self.connections.removeValue(forKey: id)
+      }
+    }
+  }
+
   /// Notify all subscribed connections of a characteristic change.
   /// Dispatches to the server queue so `connections` is accessed thread-safely.
   public func notifySubscribers(aid: Int, iid: Int, value: HAPValue) {
