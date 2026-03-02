@@ -38,10 +38,10 @@ public nonisolated final class FragmentRingBuffer: Sendable {
   /// Add a completed fragment to the ring buffer.
   public func append(_ fragment: MP4Fragment) {
     state.withLock { state in
-      if state.fragments.count >= capacity {
-        state.fragments.removeFirst()
-      }
       state.fragments.append(fragment)
+      if state.fragments.count > capacity {
+        state.fragments = Array(state.fragments.suffix(capacity))
+      }
     }
   }
 
@@ -191,6 +191,23 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     // Collect fragments emitted during the lock and notify outside the lock
     // to prevent deadlock if the callback reenters the writer.
     // At most two fragments can be emitted: one from a PTS gap flush, one from a keyframe flush.
+
+    // Check if init segment needs to be built (outside lock since it's heavy)
+    let needsInitSegment = state.withLock { s -> Bool in
+      s.videoFormatDescription == nil && fmt != nil
+    }
+    if needsInitSegment, let fmt {
+      let includeAudio = state.withLock { $0.includeAudioTrack }
+      let initSeg = buildInitSegment(videoFormat: fmt, includeAudio: includeAudio)
+      state.withLock { s in
+        // Double-check under lock in case another thread raced us
+        if s.videoFormatDescription == nil {
+          s.videoFormatDescription = fmt
+          s.initSegment = initSeg
+        }
+      }
+    }
+
     let (gapFragment, keyframeFragment) = state.withLock {
       s -> (MP4Fragment?, MP4Fragment?) in
       var gap: MP4Fragment?
@@ -212,12 +229,6 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
         }
       }
 
-      // Capture video format description and eagerly build init segment
-      if s.videoFormatDescription == nil, let fmt {
-        s.videoFormatDescription = fmt
-        s.initSegment = buildInitSegment(videoFormat: fmt, includeAudio: s.includeAudioTrack)
-      }
-
       // If this is a keyframe and we have enough buffered data, emit a fragment
       if isKeyframe && !s.pendingSamples.isEmpty && s.fragmentStartPTS.isValid {
         let elapsed = CMTimeGetSeconds(CMTimeSubtract(pts, s.fragmentStartPTS))
@@ -234,14 +245,17 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
       s.pendingSamples.append(VideoSample(data: sampleData, pts: pts, isKeyframe: isKeyframe))
       return (gap, kf)
     }
-    if let gapFragment { onFragmentReady?(gapFragment) }
-    if let keyframeFragment { onFragmentReady?(keyframeFragment) }
+    // Snapshot handler once to avoid TOCTOU if cleared between dispatches
+    let handler = onFragmentReady
+    if let gapFragment { handler?(gapFragment) }
+    if let keyframeFragment { handler?(keyframeFragment) }
   }
 
   /// Stop the writer and flush any pending samples as a final fragment.
   /// Continuity counters (accumulatedDecodeTime, moofSequenceNumber) are preserved
   /// so prebuffered fragments in the ring buffer form a valid continuous fMP4 stream.
   public func stop() {
+    let handler = onFragmentReady
     let flushed: MP4Fragment? = state.withLock { s in
       var result: MP4Fragment?
       if !s.pendingSamples.isEmpty {
@@ -255,7 +269,7 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
       s.initSegment = nil
       return result
     }
-    if let flushed { onFragmentReady?(flushed) }
+    if let flushed { handler?(flushed) }
   }
 
   // MARK: - Fragment Construction
@@ -490,10 +504,10 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
 
     // ftyp box — mp42 major brand matching positron's working HKSV implementation
     var ftypPayload = Data()
-    ftypPayload.append(contentsOf: Array("mp42".utf8))
+    ftypPayload.append(contentsOf: "mp42".utf8)
     Self.putU32BE(&ftypPayload, 1)  // minor_version
     for brand in ["isom", "mp42", "avc1"] {
-      ftypPayload.append(contentsOf: Array(brand.utf8))
+      ftypPayload.append(contentsOf: brand.utf8)
     }
     let ftyp = Self.mp4Box("ftyp", ftypPayload)
 
@@ -568,9 +582,9 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     // hdlr
     var hdlrP = Data()
     Self.putU32BE(&hdlrP, 0)  // pre_defined
-    hdlrP.append(contentsOf: Array("vide".utf8))
+    hdlrP.append(contentsOf: "vide".utf8)
     hdlrP.append(Data(count: 12))  // reserved
-    hdlrP.append(contentsOf: Array("VideoHandler\0".utf8))
+    hdlrP.append(contentsOf: "VideoHandler\0".utf8)
     let hdlr = Self.mp4FullBox("hdlr", payload: hdlrP)
 
     // vmhd
@@ -639,9 +653,9 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     // hdlr
     var hdlrP = Data()
     Self.putU32BE(&hdlrP, 0)  // pre_defined
-    hdlrP.append(contentsOf: Array("soun".utf8))
+    hdlrP.append(contentsOf: "soun".utf8)
     hdlrP.append(Data(count: 12))  // reserved
-    hdlrP.append(contentsOf: Array("SoundHandler\0".utf8))
+    hdlrP.append(contentsOf: "SoundHandler\0".utf8)
     let hdlr = Self.mp4FullBox("hdlr", payload: hdlrP)
 
     // smhd (sound media header)
@@ -721,7 +735,7 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     let size = UInt32(payload.count + 8)
     var data = Data()
     putU32BE(&data, size)
-    data.append(contentsOf: Array(type.utf8.prefix(4)))
+    data.append(contentsOf: type.utf8.prefix(4))
     data.append(payload)
     return data
   }

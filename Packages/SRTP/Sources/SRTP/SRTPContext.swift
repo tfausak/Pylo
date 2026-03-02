@@ -116,17 +116,16 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
     let payload = Data(rtpPacket[rtpPacket.startIndex + 12..<rtpPacket.endIndex])
 
     // Extract SSRC and sequence number from header
-    let ssrc =
-      UInt32(header[header.startIndex + 8]) << 24 | UInt32(header[header.startIndex + 9]) << 16
-      | UInt32(header[header.startIndex + 10]) << 8 | UInt32(header[header.startIndex + 11])
-    let seq = UInt16(header[header.startIndex + 2]) << 8 | UInt16(header[header.startIndex + 3])
+    let ssrc = Self.readU32BE(header, at: 8)
+    let seq = Self.readU16BE(header, at: 2)
 
     // Track rollover counter (under lock for thread safety)
     let (currentROC, packetIndex) = state.withLock { s -> (UInt32, UInt64) in
       // Sender-side ROC: increment when the sequence number wraps.
-      // A decrease > half the sequence space indicates a forward rollover
-      // (RFC 3711 §3.3.1, Appendix A: s_l - SEQ > 2^15).
-      if seq < s.lastSequenceNumber && (s.lastSequenceNumber &- seq) > 0x8000 {
+      // Only apply ROC logic after the first packet (RFC 3711 §3.3.1).
+      if s.packetCount > 0
+        && seq < s.lastSequenceNumber && (s.lastSequenceNumber &- seq) > 0x8000
+      {
         s.rolloverCounter += 1
       }
       s.lastSequenceNumber = seq
@@ -137,7 +136,7 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
     let iv = Self.buildIV(ssrc: ssrc, packetIndex: packetIndex, salt: sessionSalt)
 
     // Encrypt payload with AES-128-CTR
-    guard let encryptedPayload = aesCTREncrypt(key: sessionKey, iv: iv, data: Data(payload)) else {
+    guard let encryptedPayload = aesCTREncrypt(key: sessionKey, iv: iv, data: payload) else {
       return nil
     }
 
@@ -147,8 +146,7 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
 
     // Compute HMAC-SHA1 authentication tag over (header + encrypted payload + ROC)
     var authInput = srtpPacket
-    var roc = currentROC.bigEndian
-    authInput.append(Data(bytes: &roc, count: 4))
+    withUnsafeBytes(of: currentROC.bigEndian) { authInput.append(contentsOf: $0) }
 
     let tag = hmacSHA1(key: sessionAuthKey, data: authInput)
     srtpPacket.append(tag.prefix(10))  // Truncate to 80 bits
@@ -167,9 +165,7 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
     let authenticated = Data(srtpPacket[srtpPacket.startIndex..<srtpPacket.startIndex + tagStart])
 
     // Extract sequence number from header
-    let seq =
-      UInt16(authenticated[authenticated.startIndex + 2]) << 8
-      | UInt16(authenticated[authenticated.startIndex + 3])
+    let seq = Self.readU16BE(authenticated, at: 2)
 
     // Compute candidate ROC without mutating state (RFC 3711 §3.3:
     // state must only be updated after authentication succeeds).
@@ -191,8 +187,7 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
 
     // Verify HMAC-SHA1-80 before committing any state changes
     var authInput = authenticated
-    var roc = candidateROC.bigEndian
-    authInput.append(Data(bytes: &roc, count: 4))
+    withUnsafeBytes(of: candidateROC.bigEndian) { authInput.append(contentsOf: $0) }
     let expectedTag = Data(hmacSHA1(key: sessionAuthKey, data: authInput).prefix(10))
     guard constantTimeCompare(receivedTag, expectedTag) else {
       logger.debug("SRTP unprotect: auth tag mismatch")
@@ -217,9 +212,7 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
     let encryptedPayload = Data(
       authenticated[authenticated.startIndex + 12..<authenticated.endIndex])
 
-    let ssrc =
-      UInt32(header[header.startIndex + 8]) << 24 | UInt32(header[header.startIndex + 9]) << 16
-      | UInt32(header[header.startIndex + 10]) << 8 | UInt32(header[header.startIndex + 11])
+    let ssrc = Self.readU32BE(header, at: 8)
 
     let packetIndex = UInt64(candidateROC) << 16 | UInt64(seq)
     let iv = Self.buildIV(ssrc: ssrc, packetIndex: packetIndex, salt: sessionSalt)
@@ -245,9 +238,7 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
     let payload = Data(rtcpPacket[rtcpPacket.startIndex + 8..<rtcpPacket.endIndex])
 
     // Extract SSRC from header (bytes 4-7)
-    let ssrc =
-      UInt32(header[header.startIndex + 4]) << 24 | UInt32(header[header.startIndex + 5]) << 16
-      | UInt32(header[header.startIndex + 6]) << 8 | UInt32(header[header.startIndex + 7])
+    let ssrc = Self.readU32BE(header, at: 4)
 
     let index = state.withLock { s -> UInt32 in
       let idx = s.srtcpIndex
@@ -268,8 +259,7 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
 
     // E flag (bit 31) = 1 (encrypted) + 31-bit SRTCP index
     let eIndex = (UInt32(1) << 31) | (index & 0x7FFF_FFFF)
-    var eIndexBE = eIndex.bigEndian
-    srtcpPacket.append(Data(bytes: &eIndexBE, count: 4))
+    withUnsafeBytes(of: eIndex.bigEndian) { srtcpPacket.append(contentsOf: $0) }
 
     // Auth tag covers: header + encrypted payload + E||index
     let tag = hmacSHA1(key: srtcpAuthKey, data: srtcpPacket)
@@ -414,6 +404,19 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
         timingsafe_bcmp(lhsPtr.baseAddress, rhsPtr.baseAddress, lhs.count) == 0
       }
     }
+  }
+
+  // MARK: - Big-Endian Read Helpers
+
+  private static func readU16BE(_ data: Data, at offset: Int) -> UInt16 {
+    let i = data.startIndex + offset
+    return UInt16(data[i]) << 8 | UInt16(data[i + 1])
+  }
+
+  private static func readU32BE(_ data: Data, at offset: Int) -> UInt32 {
+    let i = data.startIndex + offset
+    return UInt32(data[i]) << 24 | UInt32(data[i + 1]) << 16
+      | UInt32(data[i + 2]) << 8 | UInt32(data[i + 3])
   }
 
   // MARK: - HMAC-SHA1
