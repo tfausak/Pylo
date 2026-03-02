@@ -1,6 +1,7 @@
 import BigInt
 import CryptoKit
 import Foundation
+import os
 
 // MARK: - SRP-6a Server Implementation
 // This is the core crypto piece that CryptoKit doesn't provide.
@@ -56,14 +57,22 @@ public nonisolated final class SRPServer {
   private let privateKey: BigUInt  // b (random private key)
   private let k: BigUInt  // k = H(N | PAD(g))
 
-  // Client's public key and derived values
-  private var clientPublicKey: BigUInt?
-  private var u: BigUInt?
-  private var sharedSecret: BigUInt?
+  // Client's public key and derived values — protected by a lock since
+  // PairSetupSession is @unchecked Sendable and could theoretically be
+  // accessed from multiple threads.
+  private struct MutableState {
+    var clientPublicKey: BigUInt?
+    var u: BigUInt?
+    var sharedSecret: BigUInt?
+    var sessionKey: SymmetricKey?
+  }
+  private let state = OSAllocatedUnfairLock(initialState: MutableState())
 
   /// The derived session key (K = H(S)), available after verifyClientProof succeeds.
   /// Stored as SymmetricKey for memory protection (SecureBytes, locked pages).
-  public private(set) var sessionKey: SymmetricKey?
+  public var sessionKey: SymmetricKey? {
+    state.withLock { $0.sessionKey }
+  }
 
   // MARK: - Initialization
 
@@ -131,8 +140,6 @@ public nonisolated final class SRPServer {
       return false
     }
 
-    self.clientPublicKey = clientA
-
     // 4. Compute u = H(PAD(A) | PAD(B))
     // RFC 5054 §2.5.4: abort if u == 0
     var uData = Data()
@@ -140,16 +147,23 @@ public nonisolated final class SRPServer {
     uData.append(self.publicKey)
     let computedU = BigUInt(Data(SHA512.hash(data: uData)))
     guard computedU != 0 else { return false }
-    self.u = computedU
 
     // 5. Compute S = (A * v^u)^b mod N
     let u = computedU
     let vu = self.verifier.power(u, modulus: Self.prime)
     let avu = (clientA * vu) % Self.prime
     let s = avu.power(self.privateKey, modulus: Self.prime)
-    self.sharedSecret = s
 
-    return true
+    // 6. Store all derived values atomically under the lock.
+    // Reject if setClientPublicKey was already called (prevents
+    // a malicious client from silently replacing the shared secret).
+    return state.withLock { state in
+      guard state.clientPublicKey == nil else { return false }
+      state.clientPublicKey = clientA
+      state.u = computedU
+      state.sharedSecret = s
+      return true
+    }
   }
 
   // MARK: - Step 3: Verify Client Proof
@@ -157,11 +171,14 @@ public nonisolated final class SRPServer {
   /// Verifies the client's proof M1 and returns the server's proof M2.
   /// Returns nil if verification fails (wrong password).
   public func verifyClientProof(_ clientProof: Data) -> Data? {
-    guard let clientA = self.clientPublicKey,
-      let s = self.sharedSecret
-    else {
-      return nil
-    }
+    // Snapshot the mutable state under the lock
+    let (clientA, s) = state.withLock { (state: inout MutableState) -> (BigUInt, BigUInt)? in
+      guard let a = state.clientPublicKey, let s = state.sharedSecret else { return nil }
+      return (a, s)
+    } ?? (BigUInt(0), BigUInt(0))
+
+    // If the guard above returned nil, clientA/s are zero — bail out
+    guard clientA != 0 else { return nil }
 
     // Derive K = H(S) — only exposed as sessionKey after proof succeeds
     let derivedKey = Data(SHA512.hash(data: Self.pad(s)))
@@ -205,7 +222,7 @@ public nonisolated final class SRPServer {
     let serverProof = Data(SHA512.hash(data: m2Data))
 
     // Proof verified — now expose the session key
-    self.sessionKey = SymmetricKey(data: derivedKey)
+    state.withLock { $0.sessionKey = SymmetricKey(data: derivedKey) }
 
     return serverProof
   }

@@ -117,4 +117,16 @@ struct SRPClientPublicKeyTests {
     let server = SRPServer(username: "Pair-Setup", password: "111-22-333")!
     #expect(server.setClientPublicKey(Data()) == false)
   }
+
+  @Test("Rejects second call to setClientPublicKey")
+  func rejectsDoubleSet() {
+    let server = SRPServer(username: "Pair-Setup", password: "111-22-333")!
+    var key1 = Data(repeating: 0, count: 384)
+    key1[383] = 0x05
+    #expect(server.setClientPublicKey(key1) == true)
+
+    var key2 = Data(repeating: 0, count: 384)
+    key2[383] = 0x07
+    #expect(server.setClientPublicKey(key2) == false)
+  }
 }
