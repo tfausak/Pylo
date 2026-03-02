@@ -39,25 +39,31 @@ Accessories (aid 1-5: bridge, lightbulb, camera, light sensor, motion sensor)
 
 ### Key Files
 
+**App (Pylo/)**
+
 | File | Role |
 |------|------|
-| `Pylo/PyloApp.swift` | App entry point, `HAPViewModel` (central coordinator), `ContentView` (SwiftUI UI) |
-| `Pylo/HAPServer.swift` | TCP listener + Bonjour advertisement |
-| `Pylo/HAPConnection.swift` | Per-client TCP connection, HTTP parsing, encryption layer |
-| `Pylo/HAPAccessory.swift` | `HAPAccessoryProtocol`, lightbulb accessory (torch control) |
+| `Pylo/PyloApp.swift` | App entry point, `HAPViewModel` (central coordinator) |
+| `Pylo/HAPAccessory.swift` | Lightbulb accessory (torch control) |
 | `Pylo/HAPCameraAccessory.swift` | Camera accessory: TLV8 negotiation, snapshot capture, HAP service definition |
 | `Pylo/CameraStreamSession.swift` | Camera streaming pipeline: video capture, H.264, RTP, BSD sockets, audio encode/decode |
-| `Pylo/SRTPContext.swift` | SRTP encryption/authentication (AES-128-ICM + HMAC-SHA1-80, RFC 3711) |
-| `Pylo/AUHeader.swift` | RFC 3640 AU header helpers for AAC-ELD framing |
-| `Pylo/HAPTypes.swift` | Keychain helpers, `DeviceIdentity`, `PairingStore` |
-| `Pylo/PairSetup.swift` | SRP-6a pair-setup state machine |
-| `Pylo/PairVerify.swift` | Curve25519 ECDH pair-verify |
-| `Pylo/SRP.swift` | SRP-6a crypto (3072-bit group, RFC 5054) |
-| `Pylo/TLV8.swift` | HomeKit TLV8 binary codec |
-| `Pylo/CharacteristicsHandler.swift` | GET/PUT /characteristics |
-| `Pylo/PairingsHandler.swift` | Pairing management |
-| `Pylo/AmbientLightMonitor.swift` | Camera auto-exposure metadata → lux |
+| `Pylo/HAPTypes.swift` | Keychain helpers (`KeychainKeyStore`) |
 | `Pylo/MotionMonitor.swift` | Accelerometer threshold detection |
+| `Pylo/VideoMotionDetector.swift` | Camera-based motion detection for HKSV |
+| `Pylo/MonitoringCaptureSession.swift` | Background video capture for HKSV pre-buffering |
+
+**Packages/**
+
+| Package | Key Files | Role |
+|---------|-----------|------|
+| `HAP` | `HAPServer.swift`, `HAPConnection.swift` | TCP listener, Bonjour, per-client HTTP parsing, encryption |
+| `HAP` | `PairSetup.swift`, `PairVerify.swift` | SRP-6a pair-setup, Curve25519 pair-verify state machines |
+| `HAP` | `PairingStore.swift`, `DeviceIdentity.swift` | Pairing persistence, Ed25519 identity |
+| `HAP` | `CharacteristicsHandler.swift`, `PairingsHandler.swift` | GET/PUT /characteristics, pairing management |
+| `SRP` | `SRPServer.swift` | SRP-6a crypto (3072-bit group, RFC 5054) |
+| `SRTP` | `SRTPContext.swift`, `AUHeader.swift` | SRTP encryption (AES-128-ICM + HMAC-SHA1-80), RFC 3640 AU headers |
+| `TLV8` | `TLV8.swift` | HomeKit TLV8 binary codec |
+| `FragmentedMP4` | `FragmentedMP4Writer.swift` | fMP4 segment generation for HKSV recording |
 
 ### Data Flow
 
