@@ -112,6 +112,10 @@ public nonisolated final class EncryptionContext {
 // MARK: - Pair Setup Session State
 
 /// Tracks in-progress pair-setup state for a connection.
+///
+/// All mutable properties are accessed exclusively on the HAP server queue
+/// (via `HAPConnection.pairSetupState`). The class is `@unchecked Sendable`
+/// because queue affinity provides the concurrency guarantee.
 public nonisolated final class PairSetupSession: @unchecked Sendable {
   /// Explicit state machine phase to prevent out-of-order messages.
   public enum Phase {
@@ -133,6 +137,10 @@ public nonisolated final class PairSetupSession: @unchecked Sendable {
 // MARK: - Pair Verify Session State
 
 /// Tracks in-progress pair-verify state for a connection.
+///
+/// All mutable properties are accessed exclusively on the HAP server queue
+/// (via `HAPConnection.pairVerifyState`). The class is `@unchecked Sendable`
+/// because queue affinity provides the concurrency guarantee.
 public nonisolated final class PairVerifySession: @unchecked Sendable {
   public var sharedSecret: SharedSecret?
   /// Raw bytes of the accessory's ephemeral public key (sent in M2).
