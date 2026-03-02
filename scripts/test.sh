@@ -1,9 +1,9 @@
 #!/usr/bin/env sh
-set -e -o pipefail -o xtrace
-mkdir -p _scratch
+set -o errexit -o pipefail -o xtrace
 
 # Run SPM package tests
-for pkg in Packages/*/; do
+for pkg in Packages/*/
+do
   swift test --package-path "$pkg"
 done
 

@@ -79,7 +79,8 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   }
 
   /// Optional ambient light detector — samples device exposure on every frame (internally throttled).
-  private let _ambientLightDetector = OSAllocatedUnfairLock<AmbientLightDetector?>(initialState: nil)
+  private let _ambientLightDetector = OSAllocatedUnfairLock<AmbientLightDetector?>(
+    initialState: nil)
   var ambientLightDetector: AmbientLightDetector? {
     get { _ambientLightDetector.withLock { $0 } }
     set { _ambientLightDetector.withLock { $0 = newValue } }

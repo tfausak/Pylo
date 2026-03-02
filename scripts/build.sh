@@ -1,6 +1,5 @@
 #!/usr/bin/env sh
-set -o pipefail -o xtrace
-mkdir -p _scratch
+set -o errexit -o pipefail -o xtrace
 xcodebuild \
   -scheme Pylo \
   -destination 'platform=iOS Simulator,name=iPhone 16e' \
