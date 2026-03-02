@@ -1,3 +1,4 @@
+import HAP
 import UIKit
 import os
 

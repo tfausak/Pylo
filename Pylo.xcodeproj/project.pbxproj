@@ -7,7 +7,11 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		34EA22242F4EA91700113A11 /* BigInt in Frameworks */ = {isa = PBXBuildFile; productRef = 34EA22232F4EA91700113A11 /* BigInt */; };
+		AA000001304B000100000001 /* TLV8 in Frameworks */ = {isa = PBXBuildFile; productRef = AA000002304B000100000001 /* TLV8 */; };
+		AA000001304B000100000002 /* SRP in Frameworks */ = {isa = PBXBuildFile; productRef = AA000002304B000100000002 /* SRP */; };
+		AA000001304B000100000003 /* SRTP in Frameworks */ = {isa = PBXBuildFile; productRef = AA000002304B000100000003 /* SRTP */; };
+		AA000001304B000100000004 /* FragmentedMP4 in Frameworks */ = {isa = PBXBuildFile; productRef = AA000002304B000100000004 /* FragmentedMP4 */; };
+		AA000001304B000100000005 /* HAP in Frameworks */ = {isa = PBXBuildFile; productRef = AA000002304B000100000005 /* HAP */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -56,7 +60,11 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				34EA22242F4EA91700113A11 /* BigInt in Frameworks */,
+				AA000001304B000100000001 /* TLV8 in Frameworks */,
+				AA000001304B000100000002 /* SRP in Frameworks */,
+				AA000001304B000100000003 /* SRTP in Frameworks */,
+				AA000001304B000100000004 /* FragmentedMP4 in Frameworks */,
+				AA000001304B000100000005 /* HAP in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -108,7 +116,11 @@
 			);
 			name = Pylo;
 			packageProductDependencies = (
-				34EA22232F4EA91700113A11 /* BigInt */,
+				AA000002304B000100000001 /* TLV8 */,
+				AA000002304B000100000002 /* SRP */,
+				AA000002304B000100000003 /* SRTP */,
+				AA000002304B000100000004 /* FragmentedMP4 */,
+				AA000002304B000100000005 /* HAP */,
 			);
 			productName = Pylo;
 			productReference = 34EA21E22F4EA5FF00113A11 /* Pylo.app */;
@@ -167,7 +179,11 @@
 			mainGroup = 34EA21D92F4EA5FF00113A11;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				34EA22222F4EA91700113A11 /* XCRemoteSwiftPackageReference "BigInt" */,
+				AA000003304B000100000001 /* XCLocalSwiftPackageReference "Packages/TLV8" */,
+				AA000003304B000100000002 /* XCLocalSwiftPackageReference "Packages/SRP" */,
+				AA000003304B000100000003 /* XCLocalSwiftPackageReference "Packages/SRTP" */,
+				AA000003304B000100000004 /* XCLocalSwiftPackageReference "Packages/FragmentedMP4" */,
+				AA000003304B000100000005 /* XCLocalSwiftPackageReference "Packages/HAP" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 34EA21E32F4EA5FF00113A11 /* Products */;
@@ -495,22 +511,49 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCRemoteSwiftPackageReference section */
-		34EA22222F4EA91700113A11 /* XCRemoteSwiftPackageReference "BigInt" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/attaswift/BigInt.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 5.1.0;
-			};
+/* Begin XCLocalSwiftPackageReference section */
+		AA000003304B000100000001 /* XCLocalSwiftPackageReference "Packages/TLV8" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/TLV8;
 		};
-/* End XCRemoteSwiftPackageReference section */
+		AA000003304B000100000002 /* XCLocalSwiftPackageReference "Packages/SRP" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/SRP;
+		};
+		AA000003304B000100000003 /* XCLocalSwiftPackageReference "Packages/SRTP" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/SRTP;
+		};
+		AA000003304B000100000004 /* XCLocalSwiftPackageReference "Packages/FragmentedMP4" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/FragmentedMP4;
+		};
+		AA000003304B000100000005 /* XCLocalSwiftPackageReference "Packages/HAP" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/HAP;
+		};
+/* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		34EA22232F4EA91700113A11 /* BigInt */ = {
+		AA000002304B000100000001 /* TLV8 */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 34EA22222F4EA91700113A11 /* XCRemoteSwiftPackageReference "BigInt" */;
-			productName = BigInt;
+			productName = TLV8;
+		};
+		AA000002304B000100000002 /* SRP */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = SRP;
+		};
+		AA000002304B000100000003 /* SRTP */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = SRTP;
+		};
+		AA000002304B000100000004 /* FragmentedMP4 */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = FragmentedMP4;
+		};
+		AA000002304B000100000005 /* HAP */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = HAP;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

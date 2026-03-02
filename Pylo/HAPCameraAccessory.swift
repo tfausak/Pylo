@@ -1,7 +1,10 @@
 @preconcurrency import AVFoundation
 import CoreImage
 import CryptoKit
+import FragmentedMP4
 import Foundation
+import HAP
+import TLV8
 @preconcurrency import UIKit
 import os
 
@@ -45,9 +48,9 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   let firmwareRevision: String
 
   private let _onStateChange = OSAllocatedUnfairLock<
-    ((_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
+    (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
   >(initialState: nil)
-  var onStateChange: ((_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)? {
+  var onStateChange: (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)? {
     get { _onStateChange.withLock { $0 } }
     set { _onStateChange.withLock { $0 = newValue } }
   }

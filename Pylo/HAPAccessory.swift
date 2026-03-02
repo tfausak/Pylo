@@ -1,6 +1,7 @@
 import AVFoundation
 import CryptoKit
 import Foundation
+import HAP
 import os
 
 // MARK: - HAP Accessory
@@ -51,9 +52,9 @@ nonisolated final class HAPAccessory: HAPAccessoryProtocol, @unchecked Sendable 
   /// Callback for notifying the server of state changes (for EVENT notifications).
   /// Protected by a lock: written from @MainActor, read from sensor/server callbacks.
   private let _onStateChange = OSAllocatedUnfairLock<
-    ((_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
+    (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
   >(initialState: nil)
-  var onStateChange: ((_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)? {
+  var onStateChange: (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)? {
     get { _onStateChange.withLock { $0 } }
     set { _onStateChange.withLock { $0 = newValue } }
   }

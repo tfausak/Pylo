@@ -1,6 +1,7 @@
 @preconcurrency import AVFoundation
 import AudioToolbox
 @preconcurrency import CoreMedia
+import FragmentedMP4
 @preconcurrency import UIKit
 import VideoToolbox
 import os
