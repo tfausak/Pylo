@@ -65,8 +65,8 @@ public nonisolated enum TLV8 {
       let value = data[offset..<offset + length]
       offset += length
 
-      // Coalesce consecutive fragments with the same type
-      if let last = results.last, last.0 == type {
+      // Coalesce consecutive fragments with the same type (but never separators)
+      if let last = results.last, last.0 == type, type != Tag.separator.rawValue {
         var combined = last.1
         combined.append(contentsOf: value)
         results[results.count - 1] = (type, combined)
@@ -128,11 +128,20 @@ public nonisolated enum TLV8 {
     var result = Data()
 
     for (tag, value) in items {
-      if value.isEmpty {
-        if tag != .separator {
+      if tag == .separator {
+        // Separators must always be empty (FF 00). Discard any data payload.
+        if !value.isEmpty {
           Logger(subsystem: "me.fausak.taylor.Pylo", category: "TLV8")
-            .warning("Zero-length TLV value for non-separator tag \(tag.rawValue) — likely a bug")
+            .warning("Non-empty separator value (\(value.count)B) discarded — encoding as FF 00")
         }
+        result.append(Tag.separator.rawValue)
+        result.append(0)
+        continue
+      }
+
+      if value.isEmpty {
+        Logger(subsystem: "me.fausak.taylor.Pylo", category: "TLV8")
+          .warning("Zero-length TLV value for non-separator tag \(tag.rawValue) — likely a bug")
         result.append(tag.rawValue)
         result.append(0)
         continue

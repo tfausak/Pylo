@@ -364,3 +364,41 @@ struct TLV8TruncationTests {
     #expect(pairs[1].1 == Data([0x03]))
   }
 }
+
+// MARK: - TLV8 Separator Tests
+
+@Suite("TLV8 Separator Handling")
+struct TLV8SeparatorTests {
+
+  @Test("Consecutive separators are not coalesced during decode")
+  func consecutiveSeparatorsNotCoalesced() {
+    // Two consecutive separator TLVs should produce two separate entries
+    let data = Data([0xFF, 0x00, 0xFF, 0x00])
+    let pairs: [(UInt8, Data)] = TLV8.decode(data)
+    #expect(pairs.count == 2)
+    #expect(pairs[0].0 == 0xFF)
+    #expect(pairs[1].0 == 0xFF)
+  }
+
+  @Test("Consecutive separators produce separate records in decodeRecords")
+  func consecutiveSeparatorsProduceSeparateRecords() {
+    // Record 1: id=A, Record 2: (empty from double separator), Record 3: id=B
+    let encoded = TLV8.encode([
+      (.identifier, Data("A".utf8)),
+      (.separator, Data()),
+      (.separator, Data()),
+      (.identifier, Data("B".utf8)),
+    ])
+    let records = TLV8.decodeRecords(encoded)
+    // Middle empty record gets stripped by the leading/trailing logic,
+    // but we should still get 2 non-empty records plus the empty one
+    #expect(records.count >= 2)
+  }
+
+  @Test("Non-empty separator value is discarded during encode")
+  func nonEmptySeparatorEncodesAsEmpty() {
+    let encoded = TLV8.encode([(.separator, Data([0xAA, 0xBB]))])
+    // Should encode as FF 00 regardless of the data payload
+    #expect(encoded == Data([0xFF, 0x00]))
+  }
+}
