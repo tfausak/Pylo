@@ -92,9 +92,9 @@ extension CameraStreamSession {
     let frameSizeBytes = aacFrameSamples * 4  // 480 samples * 4 bytes/sample (Float32)
 
     while pcmAccumulator.count >= frameSizeBytes {
-      let frameData = pcmAccumulator.prefix(frameSizeBytes)
-      pcmAccumulator = Data(pcmAccumulator.dropFirst(frameSizeBytes))
-      encodeAndSendAudioFrame(Data(frameData))
+      let frameData = Data(pcmAccumulator.prefix(frameSizeBytes))
+      pcmAccumulator.removeFirst(frameSizeBytes)
+      encodeAndSendAudioFrame(frameData)
     }
   }
 
