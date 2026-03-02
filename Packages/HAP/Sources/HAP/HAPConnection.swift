@@ -206,11 +206,8 @@ public nonisolated final class HAPConnection: @unchecked Sendable {
         return
       }
 
-      if isComplete {
-        self.cancel()
-        return
-      }
-
+      // Process data before checking isComplete — NWConnection can deliver
+      // valid data alongside isComplete in the final TCP segment.
       guard let data, data.count == 2 else {
         self.cancel()
         return
@@ -239,11 +236,7 @@ public nonisolated final class HAPConnection: @unchecked Sendable {
           return
         }
 
-        if isComplete {
-          self.cancel()
-          return
-        }
-
+        // Process data before checking isComplete (same as outer callback)
         guard let payload, payload.count == totalLength else {
           self.cancel()
           return
