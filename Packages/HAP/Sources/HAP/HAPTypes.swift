@@ -136,12 +136,10 @@ public nonisolated final class PairVerifySession: @unchecked Sendable {
 
   public init() {}
 }
-nonisolated
 
-  // MARK: - HKDF Convenience
+// MARK: - HKDF Convenience
 
-  extension HKDF<SHA512>
-{
+extension HKDF<SHA512> {
   /// Derive raw bytes using HKDF-SHA512 — use for non-key material (e.g. signature payloads).
   public static func deriveKey(
     inputKeyMaterial: Data,
