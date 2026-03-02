@@ -121,6 +121,9 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
         try audioSession.setPreferredSampleRate(16000)
         try audioSession.setActive(true)
       } catch {
+        // Non-fatal: continue in video-only mode. The sentinel captureSession
+        // will be replaced with the real session below, or cleared by later
+        // error paths if video setup also fails.
         logger.error("AVAudioSession setup error: \(error)")
       }
     #endif
