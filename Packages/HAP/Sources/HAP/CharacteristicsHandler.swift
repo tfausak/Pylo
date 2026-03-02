@@ -127,6 +127,12 @@ public nonisolated enum CharacteristicsHandler {
         // Write-response: read back the value and include in response (HAP §6.7.2.2)
         if char["r"] as? Bool == true {
           hasWriteResponse = true
+          // Apply ev subscription even on write-response entries (HAP §6.7.2.2:
+          // event subscriptions and writes are independent operations).
+          if let ev = char["ev"] as? Bool {
+            let charID = CharacteristicID(aid: aid, iid: iid)
+            if ev { connection.subscribe(to: charID) } else { connection.unsubscribe(from: charID) }
+          }
           var entry: [String: Any] = ["aid": aid, "iid": iid, "status": 0]
           if let responseValue = server.accessory(aid: aid)?.readCharacteristic(iid: iid) {
             entry["value"] = responseValue.jsonValue
