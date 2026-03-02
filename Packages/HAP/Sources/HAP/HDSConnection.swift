@@ -20,9 +20,7 @@ public nonisolated final class HDSConnection: @unchecked Sendable {
   // Encryption keys — set once in setupEncryption (on queue), then read-only.
   private var readKey: SymmetricKey?
   private var writeKey: SymmetricKey?
-  private var readNonce: UInt64 = 0
-  private var writeNonce: UInt64 = 0
-  private let nonceLock = OSAllocatedUnfairLock(initialState: ())
+  private let nonces = OSAllocatedUnfairLock(initialState: (read: UInt64(0), write: UInt64(0)))
 
   /// The fragment writer to serve video from.
   /// Set from the HDS queue (newConnectionHandler) before start() is called.
@@ -140,9 +138,9 @@ public nonisolated final class HDSConnection: @unchecked Sendable {
   private func decryptFrame(type: UInt8, header: Data, payload: Data) -> Data? {
     guard let readKey else { return nil }
 
-    let nonce = nonceLock.withLock { _ -> ChaChaPoly.Nonce in
-      let n = Self.makeHDSNonce(counter: readNonce)
-      readNonce += 1
+    let nonce = nonces.withLock { state -> ChaChaPoly.Nonce in
+      let n = Self.makeHDSNonce(counter: state.read)
+      state.read += 1
       return n
     }
 
@@ -164,9 +162,9 @@ public nonisolated final class HDSConnection: @unchecked Sendable {
   private func sendFrame(_ plaintext: Data) {
     guard let writeKey else { return }
 
-    let nonce = nonceLock.withLock { _ -> ChaChaPoly.Nonce in
-      let n = Self.makeHDSNonce(counter: writeNonce)
-      writeNonce += 1
+    let nonce = nonces.withLock { state -> ChaChaPoly.Nonce in
+      let n = Self.makeHDSNonce(counter: state.write)
+      state.write += 1
       return n
     }
 
