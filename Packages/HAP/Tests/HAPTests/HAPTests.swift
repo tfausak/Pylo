@@ -1442,3 +1442,86 @@ struct PairSetupInProgressFlagTests {
     #expect(!PairSetupHandler.isPairSetupInProgress)
   }
 }
+
+// MARK: - HDSCodec Back-Reference Tests
+
+@Suite("HDSCodec Back-References")
+struct HDSCodecBackReferenceTests {
+
+  @Test("Round-trip encode/decode preserves dict values")
+  func roundTripDict() {
+    let original: [String: Any] = ["key": "value", "num": 42]
+    let encoded = HDSCodec.encode(original)
+    let decoded = HDSCodec.decode(encoded) as? [String: Any]
+    #expect(decoded?["key"] as? String == "value")
+    #expect(decoded?["num"] as? Int == 42)
+  }
+
+  @Test("Decoded arrays are tracked for back-references")
+  func arrayBackReference() {
+    // Manually construct: a dict with two keys pointing to the same array.
+    // The array [1, 2] is encoded once, then a back-reference (0xA0+index) is used.
+    //
+    // Layout:
+    //   0xE2        - dict with 2 entries
+    //   0x41 'a'    - key "a" (1-char string)
+    //   0xD2        - array with 2 elements
+    //     0x09      - int 1 (0x08 + 1)
+    //     0x0A      - int 2 (0x08 + 2)
+    //   0x41 'b'    - key "b" (1-char string)
+    //   0xA?        - back-reference to the array
+    //
+    // tracked order: "a" (0), 1 (1), 2 (2), [1,2] (3), "b" (4)
+    // So back-reference to array is 0xA0 + 3 = 0xA3
+
+    let bytes: [UInt8] = [
+      0xE2,  // dict with 2 entries
+      0x41, 0x61,  // key "a"
+      0xD2,  // array with 2 elements
+      0x09,  // int 1
+      0x0A,  // int 2
+      0x41, 0x62,  // key "b"
+      0xA3,  // back-ref to tracked[3] (the array)
+    ]
+    let data = Data(bytes)
+    let decoded = HDSCodec.decode(data) as? [String: Any]
+
+    let a = decoded?["a"] as? [Any]
+    let b = decoded?["b"] as? [Any]
+    #expect(a?.count == 2)
+    #expect(a?[0] as? Int == 1)
+    #expect(a?[1] as? Int == 2)
+    #expect(b?.count == 2)
+    #expect(b?[0] as? Int == 1)
+    #expect(b?[1] as? Int == 2)
+  }
+
+  @Test("Decoded dicts are tracked for back-references")
+  func dictBackReference() {
+    // Layout:
+    //   0xD2        - array with 2 elements
+    //   0xE1        - dict with 1 entry
+    //     0x41 'x'  - key "x"
+    //     0x09      - int 1
+    //   0xA?        - back-reference to the dict
+    //
+    // tracked order: "x" (0), 1 (1), {"x":1} (2)
+    // So back-reference to dict is 0xA0 + 2 = 0xA2
+
+    let bytes: [UInt8] = [
+      0xD2,  // array with 2 elements
+      0xE1,  // dict with 1 entry
+      0x41, 0x78,  // key "x"
+      0x09,  // int 1
+      0xA2,  // back-ref to tracked[2] (the dict)
+    ]
+    let data = Data(bytes)
+    let decoded = HDSCodec.decode(data) as? [Any]
+
+    #expect(decoded?.count == 2)
+    let first = decoded?[0] as? [String: Any]
+    let second = decoded?[1] as? [String: Any]
+    #expect(first?["x"] as? Int == 1)
+    #expect(second?["x"] as? Int == 1)
+  }
+}

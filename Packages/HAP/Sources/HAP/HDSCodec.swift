@@ -376,6 +376,7 @@ public nonisolated enum HDSCodec {
         guard let v = decodeValue(data, offset: &offset, tracked: &tracked) else { break }
         arr.append(v)
       }
+      tracked.append(arr)
       return arr
 
     case 0xDF:  // Terminated array
@@ -388,6 +389,7 @@ public nonisolated enum HDSCodec {
         guard let v = decodeValue(data, offset: &offset, tracked: &tracked) else { break }
         arr.append(v)
       }
+      tracked.append(arr)
       return arr
 
     case 0xE0...0xEE:  // Dictionary with length (0-14 entries)
@@ -399,6 +401,7 @@ public nonisolated enum HDSCodec {
         guard let value = decodeValue(data, offset: &offset, tracked: &tracked) else { break }
         dict[key] = value
       }
+      tracked.append(dict)
       return dict
 
     case 0xEF:  // Terminated dictionary
@@ -413,6 +416,7 @@ public nonisolated enum HDSCodec {
         guard let value = decodeValue(data, offset: &offset, tracked: &tracked) else { break }
         dict[key] = value
       }
+      tracked.append(dict)
       return dict
 
     default:
