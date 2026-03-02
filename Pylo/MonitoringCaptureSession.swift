@@ -92,7 +92,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     do {
       try camera.lockForConfiguration()
       for range in camera.activeFormat.videoSupportedFrameRateRanges {
-        if range.maxFrameRate >= Double(fps) {
+        if range.minFrameRate <= Double(fps) && range.maxFrameRate >= Double(fps) {
           camera.activeVideoMinFrameDuration = CMTime(value: 1, timescale: CMTimeScale(fps))
           camera.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: CMTimeScale(fps))
           break

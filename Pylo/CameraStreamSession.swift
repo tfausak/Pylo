@@ -422,7 +422,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
       try camera.lockForConfiguration()
       // Find closest frame rate range
       for range in camera.activeFormat.videoSupportedFrameRateRanges {
-        if range.maxFrameRate >= Double(fps) {
+        if range.minFrameRate <= Double(fps) && range.maxFrameRate >= Double(fps) {
           camera.activeVideoMinFrameDuration = CMTime(value: 1, timescale: CMTimeScale(fps))
           camera.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: CMTimeScale(fps))
           break
