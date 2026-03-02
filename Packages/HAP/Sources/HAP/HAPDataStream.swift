@@ -91,8 +91,22 @@ public nonisolated final class HAPDataStream: @unchecked Sendable {
       if let (readKey, writeKey) = keys {
         conn.setupEncryption(readKey: readKey, writeKey: writeKey)
         conn.start()
+      } else {
+        // Keys not yet available — setupTransport hasn't been called.
+        // Set a watchdog to cancel this connection if keys never arrive.
+        queue.asyncAfter(deadline: .now() + 30) { [weak self] in
+          guard let self else { return }
+          let orphaned = self.stateLock.withLock { s -> Bool in
+            guard s.connection === conn, s.pendingReadKey == nil else { return false }
+            s.connection = nil
+            return true
+          }
+          if orphaned {
+            self.logger.warning("HDS: cancelling orphaned connection (no keys after 30s)")
+            conn.cancel()
+          }
+        }
       }
-    }
 
     listener.start(queue: queue)
     stateLock.withLock { $0.listener = listener }

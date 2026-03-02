@@ -386,12 +386,12 @@ public nonisolated final class HDSConnection: @unchecked Sendable {
 
     // Set up live fragment delivery
     pendingEndOfStream = false
-    writer.onFragmentReady = { [weak self] (fragment: MP4Fragment) in
+    writer.onFragmentReady = { [weak self, writer] (fragment: MP4Fragment) in
       self?.queue.async {
         guard let self, self.activeStreamID != nil else { return }
 
         // Send init segment before first fragment if it wasn't available at open time
-        if !self.initSegmentSent, let w = self.fragmentWriter, let initSeg = w.initSegment {
+        if !self.initSegmentSent, let initSeg = writer.initSegment {
           self.logger.info("HDS sending deferred init segment: \(initSeg.count) bytes")
           self.sendDataChunks(initSeg, dataType: "mediaInitialization", isLast: false)
           self.initSegmentSent = true

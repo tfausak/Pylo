@@ -575,6 +575,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   }
 
   private func encodeFrame(_ pixelBuffer: CVPixelBuffer, pts: CMTime) {
+    dispatchPrecondition(condition: .onQueue(captureQueue))
     guard let cs = compressionSession else { return }
 
     encodeFrameCount += 1
@@ -627,6 +628,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   // MARK: - RTP Packetization
 
   private func processEncodedFrame(_ sampleBuffer: CMSampleBuffer) {
+    dispatchPrecondition(condition: .onQueue(rtpQueue))
     guard let dataBuffer = sampleBuffer.dataBuffer else { return }
 
     // Get H.264 NAL units from the sample buffer
@@ -753,6 +755,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   }
 
   private func sendRTPPacket(payload: Data, marker: Bool) {
+    dispatchPrecondition(condition: .onQueue(rtpQueue))
     // RTP header (12 bytes) per RFC 3550
     var header = Data(count: 12)
     header[0] = 0x80  // V=2, P=0, X=0, CC=0
@@ -812,6 +815,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   }
 
   private func sendRTCPSenderReport() {
+    dispatchPrecondition(condition: .onQueue(rtpQueue))
     guard let ctx = srtpContext else { return }
 
     let sr = Self.buildRTCPSenderReport(

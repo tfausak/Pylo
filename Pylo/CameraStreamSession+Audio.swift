@@ -58,6 +58,7 @@ extension CameraStreamSession {
   // MARK: - Audio Sample Buffer Processing
 
   nonisolated func handleAudioSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
+    dispatchPrecondition(condition: .onQueue(captureQueue))
     guard audioConverter != nil else { return }
     guard audioSocketFD >= 0 else { return }
     guard !isMuted else { return }
@@ -429,6 +430,7 @@ extension CameraStreamSession {
   }
 
   private nonisolated func handleIncomingAudioPacket(_ srtpData: Data) {
+    dispatchPrecondition(condition: .onQueue(rtpQueue))
     guard let ctx = incomingSRTPContext else { return }
     guard !speakerMuted else { return }
     incomingAudioPacketCount += 1
