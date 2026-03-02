@@ -225,6 +225,9 @@ final class HAPViewModel {
 
       guard !Task.isCancelled, self.startGeneration == myGeneration else {
         setup.server.stop()
+        setup.dataStream?.stop()
+        setup.monitoringSession?.stop()
+        setup.fmp4Writer?.stop()
         return
       }
 
