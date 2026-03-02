@@ -856,6 +856,7 @@ public nonisolated struct HDSMessage {
     let bodyData = HDSCodec.encode(body)
 
     var result = Data()
+    precondition(headerData.count <= 255, "HDS header too large: \(headerData.count) bytes")
     result.append(UInt8(headerData.count))  // 1-byte header length prefix
     result.append(headerData)
     result.append(bodyData)
