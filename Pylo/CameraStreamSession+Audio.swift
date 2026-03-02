@@ -155,7 +155,7 @@ extension CameraStreamSession {
     // Resample to 16kHz if needed
     if abs(sourceSampleRate - 16000) > 1 {
       let ratio = 16000.0 / sourceSampleRate
-      let outputCount = Int(Double(floatSamples.count) * ratio)
+      let outputCount = Int((Double(floatSamples.count) * ratio).rounded())
       var resampled = [Float](repeating: 0, count: outputCount)
       for i in 0..<outputCount {
         let srcIdx = Double(i) / ratio
