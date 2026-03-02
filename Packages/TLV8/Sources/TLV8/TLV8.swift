@@ -125,10 +125,11 @@ public nonisolated enum TLV8 {
 
     for (tag, value) in items {
       if value.isEmpty {
-        precondition(
-          tag == .separator,
-          "Zero-length TLV value for non-separator tag \(tag) — likely a bug"
-        )
+        if tag != .separator {
+          assertionFailure(
+            "Zero-length TLV value for non-separator tag \(tag) — likely a bug"
+          )
+        }
         result.append(tag.rawValue)
         result.append(0)
         continue
