@@ -44,6 +44,13 @@ public nonisolated final class SRPServer {
   /// Length of N in bytes (3072 bits = 384 bytes)
   private static let nLength = 384
 
+  /// H(N) XOR H(g) — precomputed since prime and g are static constants.
+  private static let hashNxorG: Data = {
+    let hashN = Data(SHA512.hash(data: prime.serialize()))
+    let hashG = Data(SHA512.hash(data: g.serialize()))
+    return Data(zip(hashN, hashG).map { $0 ^ $1 })
+  }()
+
   // MARK: - Session State
 
   public let salt: Data  // Random 16-byte salt (s)
@@ -51,6 +58,7 @@ public nonisolated final class SRPServer {
 
   private let username: String
   private let password: String
+  private let hashI: Data  // H(username), computed once in init
 
   // Private SRP values
   private let verifier: BigUInt  // v = g^x mod N
@@ -81,6 +89,7 @@ public nonisolated final class SRPServer {
   public init?(username: String, password: String) {
     self.username = username
     self.password = password
+    self.hashI = Data(SHA512.hash(data: Data(username.utf8)))
 
     // 1. Generate random 16-byte salt (s)
     var saltBytes = [UInt8](repeating: 0, count: 16)
@@ -176,33 +185,20 @@ public nonisolated final class SRPServer {
     guard clientProof.count == SHA512.byteCount else { return nil }
 
     // Snapshot the mutable state under the lock
-    let (clientA, s) = state.withLock { (state: inout MutableState) -> (BigUInt, BigUInt)? in
-      guard let a = state.clientPublicKey, let s = state.sharedSecret else { return nil }
-      return (a, s)
-    } ?? (BigUInt(0), BigUInt(0))
-
-    // If the guard above returned nil, clientA/s are zero — bail out
-    guard clientA != 0 else { return nil }
+    guard
+      let (clientA, s) = state.withLock({ (state: inout MutableState) -> (BigUInt, BigUInt)? in
+        guard let a = state.clientPublicKey, let s = state.sharedSecret else { return nil }
+        return (a, s)
+      })
+    else { return nil }
 
     // Derive K = H(S) — only exposed as sessionKey after proof succeeds
     let derivedKey = Data(SHA512.hash(data: Self.pad(s)))
 
     // Compute M1 = H(H(N) XOR H(g) | H(I) | s | A | B | K)
-
-    // H(N) XOR H(g) — hash the raw (unpadded) serializations per RFC 2945.
-    // Note: PAD() is used for k = H(PAD(N) | PAD(g)), but NOT for M1's H(N)/H(g).
-    // For N, serialize() == pad() since it's already 384 bytes; for g=5, serialize()
-    // is [0x05] (1 byte), which is what Apple Home.app expects.
-    let hashN = Data(SHA512.hash(data: Self.prime.serialize()))
-    let hashG = Data(SHA512.hash(data: Self.g.serialize()))
-    let xorResult = Self.xor(hashN, hashG)
-
-    // H(I) where I is the username
-    let hashI = Data(SHA512.hash(data: Data(username.utf8)))
-
-    // Build M1
+    // hashNxorG and hashI are precomputed (static constant and init-time respectively).
     var m1Data = Data()
-    m1Data.append(xorResult)
+    m1Data.append(Self.hashNxorG)
     m1Data.append(hashI)
     m1Data.append(self.salt)
     m1Data.append(Self.pad(clientA))
@@ -243,12 +239,6 @@ public nonisolated final class SRPServer {
     var padded = Data(repeating: 0, count: nLength - data.count)
     padded.append(data)
     return padded
-  }
-
-  /// XORs two Data objects of equal length
-  private static func xor(_ lhs: Data, _ rhs: Data) -> Data {
-    precondition(lhs.count == rhs.count, "XOR requires equal length data")
-    return Data(zip(lhs, rhs).map { $0 ^ $1 })
   }
 
   /// Constant-time comparison of two fixed-length digests.
