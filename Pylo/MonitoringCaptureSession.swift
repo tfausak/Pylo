@@ -54,6 +54,8 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     var audioConverter: AudioConverterRef?
     var pcmAccumulator = Data()
   }
+  /// All access to `_state` must go through `lock.withLock { }`.
+  /// Cannot be `private` because the +Audio.swift extension needs access.
   var _state = State()
 
   // Strong references to delegates to prevent premature deallocation.
