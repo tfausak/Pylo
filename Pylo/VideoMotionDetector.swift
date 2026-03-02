@@ -7,7 +7,11 @@ import os
 /// sum of squared differences against the previous frame.
 nonisolated final class VideoMotionDetector {
 
-  var onMotionChange: ((Bool) -> Void)?
+  private let _onMotionChange = OSAllocatedUnfairLock<((Bool) -> Void)?>(initialState: nil)
+  var onMotionChange: ((Bool) -> Void)? {
+    get { _onMotionChange.withLock { $0 } }
+    set { _onMotionChange.withLock { $0 = newValue } }
+  }
 
   /// Fraction of pixels that must differ to trigger motion (0.0–1.0).
   var threshold: Float = 0.05
