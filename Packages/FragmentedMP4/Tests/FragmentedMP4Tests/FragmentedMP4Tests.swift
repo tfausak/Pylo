@@ -132,6 +132,67 @@ struct FragmentRingBufferTests {
   }
 }
 
+// MARK: - MPEG-4 Descriptor Length Encoding Tests
+
+@Suite("MP4 Descriptor Length")
+struct MP4DescriptorLengthTests {
+
+  @Test("Zero encodes to single byte 0x00")
+  func zero() {
+    let result = FragmentedMP4Writer.mp4DescriptorLength(0)
+    #expect(result == Data([0x00]))
+  }
+
+  @Test("Values below 128 encode to a single byte")
+  func singleByte() {
+    #expect(FragmentedMP4Writer.mp4DescriptorLength(1) == Data([0x01]))
+    #expect(FragmentedMP4Writer.mp4DescriptorLength(42) == Data([42]))
+    #expect(FragmentedMP4Writer.mp4DescriptorLength(127) == Data([0x7F]))
+  }
+
+  @Test("Value 128 encodes to two bytes with continuation bit")
+  func twoBytes128() {
+    // 128 = 0x80: high byte has continuation bit set (0x80 | 0x01 = 0x81), low byte is 0x00
+    let result = FragmentedMP4Writer.mp4DescriptorLength(128)
+    #expect(result == Data([0x81, 0x00]))
+  }
+
+  @Test("Value 255 encodes to two bytes")
+  func twoBytes255() {
+    // 255 = 0xFF: 255 >> 7 = 1, 255 & 0x7F = 0x7F → [0x81, 0x7F]
+    let result = FragmentedMP4Writer.mp4DescriptorLength(255)
+    #expect(result == Data([0x81, 0x7F]))
+  }
+
+  @Test("Value 16383 encodes to two bytes (max 2-byte)")
+  func twoBytesMax() {
+    // 16383 = 0x3FFF: 16383 >> 7 = 127, 16383 & 0x7F = 0x7F → [0xFF, 0x7F]
+    let result = FragmentedMP4Writer.mp4DescriptorLength(16383)
+    #expect(result == Data([0xFF, 0x7F]))
+  }
+
+  @Test("Value 16384 encodes to three bytes")
+  func threeBytesMin() {
+    // 16384 = 0x4000: requires 3 bytes
+    let result = FragmentedMP4Writer.mp4DescriptorLength(16384)
+    #expect(result.count == 3)
+    // Verify continuation bits: first two bytes have MSB set, last does not
+    #expect(result[0] & 0x80 != 0)
+    #expect(result[1] & 0x80 != 0)
+    #expect(result[2] & 0x80 == 0)
+  }
+
+  @Test("Typical AAC config sizes encode to single byte")
+  func typicalAACSize() {
+    // AAC-ELD AudioSpecificConfig is typically 2-5 bytes
+    // ESDS descriptor total is typically ~25 bytes
+    for size in [2, 5, 14, 25, 50] {
+      let result = FragmentedMP4Writer.mp4DescriptorLength(size)
+      #expect(result.count == 1, "Size \(size) should encode as single byte")
+    }
+  }
+}
+
 // MARK: - FragmentedMP4Writer Structural Tests
 
 @Suite("FragmentedMP4Writer Structure")

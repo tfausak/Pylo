@@ -695,11 +695,34 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     return Self.mp4Box("trak", tkhd + mdia)
   }
 
+  /// Encodes a length using MPEG-4 expandable size encoding (ISO 14496-1 §8.3.3).
+  /// Sizes 0–127 use 1 byte; larger sizes use continuation bits.
+  static func mp4DescriptorLength(_ size: Int) -> Data {
+    precondition(size >= 0 && size <= 0x0FFF_FFFF, "Descriptor size out of range")
+    if size < 0x80 {
+      return Data([UInt8(size)])
+    }
+    var result = Data()
+    var remaining = size
+    // Encode in big-endian with continuation bits (MSB set on all but last byte)
+    var bytes: [UInt8] = []
+    bytes.append(UInt8(remaining & 0x7F))
+    remaining >>= 7
+    while remaining > 0 {
+      bytes.append(0x80 | UInt8(remaining & 0x7F))
+      remaining >>= 7
+    }
+    bytes.reverse()
+    result.append(contentsOf: bytes)
+    return result
+  }
+
   private static func buildEsds(trackID: UInt32, audioConfig: Data) -> Data {
     // ES_Descriptor
     let asc = audioConfig  // AudioSpecificConfig
     // DecoderSpecificInfo tag (0x05)
-    var dsi = Data([0x05, UInt8(asc.count)])
+    var dsi = Data([0x05])
+    dsi.append(mp4DescriptorLength(asc.count))
     dsi.append(asc)
 
     // DecoderConfigDescriptor tag (0x04)
@@ -710,7 +733,8 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     putU32BE(&dcd, 24000)  // maxBitrate
     putU32BE(&dcd, 24000)  // avgBitrate
     dcd.append(dsi)
-    var dcdTagged = Data([0x04, UInt8(dcd.count)])
+    var dcdTagged = Data([0x04])
+    dcdTagged.append(mp4DescriptorLength(dcd.count))
     dcdTagged.append(dcd)
 
     // SLConfigDescriptor tag (0x06)
@@ -722,7 +746,8 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     esd.append(0x00)  // streamDependenceFlag=0, URL_Flag=0, OCRstreamFlag=0, streamPriority=0
     esd.append(dcdTagged)
     esd.append(slc)
-    var esdTagged = Data([0x03, UInt8(esd.count)])
+    var esdTagged = Data([0x03])
+    esdTagged.append(mp4DescriptorLength(esd.count))
     esdTagged.append(esd)
 
     // esds box (fullbox version 0)
