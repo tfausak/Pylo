@@ -19,12 +19,15 @@ public struct MP4Fragment: Sendable {
 }
 
 /// Thread-safe circular buffer holding the most recent fMP4 fragments for prebuffering.
+/// Uses index-based overwrite for O(1) append instead of O(n) removeFirst.
 public nonisolated final class FragmentRingBuffer: Sendable {
 
   private let capacity: Int
 
   private struct State: Sendable {
-    var fragments: [MP4Fragment] = []
+    var slots: [MP4Fragment?]
+    var writeIndex = 0
+    var count = 0
     var nextSequence = 0
   }
 
@@ -32,16 +35,16 @@ public nonisolated final class FragmentRingBuffer: Sendable {
 
   public init(capacity: Int = 2) {
     self.capacity = capacity
-    self.state = OSAllocatedUnfairLock(initialState: State())
+    self.state = OSAllocatedUnfairLock(
+      initialState: State(slots: Array(repeating: nil, count: capacity)))
   }
 
-  /// Add a completed fragment to the ring buffer.
+  /// Add a completed fragment to the ring buffer (O(1)).
   public func append(_ fragment: MP4Fragment) {
     state.withLock { state in
-      state.fragments.append(fragment)
-      while state.fragments.count > capacity {
-        state.fragments.removeFirst()
-      }
+      state.slots[state.writeIndex % capacity] = fragment
+      state.writeIndex += 1
+      state.count = min(state.count + 1, capacity)
     }
   }
 
@@ -54,15 +57,23 @@ public nonisolated final class FragmentRingBuffer: Sendable {
     }
   }
 
-  /// Snapshot the current buffer contents (for serving after motion trigger).
+  /// Snapshot the current buffer contents in chronological order.
   public func snapshot() -> [MP4Fragment] {
-    state.withLock { $0.fragments }
+    state.withLock { state in
+      guard state.count > 0 else { return [] }
+      let startIndex = state.writeIndex - state.count
+      return (0..<state.count).compactMap { i in
+        state.slots[(startIndex + i) % capacity]
+      }
+    }
   }
 
   /// Clear all buffered fragments.
   public func clear() {
     state.withLock { state in
-      state.fragments.removeAll()
+      for i in state.slots.indices { state.slots[i] = nil }
+      state.writeIndex = 0
+      state.count = 0
       state.nextSequence = 0
     }
   }

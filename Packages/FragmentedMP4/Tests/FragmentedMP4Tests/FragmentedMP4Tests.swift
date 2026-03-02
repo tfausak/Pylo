@@ -117,6 +117,19 @@ struct FragmentRingBufferTests {
     #expect(buf.nextSequenceNumber() == 2)
   }
 
+  @Test("Multiple wrap-arounds preserve chronological order")
+  func multipleWrapArounds() {
+    let buf = FragmentRingBuffer(capacity: 3)
+    for i in 0..<10 {
+      buf.append(makeFragment(seq: i))
+    }
+    let snap = buf.snapshot()
+    #expect(snap.count == 3)
+    #expect(snap[0].sequenceNumber == 7)
+    #expect(snap[1].sequenceNumber == 8)
+    #expect(snap[2].sequenceNumber == 9)
+  }
+
   @Test("Concurrent append and snapshot does not crash")
   func concurrentAccess() async {
     let buf = FragmentRingBuffer(capacity: 5)
