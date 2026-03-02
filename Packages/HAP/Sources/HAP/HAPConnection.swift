@@ -282,7 +282,12 @@ public nonisolated final class HAPConnection: @unchecked Sendable {
           }
         }
 
-        self.receiveNextRequest()
+        // Detect clean remote shutdown (same as outer callback and receivePlaintextHTTP)
+        if isComplete {
+          self.cancel()
+        } else {
+          self.receiveNextRequest()
+        }
       }
     }
   }
