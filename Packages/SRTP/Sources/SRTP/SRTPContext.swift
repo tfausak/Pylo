@@ -112,12 +112,11 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
   public func protect(_ rtpPacket: Data) -> Data? {
     guard rtpPacket.count >= 12 else { return nil }
 
-    let header = Data(rtpPacket[rtpPacket.startIndex..<rtpPacket.startIndex + 12])
-    let payload = Data(rtpPacket[rtpPacket.startIndex + 12..<rtpPacket.endIndex])
+    let headerEnd = rtpPacket.startIndex + 12
 
-    // Extract SSRC and sequence number from header
-    let ssrc = Self.readU32BE(header, at: 8)
-    let seq = Self.readU16BE(header, at: 2)
+    // Read SSRC and sequence number directly from the input slice
+    let ssrc = Self.readU32BE(rtpPacket, at: 8)
+    let seq = Self.readU16BE(rtpPacket, at: 2)
 
     // Track rollover counter (under lock for thread safety)
     let (currentROC, packetIndex) = state.withLock { s -> (UInt32, UInt64) in
@@ -135,20 +134,21 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
 
     let iv = Self.buildIV(ssrc: ssrc, packetIndex: packetIndex, salt: sessionSalt)
 
-    // Encrypt payload with AES-128-CTR
+    // Encrypt payload with AES-128-CTR (pass slice directly)
+    let payload = rtpPacket[headerEnd...]
     guard let encryptedPayload = aesCTREncrypt(key: sessionKey, iv: iv, data: payload) else {
       return nil
     }
 
-    // Assemble: original header + encrypted payload
-    var srtpPacket = Data(header)
+    // Assemble: original header + encrypted payload (pre-allocate full size)
+    var srtpPacket = Data()
+    srtpPacket.reserveCapacity(12 + encryptedPayload.count + 10)
+    srtpPacket.append(rtpPacket[rtpPacket.startIndex..<headerEnd])
     srtpPacket.append(encryptedPayload)
 
-    // Compute HMAC-SHA1 authentication tag over (header + encrypted payload + ROC)
-    var authInput = srtpPacket
-    withUnsafeBytes(of: currentROC.bigEndian) { authInput.append(contentsOf: $0) }
-
-    let tag = hmacSHA1(key: sessionAuthKey, data: authInput)
+    // Compute HMAC-SHA1 auth tag incrementally: (header + encrypted payload + ROC)
+    let tag = hmacSHA1Incremental(
+      key: sessionAuthKey, srtpPacket: srtpPacket, roc: currentROC)
     srtpPacket.append(tag.prefix(10))  // Truncate to 80 bits
 
     return srtpPacket
@@ -434,6 +434,25 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
           )
         }
       }
+    }
+    return result
+  }
+
+  /// Incremental HMAC-SHA1 over (srtpPacket || ROC) without copying into a single buffer.
+  private func hmacSHA1Incremental(key: Data, srtpPacket: Data, roc: UInt32) -> Data {
+    var ctx = CCHmacContext()
+    key.withUnsafeBytes { keyPtr in
+      CCHmacInit(&ctx, CCHmacAlgorithm(kCCHmacAlgSHA1), keyPtr.baseAddress, key.count)
+    }
+    srtpPacket.withUnsafeBytes { pktPtr in
+      CCHmacUpdate(&ctx, pktPtr.baseAddress, srtpPacket.count)
+    }
+    withUnsafeBytes(of: roc.bigEndian) { rocPtr in
+      CCHmacUpdate(&ctx, rocPtr.baseAddress, 4)
+    }
+    var result = Data(count: Int(CC_SHA1_DIGEST_LENGTH))
+    result.withUnsafeMutableBytes { resultPtr in
+      CCHmacFinal(&ctx, resultPtr.baseAddress)
     }
     return result
   }
