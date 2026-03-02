@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 // MARK: - TLV8 Codec
 // HomeKit Accessory Protocol uses TLV8 (Type-Length-Value, 8-bit) encoding
@@ -129,9 +130,8 @@ public nonisolated enum TLV8 {
     for (tag, value) in items {
       if value.isEmpty {
         if tag != .separator {
-          assertionFailure(
-            "Zero-length TLV value for non-separator tag \(tag) — likely a bug"
-          )
+          Logger(subsystem: "me.fausak.taylor.Pylo", category: "TLV8")
+            .warning("Zero-length TLV value for non-separator tag \(tag.rawValue) — likely a bug")
         }
         result.append(tag.rawValue)
         result.append(0)
