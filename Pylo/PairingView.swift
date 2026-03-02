@@ -14,6 +14,10 @@ struct PairingView: View {
           .resizable()
           .scaledToFit()
           .frame(width: 200, height: 200)
+      } else {
+        RoundedRectangle(cornerRadius: 12)
+          .fill(.quaternary)
+          .frame(width: 200, height: 200)
       }
 
       Text(viewModel.setupCode)
@@ -46,7 +50,7 @@ struct PairingView: View {
     .task(id: viewModel.setupCode) {
       let code = viewModel.setupCode
       let image = await Task.detached {
-        generateQRCode(from: hapSetupURI(setupCode: code))
+          await generateQRCode(from: hapSetupURI(setupCode: code))
       }.value
       qrImage = image
     }
