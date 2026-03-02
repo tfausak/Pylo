@@ -911,12 +911,11 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     let sourceChannels = Int(sourceASBD.mChannelsPerFrame)
     let isFloat = (sourceASBD.mFormatFlags & kAudioFormatFlagIsFloat) != 0
     let is16Bit = sourceASBD.mBitsPerChannel == 16
-    let bytesPerSample = Int(sourceASBD.mBitsPerChannel / 8)
 
     // First convert to Float32 mono
     var floatSamples: [Float] = []
 
-    if isFloat && bytesPerSample == 4 {
+    if isFloat && sourceASBD.mBitsPerChannel == 32 {
       // Already Float32
       data.withUnsafeBytes { ptr in
         let floatPtr = ptr.bindMemory(to: Float.self)
@@ -946,6 +945,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
         }
       }
     } else {
+      logger.warning("Unsupported audio format: \(sourceASBD.mBitsPerChannel)-bit, float=\(isFloat)")
       return Data()
     }
 
