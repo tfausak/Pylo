@@ -31,12 +31,20 @@ nonisolated final class VideoMotionDetector {
   private static let thumbWidth = 160
   private static let thumbHeight = 120
 
+  /// Process every Nth frame (1 = every frame, 5 = every 5th frame at ~6fps).
+  var frameSkip: Int {
+    get { state.withLock { $0.frameSkip } }
+    set { state.withLock { $0.frameSkip = max(1, newValue) } }
+  }
+
   // Thread-safe mutable state
   private struct State {
     var isMotionDetected = false
     var lastMotionDate = Date.distantPast
     var threshold: Float = 0.05
     var cooldown: TimeInterval = 3.0
+    var frameSkip: Int = 5
+    var frameCounter: Int = 0
     var previousFrame: [UInt8]?
   }
 
@@ -62,6 +70,17 @@ nonisolated final class VideoMotionDetector {
   /// Must be called from a single serial queue — the vDSP scratch buffers are not
   /// lock-protected, so concurrent calls would cause data races.
   func processPixelBuffer(_ pixelBuffer: CVPixelBuffer) {
+    // Skip frames to reduce CPU — only process every Nth frame.
+    let shouldProcess = state.withLock { s -> Bool in
+      s.frameCounter += 1
+      if s.frameCounter >= s.frameSkip {
+        s.frameCounter = 0
+        return true
+      }
+      return false
+    }
+    guard shouldProcess else { return }
+
     CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
     let grayscale = downsampleToGrayscale(pixelBuffer)
     CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly)
@@ -117,6 +136,7 @@ nonisolated final class VideoMotionDetector {
       state.previousFrame = nil
       state.isMotionDetected = false
       state.lastMotionDate = .distantPast
+      state.frameCounter = 0
     }
   }
 
