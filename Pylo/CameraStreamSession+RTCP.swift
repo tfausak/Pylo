@@ -42,13 +42,13 @@ extension CameraStreamSession {
     sr[18] = UInt8((rtpTimestamp >> 8) & 0xFF)
     sr[19] = UInt8(rtpTimestamp & 0xFF)
     // Sender's packet count
-    let pc = UInt32(packetsSent)
+    let pc = UInt32(truncatingIfNeeded: packetsSent)
     sr[20] = UInt8((pc >> 24) & 0xFF)
     sr[21] = UInt8((pc >> 16) & 0xFF)
     sr[22] = UInt8((pc >> 8) & 0xFF)
     sr[23] = UInt8(pc & 0xFF)
     // Sender's octet count
-    let oc = UInt32(octetsSent)
+    let oc = UInt32(truncatingIfNeeded: octetsSent)
     sr[24] = UInt8((oc >> 24) & 0xFF)
     sr[25] = UInt8((oc >> 16) & 0xFF)
     sr[26] = UInt8((oc >> 8) & 0xFF)
