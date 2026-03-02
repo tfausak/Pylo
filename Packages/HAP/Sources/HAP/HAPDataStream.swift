@@ -107,6 +107,7 @@ public nonisolated final class HAPDataStream: @unchecked Sendable {
           }
         }
       }
+    }
 
     listener.start(queue: queue)
     stateLock.withLock { $0.listener = listener }

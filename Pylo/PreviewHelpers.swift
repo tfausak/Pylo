@@ -48,7 +48,7 @@ extension HAPViewModel {
         // Snapshot with opposite flashlight to force needsRestart == true
         vm.startedConfig = AccessoryConfig(
           flashlightEnabled: !flashlightEnabled,
-          cameraEnabled: vm.selectedStreamCamera != nil,
+          selectedCameraID: vm.selectedStreamCamera?.id,
           motionEnabled: motionEnabled
         )
       } else {

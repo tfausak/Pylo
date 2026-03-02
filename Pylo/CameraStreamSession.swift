@@ -37,7 +37,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   private var captureSession: AVCaptureSession?
   private var videoOutput: AVCaptureVideoDataOutput?
   private var compressionSession: VTCompressionSession?
-  private let captureQueue = DispatchQueue(label: "me.fausak.taylor.Pylo.camera.capture")
+  let captureQueue = DispatchQueue(label: "me.fausak.taylor.Pylo.camera.capture")
   let rtpQueue = DispatchQueue(label: "me.fausak.taylor.Pylo.camera.rtp")
 
   // Video UDP — BSD socket (immune to ICMP route-poisoning that kills NWConnection)
