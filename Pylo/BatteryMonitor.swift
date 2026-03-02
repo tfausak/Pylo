@@ -3,7 +3,8 @@ import UIKit
 import os
 
 /// Monitors the host device's battery level and charging state via UIDevice notifications.
-final class BatteryMonitor {
+/// All UIDevice access must happen on the main actor.
+@MainActor final class BatteryMonitor {
 
   var onBatteryChange: ((BatteryState) -> Void)?
 

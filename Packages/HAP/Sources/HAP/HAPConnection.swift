@@ -507,11 +507,11 @@ public nonisolated final class HAPConnection: @unchecked Sendable {
       "Snapshot requested: \(width)x\(height) from aid \(aid), reason=\(reason.map(String.init) ?? "none")"
     )
 
-    // camera is @unchecked Sendable in practice (concrete types conform);
-    // use nonisolated(unsafe) to satisfy strict concurrency in SPM.
-    nonisolated(unsafe) let unsafeCamera = camera
+    // HAPSnapshotProvider implementations must be thread-safe for
+    // captureSnapshot since it's called from a background queue.
+    let snapshotCamera = camera
     DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-      let jpeg = unsafeCamera.captureSnapshot(width: width, height: height)
+      let jpeg = snapshotCamera.captureSnapshot(width: width, height: height)
       // Dispatch back to the server queue so sendResponse (which uses
       // the encryption context) doesn't race with other I/O.
       self?.queue.async {
