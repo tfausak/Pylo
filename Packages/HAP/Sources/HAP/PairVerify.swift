@@ -156,7 +156,12 @@ public nonisolated enum PairVerifyHandler {
         return errorResponse(state: 0x04, .authentication)
       }
 
-      let controllerID = String(data: controllerIdentifier, encoding: .utf8) ?? ""
+      guard let controllerID = String(data: controllerIdentifier, encoding: .utf8),
+        !controllerID.isEmpty
+      else {
+        logger.error("Malformed controller identifier in pair-verify M3")
+        return errorResponse(state: 0x04, .authentication)
+      }
 
       // Look up the controller's long-term public key from our pairing store
       guard let pairing = server.pairingStore.getPairing(identifier: controllerID) else {
