@@ -275,7 +275,7 @@ public nonisolated enum HDSCodec {
     case 0x40...0x60:  // Short UTF-8 string (len 0-32)
       let len = Int(tag - 0x40)
       guard offset + len <= data.count else { return nil }
-      let str = String(data: data[offset..<offset + len], encoding: .utf8) ?? ""
+      guard let str = String(data: data[offset..<offset + len], encoding: .utf8) else { return nil }
       offset += len
       tracked.append(str)
       return str
@@ -285,7 +285,7 @@ public nonisolated enum HDSCodec {
       let len = Int(data[offset])
       offset += 1
       guard offset + len <= data.count else { return nil }
-      let str = String(data: data[offset..<offset + len], encoding: .utf8) ?? ""
+      guard let str = String(data: data[offset..<offset + len], encoding: .utf8) else { return nil }
       offset += len
       tracked.append(str)
       return str
@@ -295,7 +295,7 @@ public nonisolated enum HDSCodec {
       let len = Int(UInt16(data[offset]) | UInt16(data[offset + 1]) << 8)
       offset += 2
       guard offset + len <= data.count else { return nil }
-      let str = String(data: data[offset..<offset + len], encoding: .utf8) ?? ""
+      guard let str = String(data: data[offset..<offset + len], encoding: .utf8) else { return nil }
       offset += len
       tracked.append(str)
       return str
@@ -309,7 +309,7 @@ public nonisolated enum HDSCodec {
           | UInt32(data[offset + 3]) << 24)
       offset += 4
       guard offset + len <= data.count else { return nil }
-      let str = String(data: data[offset..<offset + len], encoding: .utf8) ?? ""
+      guard let str = String(data: data[offset..<offset + len], encoding: .utf8) else { return nil }
       offset += len
       tracked.append(str)
       return str
@@ -317,7 +317,7 @@ public nonisolated enum HDSCodec {
     case 0x6F:  // Null-terminated string
       var end = offset
       while end < data.count && data[end] != 0 { end += 1 }
-      let str = String(data: data[offset..<end], encoding: .utf8) ?? ""
+      guard let str = String(data: data[offset..<end], encoding: .utf8) else { return nil }
       offset = min(end + 1, data.count)
       tracked.append(str)
       return str

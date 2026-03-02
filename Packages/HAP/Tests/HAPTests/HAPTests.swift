@@ -1536,6 +1536,20 @@ struct HDSCodecBackReferenceTests {
   }
 }
 
+// MARK: - HDSCodec Invalid UTF-8 Tests
+
+@Suite("HDSCodec Invalid UTF-8")
+struct HDSCodecInvalidUTF8Tests {
+
+  @Test("Decode returns nil for short string with invalid UTF-8 bytes")
+  func invalidUTF8ShortString() {
+    // 0x42 = short string with length 2, followed by 2 invalid UTF-8 bytes
+    let bytes: [UInt8] = [0x42, 0xFE, 0xFF]
+    let result = HDSCodec.decode(Data(bytes))
+    #expect(result == nil)
+  }
+}
+
 // MARK: - Pair Setup Session Phase Tests
 
 @Suite("PairSetupSession Phase")
