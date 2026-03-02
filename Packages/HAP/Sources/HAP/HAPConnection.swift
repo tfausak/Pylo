@@ -459,12 +459,12 @@ public nonisolated final class HAPConnection: @unchecked Sendable {
     guard let body = request.body,
       let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
       let ttl = json["ttl"] as? Int,
-      let pid = json["pid"] as? UInt64
+      let pidInt = json["pid"] as? Int
     else {
       let errBody = try? JSONSerialization.data(withJSONObject: ["status": -70410])
       return HTTPResponse(status: 200, body: errBody, contentType: "application/hap+json")
     }
-    timedWritePID = pid
+    timedWritePID = UInt64(pidInt)
     timedWriteExpiry = Date().addingTimeInterval(TimeInterval(ttl) / 1000.0)
     let respBody = try? JSONSerialization.data(withJSONObject: ["status": 0])
     return HTTPResponse(status: 200, body: respBody, contentType: "application/hap+json")

@@ -1392,6 +1392,38 @@ struct PairSetupThrottleBadPubKeyTests {
   }
 }
 
+// MARK: - JSON PID Extraction Tests
+
+@Suite("JSON PID Extraction")
+struct JSONPIDExtractionTests {
+
+  @Test("PID extracted from JSONSerialization via Int cast")
+  func pidExtractedFromJSON() throws {
+    // JSONSerialization deserializes numbers as NSNumber, which bridges to Int,
+    // not UInt64. Verify that casting through Int works correctly.
+    let jsonData = Data(#"{"pid": 12345678}"#.utf8)
+    let json = try JSONSerialization.jsonObject(with: jsonData) as! [String: Any]
+
+    // This was the old broken code — as? UInt64 returns nil
+    let brokenPID = json["pid"] as? UInt64
+    #expect(brokenPID == nil)
+
+    // This is the correct approach — cast to Int then convert
+    let pid = (json["pid"] as? Int).map { UInt64($0) }
+    #expect(pid == 12_345_678)
+  }
+
+  @Test("PID extraction works for large values")
+  func pidLargeValue() throws {
+    let large: UInt64 = 4_000_000_000
+    let jsonData = Data(#"{"pid": \#(large)}"#.utf8)
+    let json = try JSONSerialization.jsonObject(with: jsonData) as! [String: Any]
+
+    let pid = (json["pid"] as? Int).map { UInt64($0) }
+    #expect(pid == large)
+  }
+}
+
 // MARK: - PairSetupInProgress Flag Tests
 
 @Suite("PairSetupInProgress Flag")
