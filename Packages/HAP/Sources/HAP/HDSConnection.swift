@@ -194,7 +194,7 @@ public nonisolated final class HDSConnection: @unchecked Sendable {
     }
   }
 
-  /// HDS nonces are 8 bytes of zero + 4 bytes LE counter (12 bytes total).
+  /// HDS nonces are 4 bytes of zero + 8 bytes LE counter (12 bytes total).
   private static func makeHDSNonce(counter: UInt64) -> ChaChaPoly.Nonce {
     var nonceData = Data(repeating: 0, count: 4)
     var le = counter.littleEndian

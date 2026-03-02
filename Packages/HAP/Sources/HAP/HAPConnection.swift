@@ -124,10 +124,12 @@ public nonisolated final class HAPConnection: @unchecked Sendable {
   private var decryptedBuffer = Data()
 
   private func receiveNextRequest() {
-    // Apply deferred encryption context from pair-verify (M4 was sent plaintext)
+    // Apply deferred encryption context from pair-verify (M4 was sent plaintext).
+    // Discard any residual plaintext bytes — the encrypted path reads fresh.
     if let pending = pendingEncryptionContext {
       encryptionContext = pending
       pendingEncryptionContext = nil
+      receiveBuffer.removeAll()
     }
 
     if encryptionContext != nil {
@@ -352,7 +354,8 @@ public nonisolated final class HAPConnection: @unchecked Sendable {
         handleResource(request, server: server)
         return nil
       default:
-        fatalError("unreachable")
+        assertionFailure("Unhandled route: \(request.method) \(request.path)")
+        return HTTPResponse(status: 500, body: nil, contentType: "application/hap+json")
       }
 
     default:
@@ -466,12 +469,12 @@ public nonisolated final class HAPConnection: @unchecked Sendable {
     guard let body = request.body,
       let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
       let ttl = json["ttl"] as? Int,
-      let pidInt = json["pid"] as? Int
+      let pidNumber = json["pid"] as? NSNumber
     else {
       let errBody = try? JSONSerialization.data(withJSONObject: ["status": -70410])
       return HTTPResponse(status: 200, body: errBody, contentType: "application/hap+json")
     }
-    timedWritePID = UInt64(pidInt)
+    timedWritePID = pidNumber.uint64Value
     timedWriteExpiry = Date().addingTimeInterval(TimeInterval(ttl) / 1000.0)
     let respBody = try? JSONSerialization.data(withJSONObject: ["status": 0])
     return HTTPResponse(status: 200, body: respBody, contentType: "application/hap+json")
