@@ -178,7 +178,7 @@ final class HAPViewModel {
         ?? cameras.first { $0.name.localizedCaseInsensitiveContains("back") }
         ?? cameras.first
     }
-    hasPairings = PairingStore().isPaired
+    hasPairings = UserDefaults.standard.bool(forKey: "hasPairings")
     isRestoring = false
 
     if UserDefaults.standard.bool(forKey: "hasStartedBefore") {
@@ -301,8 +301,10 @@ final class HAPViewModel {
       }
 
       setup.server.pairingStore.onChange = { [weak self, weak server = setup.server] in
-        Task { @MainActor [weak self, weak server] in
-          withAnimation { self?.hasPairings = server?.pairingStore.isPaired ?? false }
+        let isPaired = server?.pairingStore.isPaired ?? false
+        UserDefaults.standard.set(isPaired, forKey: "hasPairings")
+        Task { @MainActor [weak self] in
+          withAnimation { self?.hasPairings = isPaired }
         }
       }
 
@@ -339,7 +341,9 @@ final class HAPViewModel {
 
       // Start everything
       setup.server.start()
-      self.hasPairings = setup.server.pairingStore.isPaired
+      let paired = setup.server.pairingStore.isPaired
+      UserDefaults.standard.set(paired, forKey: "hasPairings")
+      self.hasPairings = paired
       withAnimation { self.isRunning = true }
       self.isStarting = false
       self.statusMessage =
@@ -392,6 +396,7 @@ final class HAPViewModel {
     } else {
       PairingStore().removeAll()
     }
+    UserDefaults.standard.set(false, forKey: "hasPairings")
     withAnimation { hasPairings = false }
   }
 }
