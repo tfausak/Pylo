@@ -171,13 +171,20 @@ nonisolated final class VideoMotionDetector {
     vDSP.square(diff, result: &diff)
 
     // Count pixels where squared difference exceeds threshold (e.g., 25^2 = 625)
-    // A pixel value change of 25 out of 255 is considered significant
+    // A pixel value change of 25 out of 255 is considered significant.
+    // Use vDSP to vectorize: subtract threshold, clip negatives to 0,
+    // then count non-zero entries.
     let pixelThreshold: Float = 625.0
-    var changedCount = 0
-    for i in 0..<count {
-      if diff[i] > pixelThreshold { changedCount += 1 }
-    }
+    var negThreshold = -pixelThreshold
+    vDSP_vsadd(diff, 1, &negThreshold, &diff, 1, vDSP_Length(count))
+    var lo: Float = 0
+    var hi: Float = 1.0
+    // Clip to [0, 1] — below-threshold → 0, above-threshold → 1
+    vDSP_vclip(diff, 1, &lo, &hi, &diff, 1, vDSP_Length(count))
+    // Sum the 0/1 vector to get the count of changed pixels
+    var changedCount: Float = 0
+    vDSP_sve(diff, 1, &changedCount, vDSP_Length(count))
 
-    return Float(changedCount) / Float(count)
+    return changedCount / Float(count)
   }
 }

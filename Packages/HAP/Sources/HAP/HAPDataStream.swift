@@ -733,9 +733,10 @@ public nonisolated final class HDSConnection: @unchecked Sendable {
     // metadata dict (4 or 5 entries)
     buf.append(dataTotalSize != nil ? 0xE5 : 0xE4)
 
-    // dataType → string
+    // dataType → string (HDS short-string encoding: 0x40 + length, max 32 bytes)
     buf.append(contentsOf: [0x48, 0x64, 0x61, 0x74, 0x61, 0x54, 0x79, 0x70, 0x65])
     let dtBytes = Data(dataType.utf8)
+    precondition(dtBytes.count <= 32, "dataType too long for HDS short-string encoding (\(dtBytes.count) > 32)")
     buf.append(UInt8(0x40 + dtBytes.count))
     buf.append(dtBytes)
 

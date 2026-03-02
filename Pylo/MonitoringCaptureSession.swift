@@ -429,7 +429,10 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     let isFloat = (sourceASBD.mFormatFlags & kAudioFormatFlagIsFloat) != 0
     let is16Bit = sourceASBD.mBitsPerChannel == 16
 
+    // Pre-allocate to avoid repeated heap growth during the per-callback conversion
+    let sampleCount = data.count / Int(sourceASBD.mBytesPerFrame) * (sourceChannels > 0 ? 1 : 0)
     var floatSamples: [Float] = []
+    floatSamples.reserveCapacity(sampleCount > 0 ? sampleCount : data.count / 4)
 
     if isFloat && sourceASBD.mBitsPerChannel == 32 {
       data.withUnsafeBytes { ptr in

@@ -109,8 +109,11 @@ public nonisolated enum TLV8 {
         records[records.count - 1][tag] = value
       }
     }
-    // Remove empty trailing record from a trailing separator
-    if let last = records.last, last.isEmpty {
+    // Remove empty leading/trailing records from leading/trailing separators
+    if records.first?.isEmpty == true {
+      records.removeFirst()
+    }
+    if records.last?.isEmpty == true {
       records.removeLast()
     }
     return records

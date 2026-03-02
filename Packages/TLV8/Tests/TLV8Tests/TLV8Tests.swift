@@ -129,6 +129,19 @@ struct TLV8Tests {
     #expect(records[1][.publicKey] == Data([0xBB]))
   }
 
+  @Test("Decode multi-record TLV8 strips leading separator")
+  func decodeRecordsLeadingSeparator() {
+    // Blob that starts with a separator should not produce a leading empty record
+    var raw = Data([0xFF, 0x00])  // leading separator
+    raw.append(TLV8.encode([
+      (.identifier, Data("A".utf8)),
+      (.publicKey, Data([0xAA])),
+    ]))
+    let records = TLV8.decodeRecords(raw)
+    #expect(records.count == 1)
+    #expect(records[0][.identifier] == Data("A".utf8))
+  }
+
   @Test("Decode single-record TLV8 with decodeRecords returns one record")
   func decodeRecordsSingle() {
     let encoded = TLV8.encode([
