@@ -759,6 +759,9 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
   // MARK: - MP4 Box Helpers
 
   private static func mp4Box(_ type: String, _ payload: Data) -> Data {
+    precondition(
+      payload.count + 8 <= UInt32.max,
+      "mp4Box payload too large for 32-bit box size (\(payload.count) bytes)")
     let size = UInt32(payload.count + 8)
     var data = Data()
     putU32BE(&data, size)

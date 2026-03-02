@@ -43,6 +43,10 @@ nonisolated final class VideoMotionDetector {
   private let state = OSAllocatedUnfairLock(initialState: State())
 
   // Pre-allocated buffers for vDSP frame comparison (avoids per-frame heap allocation).
+  // Thread safety: these are only accessed from processPixelBuffer → computeChangeRatio,
+  // which must be called from a single serial queue (the capture queue). They are NOT
+  // protected by the lock to avoid overhead on every video frame. The caller must ensure
+  // that only one capture session is active at a time.
   private var prevFloat: [Float]
   private var currFloat: [Float]
   private var diff: [Float]
@@ -55,8 +59,8 @@ nonisolated final class VideoMotionDetector {
   }
 
   /// Process a pixel buffer for motion detection.
-  /// Call this from the capture delegate callback. The pixel buffer's base address
-  /// must already be locked by the caller (or by AVFoundation's delegate contract).
+  /// Must be called from a single serial queue — the vDSP scratch buffers are not
+  /// lock-protected, so concurrent calls would cause data races.
   func processPixelBuffer(_ pixelBuffer: CVPixelBuffer) {
     CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
     let grayscale = downsampleToGrayscale(pixelBuffer)
