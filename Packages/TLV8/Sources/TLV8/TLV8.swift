@@ -43,15 +43,20 @@ public nonisolated enum TLV8 {
 
   // MARK: - Decode
 
+  private static let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "TLV8")
+
   /// Decodes a TLV8-encoded Data blob into an ordered list of (tag, value) pairs.
   /// Consecutive items with the same tag are coalesced (fragmented values).
+  /// Returns `[]` on truncated input (logged as a warning to aid debugging).
   public static func decode(_ data: Data) -> [(UInt8, Data)] {
     var results: [(UInt8, Data)] = []
     var offset = data.startIndex
 
     while offset < data.endIndex {
       guard offset + 2 <= data.endIndex else {
-        // Truncated: header byte(s) present but incomplete TLV entry
+        logger.warning(
+          "TLV8 decode: truncated header at offset \(data.startIndex.distance(to: offset)) of \(data.count) bytes"
+        )
         return []
       }
       let type = data[offset]
@@ -59,7 +64,9 @@ public nonisolated enum TLV8 {
       offset += 2
 
       guard offset + length <= data.endIndex else {
-        // Truncated: declared length exceeds remaining buffer
+        logger.warning(
+          "TLV8 decode: truncated value for tag 0x\(String(type, radix: 16)) at offset \(data.startIndex.distance(to: offset) - 2), declared \(length) bytes but only \(data.endIndex - offset) remain"
+        )
         return []
       }
       let value = data[offset..<offset + length]
