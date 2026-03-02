@@ -1200,6 +1200,176 @@ struct BatteryStateTests {
   }
 }
 
+// MARK: - HDSCodec Tests
+
+@Suite("HDSCodec Round-Trip")
+struct HDSCodecTests {
+
+  @Test("Empty dictionary")
+  func emptyDict() {
+    let input: [String: Any] = [:]
+    let encoded = HDSCodec.encode(input)
+    let decoded = HDSCodec.decode(encoded) as? [String: Any]
+    #expect(decoded != nil)
+    #expect(decoded?.isEmpty == true)
+  }
+
+  @Test("String values")
+  func stringValues() {
+    let input: [String: Any] = ["hello": "world", "key": "value"]
+    let encoded = HDSCodec.encode(input)
+    let decoded = HDSCodec.decode(encoded) as? [String: Any]
+    #expect(decoded?["hello"] as? String == "world")
+    #expect(decoded?["key"] as? String == "value")
+  }
+
+  @Test("Integer values: inline, Int8, Int16, Int32, Int64, minus-one")
+  func integerValues() {
+    let input: [String: Any] = [
+      "zero": 0,
+      "small": 39,
+      "minus1": -1,
+      "byte": 100,
+      "short": 1000,
+      "int32": 100_000,
+      "int64": 5_000_000_000,
+    ]
+    let encoded = HDSCodec.encode(input)
+    let decoded = HDSCodec.decode(encoded) as? [String: Any]
+    #expect(decoded?["zero"] as? Int == 0)
+    #expect(decoded?["small"] as? Int == 39)
+    #expect(decoded?["minus1"] as? Int == -1)
+    #expect(decoded?["byte"] as? Int == 100)
+    #expect(decoded?["short"] as? Int == 1000)
+    #expect(decoded?["int32"] as? Int == 100_000)
+    #expect(decoded?["int64"] as? Int == 5_000_000_000)
+  }
+
+  @Test("Boolean values")
+  func boolValues() {
+    let input: [String: Any] = ["t": true, "f": false]
+    let encoded = HDSCodec.encode(input)
+    let decoded = HDSCodec.decode(encoded) as? [String: Any]
+    #expect(decoded?["t"] as? Bool == true)
+    #expect(decoded?["f"] as? Bool == false)
+  }
+
+  @Test("Data values")
+  func dataValues() {
+    let blob = Data(repeating: 0xAB, count: 64)
+    let input: [String: Any] = ["blob": blob]
+    let encoded = HDSCodec.encode(input)
+    let decoded = HDSCodec.decode(encoded) as? [String: Any]
+    #expect(decoded?["blob"] as? Data == blob)
+  }
+
+  @Test("Array values")
+  func arrayValues() {
+    let input: [String: Any] = ["items": [1, 2, 3] as [Any]]
+    let encoded = HDSCodec.encode(input)
+    let decoded = HDSCodec.decode(encoded) as? [String: Any]
+    let items = decoded?["items"] as? [Any]
+    #expect(items?.count == 3)
+    #expect(items?[0] as? Int == 1)
+    #expect(items?[2] as? Int == 3)
+  }
+
+  @Test("Nested dictionaries")
+  func nestedDicts() {
+    let input: [String: Any] = [
+      "outer": ["inner": "value"] as [String: Any]
+    ]
+    let encoded = HDSCodec.encode(input)
+    let decoded = HDSCodec.decode(encoded) as? [String: Any]
+    let outer = decoded?["outer"] as? [String: Any]
+    #expect(outer?["inner"] as? String == "value")
+  }
+
+  @Test("Large dictionary (>14 entries) uses terminated encoding")
+  func largeDictTerminated() {
+    var input: [String: Any] = [:]
+    for i in 0..<20 {
+      input["key\(String(format: "%02d", i))"] = i
+    }
+    let encoded = HDSCodec.encode(input)
+    let decoded = HDSCodec.decode(encoded) as? [String: Any]
+    #expect(decoded?.count == 20)
+    #expect(decoded?["key00"] as? Int == 0)
+    #expect(decoded?["key19"] as? Int == 19)
+  }
+}
+
+// MARK: - HDSMessage Tests
+
+@Suite("HDSMessage Round-Trip")
+struct HDSMessageTests {
+
+  @Test("Event message round-trip")
+  func eventRoundTrip() {
+    let msg = HDSMessage(
+      type: .event,
+      protocol: "dataSend",
+      topic: "data",
+      identifier: 0,
+      status: .success,
+      body: ["streamId": 1]
+    )
+    let encoded = msg.encode()
+    let decoded = HDSMessage.decode(encoded)
+    #expect(decoded != nil)
+    #expect(decoded?.type == .event)
+    #expect(decoded?.protocol == "dataSend")
+    #expect(decoded?.topic == "data")
+    #expect(decoded?.body["streamId"] as? Int == 1)
+  }
+
+  @Test("Request message round-trip")
+  func requestRoundTrip() {
+    let msg = HDSMessage(
+      type: .request,
+      protocol: "control",
+      topic: "hello",
+      identifier: 42,
+      status: .success,
+      body: ["version": 1]
+    )
+    let encoded = msg.encode()
+    let decoded = HDSMessage.decode(encoded)
+    #expect(decoded != nil)
+    #expect(decoded?.type == .request)
+    #expect(decoded?.protocol == "control")
+    #expect(decoded?.topic == "hello")
+    #expect(decoded?.identifier == 42)
+    #expect(decoded?.body["version"] as? Int == 1)
+  }
+
+  @Test("Response message round-trip")
+  func responseRoundTrip() {
+    let msg = HDSMessage(
+      type: .response,
+      protocol: "dataSend",
+      topic: "open",
+      identifier: 7,
+      status: .protocolError,
+      body: ["status": 1]
+    )
+    let encoded = msg.encode()
+    let decoded = HDSMessage.decode(encoded)
+    #expect(decoded != nil)
+    #expect(decoded?.type == .response)
+    #expect(decoded?.protocol == "dataSend")
+    #expect(decoded?.topic == "open")
+    #expect(decoded?.identifier == 7)
+    #expect(decoded?.status == .protocolError)
+    #expect(decoded?.body["status"] as? Int == 1)
+  }
+
+  @Test("Decode returns nil for empty data")
+  func decodeEmpty() {
+    #expect(HDSMessage.decode(Data()) == nil)
+  }
+}
+
 // MARK: - PairSetupThrottle Bad Public Key Tests
 
 @Suite("PairSetupThrottle Bad Public Key")
