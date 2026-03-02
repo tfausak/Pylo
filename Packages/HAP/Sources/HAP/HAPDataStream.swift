@@ -138,10 +138,15 @@ public nonisolated final class HAPDataStream: @unchecked Sendable {
     }
 
     // Generate accessory key salt (32 bytes random)
-    var accessoryKeySalt = Data(count: 32)
-    accessoryKeySalt.withUnsafeMutableBytes {
-      _ = SecRandomCopyBytes(kSecRandomDefault, 32, $0.baseAddress!)
-    }
+    let accessoryKeySalt: Data = {
+      var bytes = Data(count: 32)
+      let status = bytes.withUnsafeMutableBytes {
+        SecRandomCopyBytes(kSecRandomDefault, 32, $0.baseAddress!)
+      }
+      if status == errSecSuccess { return bytes }
+      // Fallback to CryptoKit's secure random generation
+      return SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }
+    }()
 
     // Derive HDS encryption keys via HKDF-SHA512
     // Salt = controllerKeySalt || accessoryKeySalt
