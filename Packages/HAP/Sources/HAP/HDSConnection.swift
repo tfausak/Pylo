@@ -87,12 +87,12 @@ public nonisolated final class HDSConnection: @unchecked Sendable {
         return
       }
 
-      if isComplete {
-        self.logger.info("HDS connection closed by hub")
+      guard let data, data.count == 4 else {
+        if isComplete {
+          self.logger.info("HDS connection closed by hub")
+        }
         return
       }
-
-      guard let data, data.count == 4 else { return }
 
       let frameType = data[data.startIndex]
       let payloadLen =
