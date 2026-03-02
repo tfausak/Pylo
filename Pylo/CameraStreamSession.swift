@@ -61,15 +61,18 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   private var rtcpTimer: DispatchSourceTimer?
 
   // Audio pipeline (microphone → controller)
-  var audioOutput: AVCaptureAudioDataOutput?
-  var audioConverter: AudioConverterRef?
-  var audioSRTPContext: SRTPContext?
-  var audioRTPSeq: UInt16 = 0
-  var audioRTPTimestamp: UInt32 = 0
-  var audioPayloadType: UInt8 = 110
-  var audioPacketsSent: Int = 0
-  var audioOctetsSent: Int = 0
-  var audioRTCPTimer: DispatchSourceTimer?
+  // These fields are accessed from CameraStreamSession+Audio.swift (same module)
+  // so they cannot be `private`.  All mutable audio RTP state is owned by rtpQueue;
+  // audioOutput and audioConverter are owned by captureQueue.
+  var audioOutput: AVCaptureAudioDataOutput?  // captureQueue
+  var audioConverter: AudioConverterRef?  // captureQueue
+  var audioSRTPContext: SRTPContext?  // rtpQueue
+  var audioRTPSeq: UInt16 = 0  // rtpQueue
+  var audioRTPTimestamp: UInt32 = 0  // rtpQueue
+  var audioPayloadType: UInt8 = 110  // set once at init
+  var audioPacketsSent: Int = 0  // rtpQueue
+  var audioOctetsSent: Int = 0  // rtpQueue
+  var audioRTCPTimer: DispatchSourceTimer?  // rtpQueue
   /// Optional video motion detector — runs on every captured frame when set.
   /// Protected by a lock: written from the server queue, read from captureQueue.
   private let _videoMotionDetector = OSAllocatedUnfairLock<VideoMotionDetector?>(initialState: nil)
