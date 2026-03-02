@@ -21,6 +21,16 @@ public nonisolated struct HDSMessage {
   public let topic: String
   public let identifier: Int
   public let status: Status
+  /// Message body as untyped dictionary.
+  /// Uses `[String: Any]` because HDS messages are decoded by `HDSCodec` from
+  /// an arbitrary binary format, and the same type flows through both encode and
+  /// decode paths. Known body shapes:
+  /// - dataSend/open: {target: String, type: String, reason: String, streamId: Int}
+  /// - dataSend/close: {streamId: Int?, reason: Int?}
+  /// - dataSend/ack: {streamId: Int?, endOfStream: Bool?}
+  /// - control/hello: {}
+  /// A typed enum would require conversion boilerplate at every codec boundary
+  /// for minimal safety gain given the small, stable set of message types.
   public let body: [String: Any]
 
   public init(
