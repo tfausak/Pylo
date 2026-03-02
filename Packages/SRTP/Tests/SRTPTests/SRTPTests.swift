@@ -541,24 +541,24 @@ struct SRTPThreadSafetyTests {
 
     // Now send a packet with a high seq number that would trigger the
     // "late packet" branch (s_l < 0x8000 && seq > s_l + 0x8000).
-    // With ROC == 0, the old code did roc &-= 1 wrapping to UInt32.max.
-    // The fix guards against this.
+    // With ROC == 0, the old code did roc &-= 1 wrapping to UInt32.max,
+    // which would cause auth failure. The fix guards against this by
+    // keeping candidateROC = 0 (matching the sender), so the packet
+    // decrypts successfully.
     let rtp4 = Self.makeRTPPacket(
       seq: 0xFFF0, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0xFF, count: 20))
     let srtp4 = try #require(sender.protect(rtp4))
-    // This should fail auth (wrong ROC) but must NOT crash or wrap ROC
     let result = receiver.unprotect(srtp4)
-    // The packet should fail auth since the sender's ROC is 0 but the
-    // receiver would have tried ROC = 0 (guarded) or ROC = UInt32.max (old bug)
-    #expect(result == nil)
+    // With the fix, ROC stays at 0 (matching sender) so auth succeeds
+    #expect(result == rtp4, "Packet at ROC=0 with high seq should decrypt (no wraparound)")
 
-    // Verify normal operation still works after the failed unprotect
+    // Verify normal operation continues
     let rtp5 = Self.makeRTPPacket(
       seq: 4, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0x44, count: 20))
     let srtp5 = try #require(sender.protect(rtp5))
     let recovered5 = receiver.unprotect(srtp5)
     #expect(
-      recovered5 == rtp5, "Normal packets must still decrypt after failed late-packet unprotect")
+      recovered5 == rtp5, "Normal packets must still decrypt after high-seq packet at ROC=0")
   }
 
   @Test("ROC boundary: s_l=0x8000, SEQ=0x0000 does not spuriously increment ROC")
