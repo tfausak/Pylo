@@ -182,8 +182,8 @@ private enum SRPTestClient {
   static func handshake(
     username: String, password: String, salt: Data, serverPublicKey: Data
   ) -> (clientPublicKey: Data, clientProof: Data, sessionKey: Data)? {
-    let B = BigUInt(serverPublicKey)
-    guard B % prime != 0 else { return nil }
+    let serverB = BigUInt(serverPublicKey)
+    guard serverB % prime != 0 else { return nil }
 
     // Client private key a
     var aBytes = [UInt8](repeating: 0, count: 32)
@@ -191,7 +191,7 @@ private enum SRPTestClient {
       return nil
     }
     let a = BigUInt(Data(aBytes))
-    let A = g.power(a, modulus: prime)
+    let clientA = g.power(a, modulus: prime)
 
     // x = H(s | H(I | ":" | P))
     let identityHash = SHA512.hash(data: Data("\(username):\(password)".utf8))
@@ -202,7 +202,7 @@ private enum SRPTestClient {
 
     // u = H(PAD(A) | PAD(B))
     var uData = Data()
-    uData.append(pad(A))
+    uData.append(pad(clientA))
     uData.append(serverPublicKey)
     let u = BigUInt(Data(SHA512.hash(data: uData)))
     guard u != 0 else { return nil }
@@ -217,12 +217,12 @@ private enum SRPTestClient {
     let gx = g.power(x, modulus: prime)
     let kgx = (k * gx) % prime
     // B - kgx mod N: add prime to prevent underflow
-    let base = (B + prime - kgx) % prime
+    let base = (serverB + prime - kgx) % prime
     let exp = (a + u * x)
-    let S = base.power(exp, modulus: prime)
+    let premaster = base.power(exp, modulus: prime)
 
     // K = H(S)
-    let derivedKey = Data(SHA512.hash(data: pad(S)))
+    let derivedKey = Data(SHA512.hash(data: pad(premaster)))
 
     // M1 = H(H(N) XOR H(g) | H(I) | s | PAD(A) | B | K)
     let hashN = Data(SHA512.hash(data: prime.serialize()))
@@ -234,12 +234,12 @@ private enum SRPTestClient {
     m1Data.append(xorResult)
     m1Data.append(hashI)
     m1Data.append(salt)
-    m1Data.append(pad(A))
+    m1Data.append(pad(clientA))
     m1Data.append(serverPublicKey)
     m1Data.append(derivedKey)
-    let M1 = Data(SHA512.hash(data: m1Data))
+    let m1Hash = Data(SHA512.hash(data: m1Data))
 
-    return (clientPublicKey: pad(A), clientProof: M1, sessionKey: derivedKey)
+    return (clientPublicKey: pad(clientA), clientProof: m1Hash, sessionKey: derivedKey)
   }
 }
 
