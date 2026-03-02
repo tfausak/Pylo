@@ -5,7 +5,13 @@ import os
 /// At rest the accelerometer reads ~1g; significant deviation from that indicates movement.
 nonisolated final class MotionMonitor: @unchecked Sendable {
 
-  var onMotionChange: ((Bool) -> Void)?
+  /// Callback for motion state changes.
+  /// Protected by a lock: written from @MainActor, read from motionQueue.
+  private let _onMotionChange = OSAllocatedUnfairLock<((Bool) -> Void)?>(initialState: nil)
+  var onMotionChange: ((Bool) -> Void)? {
+    get { _onMotionChange.withLock { $0 } }
+    set { _onMotionChange.withLock { $0 = newValue } }
+  }
 
   /// Whether the device has an accelerometer.
   var isAvailable: Bool { motionManager.isAccelerometerAvailable }
