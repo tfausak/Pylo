@@ -80,7 +80,7 @@ public nonisolated enum PairingsHandler {
     if let existing = server.pairingStore.getPairing(identifier: id) {
       guard existing.publicKey == publicKey else {
         logger.warning("Add pairing rejected: key mismatch for existing identifier \(id)")
-        return errorResponse(error: .unknown)
+        return errorResponse(error: .authentication)
       }
     }
     server.pairingStore.addPairing(
