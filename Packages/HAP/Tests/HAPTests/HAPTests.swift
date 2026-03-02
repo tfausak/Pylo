@@ -829,6 +829,16 @@ struct PairingStoreTests {
     #expect(retrieved?.identifier == "ABC-DEF-123")
   }
 
+  @Test("removePairing for nonexistent identifier does not fire onChange")
+  func removeNonexistentNoCallback() {
+    let store = PairingStore(testPairings: [:])
+    nonisolated(unsafe) var callCount = 0
+    store.onChange = { callCount += 1 }
+
+    store.removePairing(identifier: "does-not-exist")
+    #expect(callCount == 0)
+  }
+
   @Test("addPairingIfUnpaired normalizes identifier")
   func addIfUnpairedNormalizesID() {
     let store = PairingStore(testPairings: [:])

@@ -117,8 +117,8 @@ public nonisolated final class PairingStore: @unchecked Sendable {
 
   public func removePairing(identifier: String) {
     let key = Self.normalizeID(identifier)
-    let old = lock.withLock { $0.removeValue(forKey: key) }
-    if !save(), let old {
+    guard let old = lock.withLock({ $0.removeValue(forKey: key) }) else { return }
+    if !save() {
       lock.withLock { $0[Self.normalizeID(old.identifier)] = old }
       return
     }
