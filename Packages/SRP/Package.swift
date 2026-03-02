@@ -12,6 +12,6 @@ let package = Package(
   ],
   targets: [
     .target(name: "SRP", dependencies: ["BigInt"]),
-    .testTarget(name: "SRPTests", dependencies: ["SRP"]),
+    .testTarget(name: "SRPTests", dependencies: ["SRP", "BigInt"]),
   ]
 )
