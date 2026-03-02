@@ -87,10 +87,14 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
   public let ringBuffer = FragmentRingBuffer(capacity: 6)
 
   /// Called when a new fragment is completed.
-  private let _onFragmentReady = OSAllocatedUnfairLock<((MP4Fragment) -> Void)?>(initialState: nil)
+  /// Wrapped in a Sendable box so OSAllocatedUnfairLock accepts the non-Sendable closure type.
+  private struct CallbackBox: @unchecked Sendable {
+    var handler: ((MP4Fragment) -> Void)?
+  }
+  private let _onFragmentReady = OSAllocatedUnfairLock(initialState: CallbackBox())
   public var onFragmentReady: ((MP4Fragment) -> Void)? {
-    get { _onFragmentReady.withLock { $0 } }
-    set { _onFragmentReady.withLock { $0 = newValue } }
+    get { _onFragmentReady.withLockUnchecked { $0.handler } }
+    set { _onFragmentReady.withLockUnchecked { $0.handler = newValue } }
   }
 
   private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "fMP4Writer")
@@ -186,18 +190,22 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
 
     // Collect fragments emitted during the lock and notify outside the lock
     // to prevent deadlock if the callback reenters the writer.
-    var emitted: [MP4Fragment] = []
-    state.withLock { s in
+    // At most two fragments can be emitted: one from a PTS gap flush, one from a keyframe flush.
+    let (gapFragment, keyframeFragment) = state.withLock {
+      s -> (MP4Fragment?, MP4Fragment?) in
+      var gap: MP4Fragment?
+      var kf: MP4Fragment?
+
       // Detect PTS gaps from capture source transitions (snapshot pause, live stream
       // start/stop). Flush pending samples so fragments don't span transitions — a
       // PTS gap inflates sample durations and causes fragments to exceed the hub's
       // 4000ms fragment limit. Require at least ~1 second of data (30 samples) to
       // avoid emitting tiny fragments from startup jitter.
       if let lastSamplePTS = s.pendingSamples.last?.pts {
-        let gap = CMTimeGetSeconds(CMTimeSubtract(pts, lastSamplePTS))
-        if (gap > 0.5 || gap < 0) && s.pendingSamples.count >= 30 {
-          if let f = emitFragment(state: &s) { emitted.append(f) }
-        } else if gap > 0.5 || gap < 0 {
+        let g = CMTimeGetSeconds(CMTimeSubtract(pts, lastSamplePTS))
+        if (g > 0.5 || g < 0) && s.pendingSamples.count >= 30 {
+          gap = emitFragment(state: &s)
+        } else if g > 0.5 || g < 0 {
           // Gap detected with too few samples — discard to avoid a tiny fragment.
           s.pendingSamples.removeAll()
           s.fragmentStartPTS = .invalid
@@ -214,7 +222,7 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
       if isKeyframe && !s.pendingSamples.isEmpty && s.fragmentStartPTS.isValid {
         let elapsed = CMTimeGetSeconds(CMTimeSubtract(pts, s.fragmentStartPTS))
         if elapsed >= fragmentDuration {
-          if let f = emitFragment(state: &s) { emitted.append(f) }
+          kf = emitFragment(state: &s)
         }
       }
 
@@ -224,8 +232,10 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
       }
 
       s.pendingSamples.append(VideoSample(data: sampleData, pts: pts, isKeyframe: isKeyframe))
+      return (gap, kf)
     }
-    for fragment in emitted { onFragmentReady?(fragment) }
+    if let gapFragment { onFragmentReady?(gapFragment) }
+    if let keyframeFragment { onFragmentReady?(keyframeFragment) }
   }
 
   /// Stop the writer and flush any pending samples as a final fragment.
