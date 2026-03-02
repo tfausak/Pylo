@@ -105,7 +105,10 @@ public nonisolated struct HTTPRequest: Sendable {
       body = buffer[headerEnd..<(headerEnd + contentLength)]
     }
 
-    // Remove this request from the buffer
+    // Remove this request from the buffer.
+    // O(n) for pipelined requests, but HAP uses sequential request/response
+    // over encrypted sessions, so the buffer typically contains exactly one
+    // request and this effectively clears it (O(1)).
     buffer.removeSubrange(buffer.startIndex..<totalNeeded)
 
     return .request(HTTPRequest(method: method, path: path, headers: headers, body: body))
