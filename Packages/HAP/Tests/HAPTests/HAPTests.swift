@@ -814,6 +814,34 @@ struct PairingStoreTests {
     }
   }
 
+  @Test("Pairing identifier is normalized to uppercase on storage")
+  func identifierNormalized() {
+    let store = PairingStore(testPairings: [:])
+    let pairing = PairingStore.Pairing(
+      identifier: "abc-def-123",
+      publicKey: Data(repeating: 0xAA, count: 32),
+      isAdmin: true
+    )
+    store.addPairing(pairing)
+    let retrieved = store.getPairing(identifier: "ABC-DEF-123")
+    #expect(retrieved != nil)
+    // The stored identifier itself should be normalized
+    #expect(retrieved?.identifier == "ABC-DEF-123")
+  }
+
+  @Test("addPairingIfUnpaired normalizes identifier")
+  func addIfUnpairedNormalizesID() {
+    let store = PairingStore(testPairings: [:])
+    let pairing = PairingStore.Pairing(
+      identifier: "lower-case-id",
+      publicKey: Data(repeating: 0xBB, count: 32),
+      isAdmin: true
+    )
+    store.addPairingIfUnpaired(pairing)
+    let retrieved = store.getPairing(identifier: "LOWER-CASE-ID")
+    #expect(retrieved?.identifier == "LOWER-CASE-ID")
+  }
+
   @Test("addPairingIfUnpaired succeeds when store is empty")
   func addIfUnpairedSucceeds() {
     let store = PairingStore(testPairings: [:])

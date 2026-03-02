@@ -81,7 +81,8 @@ public nonisolated final class PairingStore: @unchecked Sendable {
 
   public func addPairing(_ pairing: Pairing) {
     let key = Self.normalizeID(pairing.identifier)
-    lock.withLock { $0[key] = pairing }
+    let normalized = Pairing(identifier: key, publicKey: pairing.publicKey, isAdmin: pairing.isAdmin)
+    lock.withLock { $0[key] = normalized }
     if !save() {
       // Roll back in-memory state so it stays consistent with disk.
       lock.withLock { _ = $0.removeValue(forKey: key) }
@@ -97,9 +98,10 @@ public nonisolated final class PairingStore: @unchecked Sendable {
   @discardableResult
   public func addPairingIfUnpaired(_ pairing: Pairing) -> Bool {
     let key = Self.normalizeID(pairing.identifier)
+    let normalized = Pairing(identifier: key, publicKey: pairing.publicKey, isAdmin: pairing.isAdmin)
     let added = lock.withLock { state -> Bool in
       guard state.isEmpty else { return false }
-      state[key] = pairing
+      state[key] = normalized
       return true
     }
     guard added else { return false }
