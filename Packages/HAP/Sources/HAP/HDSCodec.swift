@@ -23,6 +23,8 @@ public nonisolated enum HDSCodec {
     } else {
       data.append(0xEF)  // Terminated dictionary
     }
+    // Sorted keys ensure deterministic binary output.  HDS control messages
+    // have small dictionaries so the O(n log n) cost is negligible.
     for key in dict.keys.sorted() {
       encodeString(key, into: &data)
       encodeValue(dict[key]!, into: &data)
