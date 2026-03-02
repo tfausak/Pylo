@@ -161,9 +161,12 @@ nonisolated final class HAPAccessory: HAPAccessoryProtocol, @unchecked Sendable 
   // MARK: - Torch Control
 
   private func applyTorchState() {
-    let level = isOn ? Float(brightness) / 100.0 : 0.0
+    // Snapshot both values under the lock to avoid stale captures.
+    let (on, level) = lightState.withLock { (state: inout LightState) -> (Bool, Float) in
+      (state.isOn, state.isOn ? Float(state.brightness) / 100.0 : 0.0)
+    }
     Task { @MainActor in
-      setTorch(on: isOn, level: level)
+      setTorch(on: on, level: level)
     }
   }
 
