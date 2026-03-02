@@ -555,7 +555,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     VTSessionSetProperty(
       cs, key: kVTCompressionPropertyKey_AllowFrameReordering,
       value: kCFBooleanFalse)
-    // Data rate limit: allow bursts up to 1.5x average per second
+    // Data rate limit: cap at average bytes per second over a 1-second window
     let bytesPerSecond = (bitrate * 1000 / 8) as CFNumber
     let one = 1.0 as CFNumber
     VTSessionSetProperty(
