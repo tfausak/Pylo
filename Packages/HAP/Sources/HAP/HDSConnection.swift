@@ -7,12 +7,17 @@ import os
 // MARK: - HDS Connection
 
 /// A single HDS TCP connection with encryption and message framing.
+///
+/// All mutable state is accessed exclusively on `queue` (the HDS serial dispatch queue).
+/// The only public methods callable from other queues are `cancel()` (thread-safe via
+/// NWConnection) and `finishRecording(completion:)` which dispatches to `queue`.
 public nonisolated final class HDSConnection: @unchecked Sendable {
 
   private let connection: NWConnection
   private let queue: DispatchQueue
   private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "HDSConn")
 
+  // Encryption keys — set once in setupEncryption (on queue), then read-only.
   private var readKey: SymmetricKey?
   private var writeKey: SymmetricKey?
   private var readNonce: UInt64 = 0
@@ -20,6 +25,7 @@ public nonisolated final class HDSConnection: @unchecked Sendable {
   private let nonceLock = OSAllocatedUnfairLock(initialState: ())
 
   /// The fragment writer to serve video from.
+  /// Set from the HDS queue (newConnectionHandler) before start() is called.
   public weak var fragmentWriter: FragmentedMP4Writer?
 
   /// Active dataSend stream ID (assigned by the hub in dataSend/open).
@@ -39,7 +45,9 @@ public nonisolated final class HDSConnection: @unchecked Sendable {
     self.queue = queue
   }
 
+  /// Configure encryption keys. Must be called on `queue` before `start()`.
   public func setupEncryption(readKey: SymmetricKey, writeKey: SymmetricKey) {
+    dispatchPrecondition(condition: .onQueue(queue))
     self.readKey = readKey
     self.writeKey = writeKey
   }
