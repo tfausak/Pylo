@@ -131,6 +131,32 @@ public nonisolated final class SRPServer {
     self.publicKey = Self.pad(serverPublicKey)
   }
 
+  /// Test-only initializer with fixed salt and private key for deterministic verification.
+  public init?(username: String, password: String, fixedSalt: Data, fixedPrivateKey: Data) {
+    self.username = username
+    self.password = password
+    self.hashI = Data(SHA512.hash(data: Data(username.utf8)))
+    self.salt = fixedSalt
+
+    let identityHash = SHA512.hash(data: Data("\(username):\(password)".utf8))
+    var xData = Data()
+    xData.append(fixedSalt)
+    xData.append(contentsOf: identityHash)
+    let x = BigUInt(Data(SHA512.hash(data: xData)))
+    self.verifier = Self.g.power(x, modulus: Self.prime)
+    self.privateKey = BigUInt(fixedPrivateKey)
+
+    var kData = Data()
+    kData.append(Self.pad(Self.prime))
+    kData.append(Self.pad(Self.g))
+    self.k = BigUInt(Data(SHA512.hash(data: kData)))
+
+    let gb = Self.g.power(self.privateKey, modulus: Self.prime)
+    let kv = (self.k * self.verifier) % Self.prime
+    let serverPublicKey = (kv + gb) % Self.prime
+    self.publicKey = Self.pad(serverPublicKey)
+  }
+
   // MARK: - Step 2: Receive Client Public Key
 
   /// Sets the client's public key A. Returns false if A is invalid.

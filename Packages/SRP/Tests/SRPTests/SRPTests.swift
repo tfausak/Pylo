@@ -180,17 +180,23 @@ private enum SRPTestClient {
 
   /// Run the client side of SRP-6a, returning (clientPublicKey, clientProof, expectedSessionKey).
   static func handshake(
-    username: String, password: String, salt: Data, serverPublicKey: Data
+    username: String, password: String, salt: Data, serverPublicKey: Data,
+    fixedPrivateKey: Data? = nil
   ) -> (clientPublicKey: Data, clientProof: Data, sessionKey: Data)? {
     let serverB = BigUInt(serverPublicKey)
     guard serverB % prime != 0 else { return nil }
 
     // Client private key a
-    var aBytes = [UInt8](repeating: 0, count: 32)
-    guard SecRandomCopyBytes(kSecRandomDefault, aBytes.count, &aBytes) == errSecSuccess else {
-      return nil
+    let a: BigUInt
+    if let fixed = fixedPrivateKey {
+      a = BigUInt(fixed)
+    } else {
+      var aBytes = [UInt8](repeating: 0, count: 32)
+      guard SecRandomCopyBytes(kSecRandomDefault, aBytes.count, &aBytes) == errSecSuccess else {
+        return nil
+      }
+      a = BigUInt(Data(aBytes))
     }
-    let a = BigUInt(Data(aBytes))
     let clientA = g.power(a, modulus: prime)
 
     // x = H(s | H(I | ":" | P))
@@ -304,5 +310,142 @@ struct SRPEndToEndTests {
     let serverProof = server.verifyClientProof(client.clientProof)
     #expect(serverProof == nil, "Server should reject wrong password")
     #expect(server.sessionKey == nil, "Session key should not be set after failed proof")
+  }
+}
+
+// MARK: - SRP Deterministic Test Vectors
+
+@Suite("SRP Deterministic Vectors")
+struct SRPDeterministicTests {
+
+  // Fixed inputs — arbitrary but stable values for reproducible tests
+  private static let fixedSalt = Data(
+    [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+     0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10])
+  private static let fixedServerKey = Data(
+    [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22,
+     0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0x00,
+     0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22,
+     0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0x00])
+  private static let fixedClientKey = Data(
+    [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
+     0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00,
+     0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
+     0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00])
+
+  @Test("Deterministic handshake produces identical results across runs")
+  func deterministicHandshake() {
+    let username = "Pair-Setup"
+    let password = "111-22-333"
+
+    // Run the handshake twice with identical fixed inputs
+    var sessionKeys: [Data] = []
+    var serverProofs: [Data] = []
+    var clientPublicKeys: [Data] = []
+    var serverPublicKeys: [Data] = []
+
+    for _ in 0..<2 {
+      let server = SRPServer(
+        username: username, password: password,
+        fixedSalt: Self.fixedSalt, fixedPrivateKey: Self.fixedServerKey
+      )
+      #expect(server != nil, "Server init with fixed values should succeed")
+      guard let server else { return }
+
+      serverPublicKeys.append(server.publicKey)
+
+      guard
+        let client = SRPTestClient.handshake(
+          username: username, password: password,
+          salt: server.salt, serverPublicKey: server.publicKey,
+          fixedPrivateKey: Self.fixedClientKey
+        )
+      else {
+        Issue.record("Client handshake computation failed")
+        return
+      }
+
+      clientPublicKeys.append(client.clientPublicKey)
+
+      #expect(server.setClientPublicKey(client.clientPublicKey) == true)
+
+      let serverProof = server.verifyClientProof(client.clientProof)
+      #expect(serverProof != nil, "Deterministic handshake should succeed")
+      guard let serverProof else { return }
+
+      serverProofs.append(serverProof)
+      sessionKeys.append(client.sessionKey)
+    }
+
+    // Both runs must produce identical outputs
+    #expect(serverPublicKeys[0] == serverPublicKeys[1], "Server public key B should be deterministic")
+    #expect(clientPublicKeys[0] == clientPublicKeys[1], "Client public key A should be deterministic")
+    #expect(serverProofs[0] == serverProofs[1], "Server proof M2 should be deterministic")
+    #expect(sessionKeys[0] == sessionKeys[1], "Session key should be deterministic")
+  }
+
+  @Test("Deterministic handshake produces correct session key")
+  func deterministicSessionKey() {
+    let username = "Pair-Setup"
+    let password = "111-22-333"
+
+    let server = SRPServer(
+      username: username, password: password,
+      fixedSalt: Self.fixedSalt, fixedPrivateKey: Self.fixedServerKey
+    )!
+
+    guard
+      let client = SRPTestClient.handshake(
+        username: username, password: password,
+        salt: server.salt, serverPublicKey: server.publicKey,
+        fixedPrivateKey: Self.fixedClientKey
+      )
+    else {
+      Issue.record("Client handshake computation failed")
+      return
+    }
+
+    #expect(server.setClientPublicKey(client.clientPublicKey) == true)
+    let serverProof = server.verifyClientProof(client.clientProof)
+    #expect(serverProof != nil, "Handshake should succeed")
+
+    // Server and client must derive the same session key
+    #expect(server.sessionKey != nil)
+    let serverKeyData = server.sessionKey!.withUnsafeBytes { Data($0) }
+    #expect(serverKeyData == client.sessionKey, "Server and client session keys must match")
+
+    // Verify M2
+    var m2Data = Data()
+    m2Data.append(client.clientPublicKey)
+    m2Data.append(client.clientProof)
+    m2Data.append(client.sessionKey)
+    let expectedM2 = Data(SHA512.hash(data: m2Data))
+    #expect(serverProof == expectedM2, "Server proof M2 must match client computation")
+  }
+
+  @Test("Deterministic handshake rejects wrong password")
+  func deterministicWrongPassword() {
+    let username = "Pair-Setup"
+
+    let server = SRPServer(
+      username: username, password: "111-22-333",
+      fixedSalt: Self.fixedSalt, fixedPrivateKey: Self.fixedServerKey
+    )!
+
+    guard
+      let client = SRPTestClient.handshake(
+        username: username, password: "wrong-password",
+        salt: server.salt, serverPublicKey: server.publicKey,
+        fixedPrivateKey: Self.fixedClientKey
+      )
+    else {
+      Issue.record("Client handshake computation failed")
+      return
+    }
+
+    #expect(server.setClientPublicKey(client.clientPublicKey) == true)
+    let serverProof = server.verifyClientProof(client.clientProof)
+    #expect(serverProof == nil, "Wrong password should be rejected with fixed inputs")
+    #expect(server.sessionKey == nil)
   }
 }
