@@ -152,7 +152,7 @@ public nonisolated final class HAPServer: @unchecked Sendable {
         conn.setPairVerifySharedSecret(nil)
       }
     } else {
-      queue.async { [self] in
+      queue.sync { [self] in
         for conn in connections.values {
           conn.setPairVerifySharedSecret(nil)
         }
