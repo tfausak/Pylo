@@ -84,6 +84,15 @@ public nonisolated enum PairSetupHandler {
     set { _pairSetupInProgress.withLock { $0 = newValue } }
   }
 
+  /// Atomically claims the pair-setup slot. Returns true if claimed, false if already in progress.
+  private static func claimPairSetup() -> Bool {
+    _pairSetupInProgress.withLock { inProgress in
+      guard !inProgress else { return false }
+      inProgress = true
+      return true
+    }
+  }
+
   /// Codes excluded by HAP spec Table 5-8.
   public static let invalidSetupCodes: Set<String> = {
     var codes: Set<String> = [
@@ -220,10 +229,9 @@ public nonisolated enum PairSetupHandler {
   private static func handleM1(tlv: [TLV8.Tag: Data], connection: HAPConnection, server: HAPServer)
     -> HTTPResponse
   {
-    // Reject if a pair-setup session is already in progress (on any connection).
-    // HAP spec §5.6.1: only one pair-setup may proceed at a time.
-    if connection.pairSetupState != nil || isPairSetupInProgress {
-      logger.warning("Pair-setup M1 received while session already in progress")
+    // Reject if this connection already has a session.
+    if connection.pairSetupState != nil {
+      logger.warning("Pair-setup M1 received while session already in progress on this connection")
       return errorResponse(state: 0x02, error: .busy)
     }
 
@@ -239,10 +247,12 @@ public nonisolated enum PairSetupHandler {
       return errorResponse(state: 0x02, error: .unavailable)
     }
 
-    // All guards passed — mark pair-setup as in progress.
-    // Setting the flag after rejection guards ensures it is never left
-    // stuck if throttle or isPaired rejects the attempt.
-    isPairSetupInProgress = true
+    // Atomically claim the pair-setup slot.
+    // HAP spec §5.6.1: only one pair-setup may proceed at a time.
+    guard claimPairSetup() else {
+      logger.warning("Pair-setup M1 received while session already in progress")
+      return errorResponse(state: 0x02, error: .busy)
+    }
 
     // Create SRP session
     // Username for HAP is always "Pair-Setup", password is the setup code.
