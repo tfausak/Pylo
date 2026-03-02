@@ -948,9 +948,9 @@ public nonisolated enum HDSCodec {
     } else {
       data.append(0xEF)  // Terminated dictionary
     }
-    for (key, value) in dict {
+    for key in dict.keys.sorted() {
       encodeString(key, into: &data)
-      encodeValue(value, into: &data)
+      encodeValue(dict[key]!, into: &data)
     }
     if count > 14 {
       data.append(0x03)  // Terminator
