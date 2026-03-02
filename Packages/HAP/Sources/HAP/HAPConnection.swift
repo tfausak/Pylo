@@ -449,14 +449,38 @@ public nonisolated final class HAPConnection: @unchecked Sendable {
     return CharacteristicsHandler.handlePut(request: request, connection: self, server: server)
   }
 
+  /// Pending timed write state: PID and expiry (HAP §6.7.2.4).
+  private var timedWritePID: UInt64?
+  private var timedWriteExpiry: Date?
+
   /// Handle PUT /prepare for HAP timed writes (HAP §6.7.2.4).
-  /// The hub sends a prepare request with a PID and TTL before timed writes.
-  /// We acknowledge the prepare — the subsequent PUT /characteristics with
-  /// the matching PID is processed normally (we don't enforce the TTL).
+  /// Stores the PID and TTL so subsequent PUT /characteristics can be validated.
   private func handlePrepare(_ request: HTTPRequest) -> HTTPResponse {
-    // Just acknowledge the prepare — we accept all timed writes.
-    let body = try? JSONSerialization.data(withJSONObject: ["status": 0])
-    return HTTPResponse(status: 200, body: body, contentType: "application/hap+json")
+    guard let body = request.body,
+      let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+      let ttl = json["ttl"] as? Int,
+      let pid = json["pid"] as? UInt64
+    else {
+      let errBody = try? JSONSerialization.data(withJSONObject: ["status": -70410])
+      return HTTPResponse(status: 200, body: errBody, contentType: "application/hap+json")
+    }
+    timedWritePID = pid
+    timedWriteExpiry = Date().addingTimeInterval(TimeInterval(ttl) / 1000.0)
+    let respBody = try? JSONSerialization.data(withJSONObject: ["status": 0])
+    return HTTPResponse(status: 200, body: respBody, contentType: "application/hap+json")
+  }
+
+  /// Validate and consume a pending timed write. Returns true if the PID matches
+  /// and the TTL has not expired.
+  func validateTimedWrite(pid: UInt64?) -> Bool {
+    guard let pid, let expectedPID = timedWritePID, let expiry = timedWriteExpiry else {
+      return pid == nil  // Non-timed writes always pass
+    }
+    defer {
+      timedWritePID = nil
+      timedWriteExpiry = nil
+    }
+    return pid == expectedPID && Date() < expiry
   }
 
   private func handleIdentify(server: HAPServer) -> HTTPResponse {

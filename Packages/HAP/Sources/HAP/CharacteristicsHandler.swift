@@ -73,8 +73,15 @@ public nonisolated enum CharacteristicsHandler {
       return errorResponse(status: 400)
     }
 
+    // Validate timed write PID/TTL (HAP §6.7.2.4)
+    let pid = json["pid"] as? UInt64
+    if !connection.validateTimedWrite(pid: pid) {
+      logger.warning("Timed write validation failed (expired or PID mismatch)")
+      return errorResponse(status: -70410)
+    }
+
     // Log PUT summary for diagnostics
-    let hasPID = json["pid"] != nil
+    let hasPID = pid != nil
     var putSummary: [String] = []
     for c in characteristics {
       let aid = c["aid"] as? Int ?? 0
