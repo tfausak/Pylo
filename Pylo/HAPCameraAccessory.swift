@@ -222,8 +222,14 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   /// the streaming service is enabled. Written by the HomeKit hub.
   private(set) var rtpStreamActive: UInt8 = 1
 
-  // Pending setup endpoint response (written by controller, read back after)
-  private var setupEndpointsResponse = Data()
+  // Pending setup endpoint response (written by controller, read back after).
+  // Protected by lock since writes happen from the server queue and snapshot
+  // capture can trigger handleSetupEndpoints from another queue.
+  private let _setupEndpointsResponse = OSAllocatedUnfairLock(initialState: Data())
+  private var setupEndpointsResponse: Data {
+    get { _setupEndpointsResponse.withLock { $0 } }
+    set { _setupEndpointsResponse.withLock { $0 = newValue } }
+  }
 
   init(
     aid: Int,
@@ -768,8 +774,13 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     }
   }
 
-  // Pending setup DataStream response
-  private var setupDataStreamResponse = Data()
+  // Pending setup DataStream response.
+  // Protected by lock for the same reasons as setupEndpointsResponse.
+  private let _setupDataStreamResponse = OSAllocatedUnfairLock(initialState: Data())
+  private var setupDataStreamResponse: Data {
+    get { _setupDataStreamResponse.withLock { $0 } }
+    set { _setupDataStreamResponse.withLock { $0 = newValue } }
+  }
 
   /// Handle DataStream transport setup — placeholder, implemented fully in HAPDataStream.
   private func handleSetupDataStream(_ value: HAPValue, sharedSecret: SharedSecret?) -> Bool {
@@ -873,8 +884,9 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     // Determine local IP address — must be on the same subnet as the controller
     let localAddress = Self.localIPAddress(matching: controllerAddress) ?? "0.0.0.0"
 
-    // Allocate UDP ports — video RTCP uses videoPort+1, so audio must start at +2
-    let videoPort: UInt16 = UInt16.random(in: 50000...59998)
+    // Allocate UDP ports — video uses N (RTP) and N+1 (RTCP),
+    // audio uses N+2 (RTP) and N+3 (RTCP). Reserve room for all four ports.
+    let videoPort: UInt16 = UInt16.random(in: 50000...59994)
     let audioPort: UInt16 = videoPort + 2
 
     logger.info("SetupEndpoints response: local=\(localAddress):\(videoPort) SSRC=\(videoSSRC)")
@@ -1209,7 +1221,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
 
     // Skip early frames so auto-exposure has time to converge; the very
     // first frames from a cold-started session are often black/dark.
-    let grabber = FrameGrabber(framesToSkip: 10)
+    let grabber = FrameGrabber(framesToSkip: 10, context: snapshotCIContext)
     let queue = DispatchQueue(label: "me.fausak.taylor.Pylo.snapshot", qos: .userInteractive)
     videoOutput.setSampleBufferDelegate(grabber, queue: queue)
 
@@ -1452,14 +1464,15 @@ private nonisolated final class FrameGrabber: NSObject, AVCaptureVideoDataOutput
   /// Protected by a lock to prevent data races between the capture queue
   /// (writer) and the calling thread (reader after semaphore wait).
   private let lock = NSLock()
-  private let context = CIContext()
+  private let context: CIContext
   private var _capturedImage: CGImage?
   private var _framesReceived = 0
   var capturedImage: CGImage? { lock.withLock { _capturedImage } }
   private let framesToSkip: Int
 
-  init(framesToSkip: Int = 0) {
+  init(framesToSkip: Int = 0, context: CIContext = CIContext()) {
     self.framesToSkip = framesToSkip
+    self.context = context
   }
 
   /// Block until a usable frame is captured, or the timeout expires.
