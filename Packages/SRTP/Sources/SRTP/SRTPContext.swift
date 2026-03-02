@@ -348,6 +348,10 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
 
   // MARK: - AES-128-CTR Encryption
 
+  // Note: A new CCCryptorRef is created per call because CCCryptorReset does
+  // not support CTR mode in CommonCrypto (documented as "not implemented for
+  // stream ciphers").  The per-packet create/release overhead is small (~1µs)
+  // relative to the encryption itself.
   private func aesCTREncrypt(key: Data, iv: Data, data: Data) -> Data? {
     guard !data.isEmpty else { return data }
 
