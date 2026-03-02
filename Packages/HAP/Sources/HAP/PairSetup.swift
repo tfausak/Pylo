@@ -49,11 +49,15 @@ public nonisolated final class PairSetupThrottle: @unchecked Sendable {
   /// Once the threshold is reached, subsequent attempts are gated by
   /// `throttleDuration`. The counter never resets on its own — only
   /// `reset()` (called after a successful pairing) clears the state.
+  ///
+  /// The sliding window (updating `lastFailureDate` on every failure) is
+  /// intentional: since `isThrottled()` gates M1 acceptance, each failed
+  /// M3 ensures the next M1 must wait the full `throttleDuration` again.
+  /// A fixed-once window would allow rapid retries after the initial
+  /// cooldown expires.
   public func recordFailure(now: Date = Date()) {
     lock.withLock { state in
       state.failedAttempts += 1
-      // Record/update the timestamp once throttled so each subsequent
-      // attempt must wait the full throttle duration.
       if state.failedAttempts >= Self.maxAttempts {
         state.lastFailureDate = now
       }
