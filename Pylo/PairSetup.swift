@@ -245,6 +245,7 @@ nonisolated enum PairSetupHandler {
     // Set the client's public key and verify the proof
     guard srpSession.setClientPublicKey(clientPublicKey) else {
       logger.error("Invalid client public key")
+      throttle.recordFailure()
       connection.setPairSetupState(nil)
       return errorResponse(state: 0x04, error: .authentication)
     }
@@ -321,6 +322,12 @@ nonisolated enum PairSetupHandler {
         outputByteCount: 32
       )
 
+      // Validate controller identifier is valid UTF-8 before signature verification
+      guard let iosID = String(data: iosIdentifier, encoding: .utf8), !iosID.isEmpty else {
+        logger.error("Invalid or empty controller identifier")
+        return errorResponse(state: 0x06, error: .authentication)
+      }
+
       // Verify iOS device signature
       var iosDeviceInfo = iosDeviceXKey.withUnsafeBytes { Data($0) }
       iosDeviceInfo.append(iosIdentifier)
@@ -329,11 +336,6 @@ nonisolated enum PairSetupHandler {
       let iosSigningKey = try Curve25519.Signing.PublicKey(rawRepresentation: iosLTPK)
       guard iosSigningKey.isValidSignature(iosSignature, for: iosDeviceInfo) else {
         logger.error("iOS device signature verification failed")
-        return errorResponse(state: 0x06, error: .authentication)
-      }
-
-      guard let iosID = String(data: iosIdentifier, encoding: .utf8), !iosID.isEmpty else {
-        logger.error("Invalid or empty controller identifier")
         return errorResponse(state: 0x06, error: .authentication)
       }
 

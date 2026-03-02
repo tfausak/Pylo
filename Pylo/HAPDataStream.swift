@@ -627,7 +627,8 @@ nonisolated final class HDSConnection: @unchecked Sendable {
       if !hasLoggedFirstDataEvent {
         hasLoggedFirstDataEvent = true
         let headerEnd = min(message.count, 200)
-        let hex = message.prefix(headerEnd).map { String(format: "%02x", $0) }.joined(separator: " ")
+        let hex = message.prefix(headerEnd).map { String(format: "%02x", $0) }.joined(
+          separator: " ")
         logger.info("HDS first data event (\(message.count) bytes): \(hex)")
       }
 
@@ -801,7 +802,7 @@ nonisolated struct HDSMessage {
   /// Header and body are each encoded with the HDS DataStream codec.
   func encode() -> Data {
     var header: [String: Any] = [
-      "protocol": self.protocol,
+      "protocol": self.protocol
     ]
 
     switch type {
@@ -1067,7 +1068,8 @@ nonisolated enum HDSCodec {
 
     case 0x06:  // DATE (float64 seconds since 2001-01-01)
       guard offset + 8 <= data.count else { return nil }
-      let bits = UInt64(data[offset])
+      let bits =
+        UInt64(data[offset])
         | UInt64(data[offset + 1]) << 8
         | UInt64(data[offset + 2]) << 16
         | UInt64(data[offset + 3]) << 24
@@ -1105,7 +1107,8 @@ nonisolated enum HDSCodec {
 
     case 0x32:  // Int32 LE
       guard offset + 4 <= data.count else { return nil }
-      let raw = UInt32(data[offset])
+      let raw =
+        UInt32(data[offset])
         | UInt32(data[offset + 1]) << 8
         | UInt32(data[offset + 2]) << 16
         | UInt32(data[offset + 3]) << 24
@@ -1116,7 +1119,8 @@ nonisolated enum HDSCodec {
 
     case 0x33:  // Int64 LE
       guard offset + 8 <= data.count else { return nil }
-      let raw = UInt64(data[offset])
+      let raw =
+        UInt64(data[offset])
         | UInt64(data[offset + 1]) << 8
         | UInt64(data[offset + 2]) << 16
         | UInt64(data[offset + 3]) << 24
@@ -1131,7 +1135,8 @@ nonisolated enum HDSCodec {
 
     case 0x35:  // Float32 LE
       guard offset + 4 <= data.count else { return nil }
-      let raw = UInt32(data[offset])
+      let raw =
+        UInt32(data[offset])
         | UInt32(data[offset + 1]) << 8
         | UInt32(data[offset + 2]) << 16
         | UInt32(data[offset + 3]) << 24
@@ -1142,7 +1147,8 @@ nonisolated enum HDSCodec {
 
     case 0x36:  // Float64 LE
       guard offset + 8 <= data.count else { return nil }
-      let bits = UInt64(data[offset])
+      let bits =
+        UInt64(data[offset])
         | UInt64(data[offset + 1]) << 8
         | UInt64(data[offset + 2]) << 16
         | UInt64(data[offset + 3]) << 24
@@ -1165,7 +1171,8 @@ nonisolated enum HDSCodec {
 
     case 0x61:  // String with 1-byte length
       guard offset < data.count else { return nil }
-      let len = Int(data[offset]); offset += 1
+      let len = Int(data[offset])
+      offset += 1
       guard offset + len <= data.count else { return nil }
       let str = String(data: data[offset..<offset + len], encoding: .utf8) ?? ""
       offset += len
@@ -1174,7 +1181,8 @@ nonisolated enum HDSCodec {
 
     case 0x62:  // String with 2-byte LE length
       guard offset + 2 <= data.count else { return nil }
-      let len = Int(UInt16(data[offset]) | UInt16(data[offset + 1]) << 8); offset += 2
+      let len = Int(UInt16(data[offset]) | UInt16(data[offset + 1]) << 8)
+      offset += 2
       guard offset + len <= data.count else { return nil }
       let str = String(data: data[offset..<offset + len], encoding: .utf8) ?? ""
       offset += len
@@ -1213,7 +1221,8 @@ nonisolated enum HDSCodec {
 
     case 0x91:  // Data with 1-byte length
       guard offset < data.count else { return nil }
-      let len = Int(data[offset]); offset += 1
+      let len = Int(data[offset])
+      offset += 1
       guard offset + len <= data.count else { return nil }
       let d = Data(data[offset..<offset + len])
       offset += len
@@ -1222,7 +1231,8 @@ nonisolated enum HDSCodec {
 
     case 0x92:  // Data with 2-byte LE length
       guard offset + 2 <= data.count else { return nil }
-      let len = Int(UInt16(data[offset]) | UInt16(data[offset + 1]) << 8); offset += 2
+      let len = Int(UInt16(data[offset]) | UInt16(data[offset + 1]) << 8)
+      offset += 2
       guard offset + len <= data.count else { return nil }
       let d = Data(data[offset..<offset + len])
       offset += len
@@ -1260,7 +1270,10 @@ nonisolated enum HDSCodec {
     case 0xDF:  // Terminated array
       var arr: [Any] = []
       while offset < data.count {
-        if data[offset] == 0x03 { offset += 1; break }
+        if data[offset] == 0x03 {
+          offset += 1
+          break
+        }
         guard let v = decodeValue(data, offset: &offset, tracked: &tracked) else { break }
         arr.append(v)
       }
@@ -1280,7 +1293,10 @@ nonisolated enum HDSCodec {
     case 0xEF:  // Terminated dictionary
       var dict: [String: Any] = [:]
       while offset < data.count {
-        if data[offset] == 0x03 { offset += 1; break }
+        if data[offset] == 0x03 {
+          offset += 1
+          break
+        }
         guard let key = decodeValue(data, offset: &offset, tracked: &tracked) as? String
         else { break }
         guard let value = decodeValue(data, offset: &offset, tracked: &tracked) else { break }

@@ -24,14 +24,12 @@ nonisolated final class VideoMotionDetector {
   private static let thumbWidth = 160
   private static let thumbHeight = 120
 
-  // Previous frame's grayscale thumbnail (row-major UInt8 pixels)
-  private var previousFrame: [UInt8]?
-
   // Thread-safe mutable state
   private struct State {
     var isMotionDetected = false
     var lastMotionDate = Date.distantPast
     var cooldown: TimeInterval = 3.0
+    var previousFrame: [UInt8]?
   }
 
   private let state = OSAllocatedUnfairLock(initialState: State())
@@ -45,13 +43,15 @@ nonisolated final class VideoMotionDetector {
     CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly)
     guard let grayscale else { return }
 
-    guard let previous = previousFrame else {
-      previousFrame = grayscale
-      return
+    let previous = state.withLock { s -> [UInt8]? in
+      let prev = s.previousFrame
+      s.previousFrame = grayscale
+      return prev
     }
 
+    guard let previous else { return }
+
     let changeRatio = computeChangeRatio(previous: previous, current: grayscale)
-    previousFrame = grayscale
 
     if changeRatio > threshold {
       let shouldNotify = state.withLock { state in
@@ -89,8 +89,8 @@ nonisolated final class VideoMotionDetector {
 
   /// Reset state (call when stopping detection).
   func reset() {
-    previousFrame = nil
     state.withLock { state in
+      state.previousFrame = nil
       state.isMotionDetected = false
       state.lastMotionDate = .distantPast
     }

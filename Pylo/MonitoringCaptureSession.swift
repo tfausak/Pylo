@@ -220,17 +220,18 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   }
 
   func stop() {
-    let (oldSession, oldCS, oldAudioConverter): (AVCaptureSession?, VTCompressionSession?, AudioConverterRef?) = lock.withLock {
-      let s = _state.captureSession
-      let cs = _state.compressionSession
-      let ac = _state.audioConverter
-      _state.captureSession = nil
-      _state.compressionSession = nil
-      _state.encodeFrameCount = 0
-      _state.audioConverter = nil
-      _state.pcmAccumulator = Data()
-      return (s, cs, ac)
-    }
+    let (oldSession, oldCS, oldAudioConverter):
+      (AVCaptureSession?, VTCompressionSession?, AudioConverterRef?) = lock.withLock {
+        let s = _state.captureSession
+        let cs = _state.compressionSession
+        let ac = _state.audioConverter
+        _state.captureSession = nil
+        _state.compressionSession = nil
+        _state.encodeFrameCount = 0
+        _state.audioConverter = nil
+        _state.pcmAccumulator = Data()
+        return (s, cs, ac)
+      }
     guard oldSession != nil || oldCS != nil else { return }
 
     fragmentWriter?.includeAudioTrack = false

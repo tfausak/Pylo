@@ -1,5 +1,6 @@
 @preconcurrency import AVFoundation
 import CoreImage
+import CryptoKit
 import Foundation
 @preconcurrency import UIKit
 import os
@@ -351,7 +352,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
   // MARK: - Write Characteristic
 
   @discardableResult
-  func writeCharacteristic(iid: Int, value: HAPValue) -> Bool {
+  func writeCharacteristic(iid: Int, value: HAPValue, sharedSecret: SharedSecret? = nil) -> Bool {
     switch iid {
     case AccessoryInfoIID.identify:
       identify()
@@ -461,7 +462,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
       return false
     // DataStream Transport Management
     case Self.iidSetupDataStreamTransport:
-      return handleSetupDataStream(value)
+      return handleSetupDataStream(value, sharedSecret: sharedSecret)
     default:
       return false
     }
@@ -734,12 +735,13 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
   private var setupDataStreamResponse = Data()
 
   /// Handle DataStream transport setup — placeholder, implemented fully in HAPDataStream.
-  private func handleSetupDataStream(_ value: HAPValue) -> Bool {
+  private func handleSetupDataStream(_ value: HAPValue, sharedSecret: SharedSecret?) -> Bool {
     guard case .string(let b64) = value, let data = Data(base64Encoded: b64) else { return false }
     logger.info("SetupDataStreamTransport: \(data.count) bytes")
     // Full implementation in Phase 5 (HAPDataStream.swift)
     onSetupDataStream?(
       data,
+      sharedSecret,
       { [weak self] response in
         self?.setupDataStreamResponse = response
       })
@@ -747,7 +749,8 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, @unchecked Sen
   }
 
   /// Callback for DataStream setup — set by HAPDataStream.
-  var onSetupDataStream: ((_ request: Data, _ respond: @escaping (Data) -> Void) -> Void)?
+  var onSetupDataStream:
+    ((_ request: Data, _ sharedSecret: SharedSecret?, _ respond: @escaping (Data) -> Void) -> Void)?
 
   // MARK: - Streaming Status
 

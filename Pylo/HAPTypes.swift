@@ -393,9 +393,6 @@ nonisolated final class PairSetupSession: @unchecked Sendable {
   // SRP session values — filled in progressively during the M1→M6 exchange.
   var salt: Data?
   var serverPublicKey: Data?  // B
-  var serverPrivateKey: Data?  // b
-  var sharedSecret: Data?  // S -> K
-  var clientPublicKey: Data?  // A
   var sessionKey: SymmetricKey?  // K (derived from shared secret)
   var srpSession: SRPServer?
 }

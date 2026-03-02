@@ -49,12 +49,18 @@ nonisolated enum TLV8 {
     var offset = data.startIndex
 
     while offset < data.endIndex {
-      guard offset + 2 <= data.endIndex else { break }
+      guard offset + 2 <= data.endIndex else {
+        // Truncated: header byte(s) present but incomplete TLV entry
+        return []
+      }
       let type = data[offset]
       let length = Int(data[offset + 1])
       offset += 2
 
-      guard offset + length <= data.endIndex else { break }
+      guard offset + length <= data.endIndex else {
+        // Truncated: declared length exceeds remaining buffer
+        return []
+      }
       let value = data[offset..<offset + length]
       offset += length
 

@@ -108,8 +108,9 @@ nonisolated final class SRTPContext {
   }
 
   /// Encrypt and authenticate an RTP packet in place, returning the SRTP packet.
-  func protect(_ rtpPacket: Data) -> Data {
-    guard rtpPacket.count >= 12 else { return rtpPacket }
+  /// Returns nil if encryption fails (caller should skip sending).
+  func protect(_ rtpPacket: Data) -> Data? {
+    guard rtpPacket.count >= 12 else { return nil }
 
     let header = Data(rtpPacket[rtpPacket.startIndex..<rtpPacket.startIndex + 12])
     let payload = Data(rtpPacket[rtpPacket.startIndex + 12..<rtpPacket.endIndex])
@@ -123,10 +124,9 @@ nonisolated final class SRTPContext {
     // Track rollover counter (under lock for thread safety)
     let (currentROC, packetIndex) = state.withLock { s -> (UInt32, UInt64) in
       // Sender-side ROC: increment when the sequence number wraps.
-      // A decrease >= half the sequence space indicates a forward rollover
-      // (RFC 3711 §3.3.1). Use >= 0x8000 (not >) so the exact-half-range
-      // boundary (e.g. 0x8000 → 0x0000) is treated as a wrap.
-      if seq < s.lastSequenceNumber && (s.lastSequenceNumber &- seq) >= 0x8000 {
+      // A decrease > half the sequence space indicates a forward rollover
+      // (RFC 3711 §3.3.1, Appendix A: s_l - SEQ > 2^15).
+      if seq < s.lastSequenceNumber && (s.lastSequenceNumber &- seq) > 0x8000 {
         s.rolloverCounter += 1
       }
       s.lastSequenceNumber = seq
@@ -156,7 +156,9 @@ nonisolated final class SRTPContext {
     }
 
     // Encrypt payload with AES-128-CTR
-    let encryptedPayload = aesCTREncrypt(key: sessionKey, iv: iv, data: Data(payload))
+    guard let encryptedPayload = aesCTREncrypt(key: sessionKey, iv: iv, data: Data(payload)) else {
+      return nil
+    }
 
     // Assemble: original header + encrypted payload
     var srtpPacket = Data(header)
@@ -199,7 +201,7 @@ nonisolated final class SRTPContext {
       if s.incomingLastSeq < 0x8000 && seq > (s.incomingLastSeq &+ 0x8000) {
         // Late packet from previous ROC period (RFC 3711 §3.3.1 v = ROC-1)
         roc &-= 1
-      } else if seq < s.incomingLastSeq && (s.incomingLastSeq &- seq) >= 0x8000 {
+      } else if seq < s.incomingLastSeq && (s.incomingLastSeq &- seq) > 0x8000 {
         // Forward rollover (RFC 3711 §3.3.1 v = ROC+1)
         roc &+= 1
       }
@@ -257,7 +259,10 @@ nonisolated final class SRTPContext {
     }
 
     // AES-CTR decrypt (symmetric — same as encrypt)
-    let decryptedPayload = aesCTREncrypt(key: sessionKey, iv: iv, data: encryptedPayload)
+    guard let decryptedPayload = aesCTREncrypt(key: sessionKey, iv: iv, data: encryptedPayload)
+    else {
+      return nil
+    }
 
     var rtpPacket = Data(header)
     rtpPacket.append(decryptedPayload)
@@ -265,9 +270,10 @@ nonisolated final class SRTPContext {
   }
 
   /// Encrypt and authenticate an RTCP packet, returning the SRTCP packet.
+  /// Returns nil if encryption fails (caller should skip sending).
   /// Format: RTCP_header(8B) || encrypted_payload || E_flag+SRTCP_index(4B) || auth_tag(10B)
-  func protectRTCP(_ rtcpPacket: Data) -> Data {
-    guard rtcpPacket.count >= 8 else { return rtcpPacket }
+  func protectRTCP(_ rtcpPacket: Data) -> Data? {
+    guard rtcpPacket.count >= 8 else { return nil }
 
     let header = Data(rtcpPacket[rtcpPacket.startIndex..<rtcpPacket.startIndex + 8])
     let payload = Data(rtcpPacket[rtcpPacket.startIndex + 8..<rtcpPacket.endIndex])
@@ -279,7 +285,7 @@ nonisolated final class SRTPContext {
 
     let index = state.withLock { s -> UInt32 in
       let idx = s.srtcpIndex
-      s.srtcpIndex += 1
+      s.srtcpIndex = (s.srtcpIndex &+ 1) & 0x7FFF_FFFF
       return idx
     }
 
@@ -299,7 +305,9 @@ nonisolated final class SRTPContext {
       iv[i] ^= srtcpSalt[srtcpSalt.startIndex + i]
     }
 
-    let encryptedPayload = aesCTREncrypt(key: srtcpKey, iv: iv, data: payload)
+    guard let encryptedPayload = aesCTREncrypt(key: srtcpKey, iv: iv, data: payload) else {
+      return nil
+    }
 
     // Assemble: header + encrypted payload + E||index + auth tag
     var srtcpPacket = Data(header)
@@ -375,7 +383,7 @@ nonisolated final class SRTPContext {
 
   // MARK: - AES-128-CTR Encryption
 
-  private func aesCTREncrypt(key: Data, iv: Data, data: Data) -> Data {
+  private func aesCTREncrypt(key: Data, iv: Data, data: Data) -> Data? {
     guard !data.isEmpty else { return data }
 
     var cryptorRef: CCCryptorRef?
@@ -396,7 +404,7 @@ nonisolated final class SRTPContext {
     }
 
     guard createStatus == kCCSuccess, let cryptor = cryptorRef else {
-      return data  // Fallback: return plaintext (shouldn't happen)
+      return nil
     }
 
     let resultCount = data.count
@@ -416,7 +424,7 @@ nonisolated final class SRTPContext {
     CCCryptorRelease(cryptor)
 
     if updateStatus != kCCSuccess {
-      return data
+      return nil
     }
 
     return result

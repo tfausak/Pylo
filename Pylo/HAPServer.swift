@@ -35,13 +35,6 @@ nonisolated final class HAPServer: @unchecked Sendable {
   /// Device identity (long-term Ed25519 key pair).
   let deviceIdentity: DeviceIdentity
 
-  /// The pair-verify shared secret from the connection currently executing a
-  /// characteristic write.  Set by CharacteristicsHandler.handlePut before
-  /// calling writeCharacteristic, and cleared immediately after.  This allows
-  /// callbacks (e.g. SetupDataStreamTransport) to derive HDS keys from the
-  /// correct pair-verify session without searching all connections.
-  var activeWriteSharedSecret: SharedSecret?
-
   /// HDS (HomeKit Data Stream) handler for HKSV video transfer.
   /// Access is synchronized through the server queue.
   private var _dataStream: HAPDataStream?

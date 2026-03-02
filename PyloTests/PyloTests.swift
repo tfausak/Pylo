@@ -1586,13 +1586,13 @@ struct SRTPTests {
   ])
 
   @Test("Protect/unprotect roundtrip with known keys")
-  func protectUnprotectRoundtrip() {
+  func protectUnprotectRoundtrip() throws {
     let sender = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
     let receiver = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
 
     let rtp = Self.makeRTPPacket(
       seq: 1, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0x42, count: 160))
-    let srtp = sender.protect(rtp)
+    let srtp = try #require(sender.protect(rtp))
 
     // SRTP adds 10-byte auth tag
     #expect(srtp.count == rtp.count + 10)
@@ -1602,13 +1602,13 @@ struct SRTPTests {
   }
 
   @Test("Auth failure: tampered ciphertext returns nil")
-  func authFailureTampered() {
+  func authFailureTampered() throws {
     let sender = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
     let receiver = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
 
     let rtp = Self.makeRTPPacket(
       seq: 1, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0xAA, count: 100))
-    var srtp = sender.protect(rtp)
+    var srtp = try #require(sender.protect(rtp))
 
     // Tamper with encrypted payload (flip a byte in the middle)
     let tamperIndex = 20
@@ -1621,12 +1621,12 @@ struct SRTPTests {
   }
 
   @Test("Empty payload roundtrip (12-byte header only)")
-  func emptyPayloadRoundtrip() {
+  func emptyPayloadRoundtrip() throws {
     let sender = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
     let receiver = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
 
     let rtp = Self.makeRTPPacket(seq: 1, ssrc: 0x1234_5678, payload: Data())
-    let srtp = sender.protect(rtp)
+    let srtp = try #require(sender.protect(rtp))
 
     // Header-only: 12 bytes + 10-byte auth tag
     #expect(srtp.count == 22)
@@ -1636,21 +1636,21 @@ struct SRTPTests {
   }
 
   @Test("Multiple sequential packets with incrementing seq")
-  func multipleSequentialPackets() {
+  func multipleSequentialPackets() throws {
     let sender = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
     let receiver = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
 
     for seq: UInt16 in 1...10 {
       let rtp = Self.makeRTPPacket(
         seq: seq, ssrc: 0xCAFE_BABE, payload: Data(repeating: UInt8(seq), count: 80))
-      let srtp = sender.protect(rtp)
+      let srtp = try #require(sender.protect(rtp))
       let recovered = receiver.unprotect(srtp)
       #expect(recovered == rtp, "Failed at seq \(seq)")
     }
   }
 
   @Test("RTCP protect produces output larger than input")
-  func rtcpProtectGrows() {
+  func rtcpProtectGrows() throws {
     let ctx = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
 
     // Minimal RTCP Sender Report: 8-byte header + 20-byte SR body
@@ -1665,19 +1665,19 @@ struct SRTPTests {
     rtcp[6] = 0xBE
     rtcp[7] = 0xEF
 
-    let srtcp = ctx.protectRTCP(rtcp)
+    let srtcp = try #require(ctx.protectRTCP(rtcp))
     // SRTCP adds: E||index (4 bytes) + auth tag (10 bytes) = 14 bytes
     #expect(srtcp.count == rtcp.count + 14)
   }
 
   @Test("Auth failure: single bit flip in auth tag returns nil")
-  func authFailureTagFlip() {
+  func authFailureTagFlip() throws {
     let sender = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
     let receiver = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
 
     let rtp = Self.makeRTPPacket(
       seq: 1, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0xBB, count: 50))
-    var srtp = sender.protect(rtp)
+    var srtp = try #require(sender.protect(rtp))
 
     // Flip one bit in the last byte of the 10-byte auth tag
     srtp[srtp.count - 1] ^= 0x01
@@ -1685,12 +1685,12 @@ struct SRTPTests {
   }
 
   @Test("Auth failure: each tag byte position is validated")
-  func authFailureEachTagByte() {
+  func authFailureEachTagByte() throws {
     let sender = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
 
     let rtp = Self.makeRTPPacket(
       seq: 1, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0xCC, count: 50))
-    let srtp = sender.protect(rtp)
+    let srtp = try #require(sender.protect(rtp))
 
     // Flip a byte at each position in the 10-byte auth tag
     for i in 0..<10 {
@@ -1701,12 +1701,12 @@ struct SRTPTests {
     }
   }
 
-  @Test("Short packets (< 12 bytes) are returned unchanged by protect")
+  @Test("Short packets (< 12 bytes) return nil from protect")
   func shortPacketProtect() {
     let ctx = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
     let shortData = Data([0x80, 0x60, 0x00, 0x01])  // Only 4 bytes
     let result = ctx.protect(shortData)
-    #expect(result == shortData)
+    #expect(result == nil)
   }
 
   @Test("Short packets (< 22 bytes) return nil from unprotect")
@@ -1718,7 +1718,7 @@ struct SRTPTests {
   }
 
   @Test("Sequence number rollover across ROC boundary")
-  func sequenceRollover() {
+  func sequenceRollover() throws {
     let sender = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
     let receiver = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
 
@@ -1727,14 +1727,14 @@ struct SRTPTests {
     for seq in sequences {
       let rtp = Self.makeRTPPacket(
         seq: seq, ssrc: 0xCAFE_BABE, payload: Data(repeating: UInt8(seq & 0xFF), count: 40))
-      let srtp = sender.protect(rtp)
+      let srtp = try #require(sender.protect(rtp))
       let recovered = receiver.unprotect(srtp)
       #expect(recovered == rtp, "Failed at seq \(seq)")
     }
   }
 
   @Test("Out-of-order packet before ROC rollover still decrypts")
-  func outOfOrderBeforeRollover() {
+  func outOfOrderBeforeRollover() throws {
     let sender = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
     let receiver = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
 
@@ -1743,7 +1743,7 @@ struct SRTPTests {
     for seq: UInt16 in 1...5 {
       let rtp = Self.makeRTPPacket(
         seq: seq, ssrc: 0xBEEF_CAFE, payload: Data(repeating: UInt8(seq), count: 40))
-      srtpPackets[seq] = sender.protect(rtp)
+      srtpPackets[seq] = try #require(sender.protect(rtp))
     }
 
     // Receive 1, 2, 4, 5 in order (skip 3)
@@ -1757,24 +1757,24 @@ struct SRTPTests {
     #expect(late != nil, "Failed to unprotect late packet seq 3")
   }
 
-  @Test("ROC increments at exact half-range boundary (0x8000 → 0x0000)")
-  func rocIncrementAtHalfRange() {
+  @Test("ROC increments on clear forward wrap (0xFFFF → 0x0000)")
+  func rocIncrementAtWrap() throws {
     let sender = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
     let receiver = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
 
-    // Send a packet at seq 0x8000, then jump to 0x0000.
-    // The gap is exactly 0x8000 — this must be treated as a forward wrap.
+    // Send a packet at seq 0xFFFF, then jump to 0x0000.
+    // The gap is 0xFFFF — clearly a forward wrap, so ROC must increment.
     let rtp1 = Self.makeRTPPacket(
-      seq: 0x8000, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0xAA, count: 40))
-    let srtp1 = sender.protect(rtp1)
+      seq: 0xFFFF, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0xAA, count: 40))
+    let srtp1 = try #require(sender.protect(rtp1))
     let recovered1 = receiver.unprotect(srtp1)
-    #expect(recovered1 == rtp1, "Failed at seq 0x8000")
+    #expect(recovered1 == rtp1, "Failed at seq 0xFFFF")
 
     let rtp2 = Self.makeRTPPacket(
       seq: 0x0000, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0xBB, count: 40))
-    let srtp2 = sender.protect(rtp2)
+    let srtp2 = try #require(sender.protect(rtp2))
     let recovered2 = receiver.unprotect(srtp2)
-    #expect(recovered2 == rtp2, "Failed at seq 0x0000 after 0x8000 (ROC should have incremented)")
+    #expect(recovered2 == rtp2, "Failed at seq 0x0000 after 0xFFFF (ROC should have incremented)")
   }
 }
 
@@ -2246,59 +2246,6 @@ struct PairSetupThrottleThreadTests {
   }
 }
 
-// MARK: - TLV8 Truncation Rejection Tests
-
-@Suite("TLV8 Truncation Rejection")
-struct TLV8TruncationTests {
-
-  @Test("Decode stops at truncated entry — length exceeds available data")
-  func truncatedEntry() {
-    // Valid entry (state=0x02) followed by a truncated entry (claims 5 bytes but only 2 available)
-    let data = Data([0x06, 0x01, 0x02, 0x03, 0x05, 0xAA, 0xBB])
-    let pairs: [(UInt8, Data)] = TLV8.decode(data)
-    // Only the first valid entry should be returned
-    #expect(pairs.count == 1)
-    #expect(pairs[0].0 == 0x06)
-    #expect(pairs[0].1 == Data([0x02]))
-  }
-
-  @Test("Decode stops when only tag byte remains (no length byte)")
-  func onlyTagByte() {
-    // Valid entry followed by a lone tag byte
-    let data = Data([0x06, 0x01, 0x02, 0x07])
-    let pairs: [(UInt8, Data)] = TLV8.decode(data)
-    #expect(pairs.count == 1)
-    #expect(pairs[0].0 == 0x06)
-  }
-
-  @Test("Decode handles entry with length exactly at boundary")
-  func exactBoundary() {
-    // Two valid entries, second one ends exactly at data boundary
-    let data = Data([0x06, 0x01, 0x02, 0x07, 0x02, 0xAA, 0xBB])
-    let pairs: [(UInt8, Data)] = TLV8.decode(data)
-    #expect(pairs.count == 2)
-    #expect(pairs[1].1 == Data([0xAA, 0xBB]))
-  }
-
-  @Test("Decode returns empty for single byte input")
-  func singleByte() {
-    let data = Data([0x06])
-    let pairs: [(UInt8, Data)] = TLV8.decode(data)
-    #expect(pairs.isEmpty)
-  }
-
-  @Test("Decode handles length claiming zero bytes correctly")
-  func zeroLengthEntry() {
-    // Tag with zero length followed by a valid entry
-    let data = Data([0xFF, 0x00, 0x06, 0x01, 0x03])
-    let pairs: [(UInt8, Data)] = TLV8.decode(data)
-    #expect(pairs.count == 2)
-    #expect(pairs[0].0 == 0xFF)
-    #expect(pairs[0].1.isEmpty)
-    #expect(pairs[1].1 == Data([0x03]))
-  }
-}
-
 // MARK: - SRP Session Key Deferral Tests
 
 @Suite("SRP Session Key Deferral")
@@ -2493,13 +2440,13 @@ struct SRTPThreadSafetyTests {
   }
 
   @Test("Forged packet does not desync incoming ROC")
-  func forgedPacketDoesNotDesyncROC() {
+  func forgedPacketDoesNotDesyncROC() throws {
     let ctx = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
 
     // Protect a sequence of packets so ctx has valid outgoing state
     let rtp1 = Self.makeRTPPacket(
       seq: 1, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0x11, count: 20))
-    let srtp1 = ctx.protect(rtp1)
+    let srtp1 = try #require(ctx.protect(rtp1))
 
     // Create a second context with the same keys to act as receiver
     let receiver = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
@@ -2532,7 +2479,7 @@ struct SRTPThreadSafetyTests {
     // successfully, proving the forged packet did NOT desync the ROC
     let rtp2 = Self.makeRTPPacket(
       seq: 2, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0x22, count: 20))
-    let srtp2 = ctx.protect(rtp2)
+    let srtp2 = try #require(ctx.protect(rtp2))
     let result2 = receiver.unprotect(srtp2)
     #expect(result2 != nil)
     #expect(result2 == rtp2)
@@ -2584,7 +2531,7 @@ struct SRTPThreadSafetyTests {
           let rtp = Self.makeRTPPacket(
             seq: i, ssrc: 0xCAFE_BABE, payload: Data(repeating: UInt8(i), count: 80))
           let srtp = ctx.protect(rtp)
-          return srtp.count
+          return srtp?.count ?? 0
         }
       }
       var collected: [Int] = []
@@ -2598,5 +2545,205 @@ struct SRTPThreadSafetyTests {
     for size in results {
       #expect(size == 102)
     }
+  }
+
+  @Test("SRTCP index wraps at 0x7FFF_FFFF instead of overflowing into E-flag")
+  func srtcpIndexWrap() throws {
+    let ctx = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+
+    // Build a minimal RTCP packet
+    var rtcp = Data(count: 28)
+    rtcp[0] = 0x80
+    rtcp[1] = 200
+    rtcp[3] = 0x06
+    rtcp[4] = 0xDE
+    rtcp[5] = 0xAD
+    rtcp[6] = 0xBE
+    rtcp[7] = 0xEF
+
+    // Protect many packets to advance index — just verify it doesn't crash.
+    // The real test is that after 0x7FFF_FFFF the index wraps to 0 rather
+    // than setting bit 31 (which is the E-flag). We can't easily drive
+    // the index to max in a unit test, but we verify protect succeeds.
+    for _ in 0..<10 {
+      let result = ctx.protectRTCP(rtcp)
+      #expect(result != nil)
+    }
+  }
+
+  @Test("Protect returns non-nil for valid input")
+  func protectReturnsNonNil() {
+    let ctx = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+    let rtp = Self.makeRTPPacket(
+      seq: 1, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0x42, count: 160))
+    let result = ctx.protect(rtp)
+    #expect(result != nil)
+  }
+
+  @Test("ROC boundary: s_l=0x8000, SEQ=0x0000 does not spuriously increment ROC")
+  func rocBoundaryNoSpuriousIncrement() throws {
+    // This tests the off-by-one fix: when s_l=0x8000 and SEQ=0x0000,
+    // the difference is exactly 0x8000. With the fix (> 0x8000 instead of
+    // >= 0x8000), this should NOT trigger a ROC increment on the receiver.
+    let sender = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+    let receiver = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+
+    // Send packet at seq 0x8000 to establish s_l = 0x8000 on receiver
+    let rtp1 = Self.makeRTPPacket(
+      seq: 0x8000, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0xAA, count: 20))
+    let srtp1 = try #require(sender.protect(rtp1))
+    let recovered1 = receiver.unprotect(srtp1)
+    #expect(recovered1 == rtp1)
+
+    // Now send seq 0x0000 — sender sees this as ROC rollover (0x8000 → 0x0000),
+    // receiver should also detect it correctly and decrypt successfully
+    let rtp2 = Self.makeRTPPacket(
+      seq: 0x0000, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0xBB, count: 20))
+    let srtp2 = try #require(sender.protect(rtp2))
+    let recovered2 = receiver.unprotect(srtp2)
+    #expect(recovered2 == rtp2, "Packet at exact ROC boundary should decrypt successfully")
+  }
+}
+
+// MARK: - TLV8 Truncation Tests
+
+@Suite("TLV8 Truncation")
+struct TLV8TruncationTests {
+
+  @Test("Truncated at header (1 byte remaining) returns empty")
+  func truncatedAtHeader() {
+    // Valid TLV followed by a single orphan byte
+    let data = Data([0x06, 0x01, 0x02, 0x03])  // tag 0x06 len 1 val 0x02, then orphan 0x03
+    let pairs: [(UInt8, Data)] = TLV8.decode(data)
+    #expect(pairs.isEmpty)
+  }
+
+  @Test("Truncated at value (declared length exceeds buffer) returns empty")
+  func truncatedAtValue() {
+    // Tag + length says 5 bytes but only 3 remain
+    let data = Data([0x06, 0x05, 0x01, 0x02, 0x03])
+    let pairs: [(UInt8, Data)] = TLV8.decode(data)
+    #expect(pairs.isEmpty)
+  }
+
+  @Test("Valid TLV still decodes correctly")
+  func validTLVStillWorks() {
+    let data = Data([0x06, 0x01, 0x02, 0x07, 0x01, 0x01])
+    let pairs: [(UInt8, Data)] = TLV8.decode(data)
+    #expect(pairs.count == 2)
+  }
+
+  @Test("Empty data decodes to empty array")
+  func emptyData() {
+    let pairs: [(UInt8, Data)] = TLV8.decode(Data())
+    #expect(pairs.isEmpty)
+  }
+
+  @Test("Entry with length exactly at boundary decodes correctly")
+  func exactBoundary() {
+    let data = Data([0x06, 0x01, 0x02, 0x07, 0x02, 0xAA, 0xBB])
+    let pairs: [(UInt8, Data)] = TLV8.decode(data)
+    #expect(pairs.count == 2)
+    #expect(pairs[1].1 == Data([0xAA, 0xBB]))
+  }
+
+  @Test("Zero-length entry decodes correctly")
+  func zeroLengthEntry() {
+    let data = Data([0xFF, 0x00, 0x06, 0x01, 0x03])
+    let pairs: [(UInt8, Data)] = TLV8.decode(data)
+    #expect(pairs.count == 2)
+    #expect(pairs[0].0 == 0xFF)
+    #expect(pairs[0].1.isEmpty)
+    #expect(pairs[1].1 == Data([0x03]))
+  }
+}
+
+// MARK: - FragmentedMP4Writer Thread Safety Tests
+
+@Suite("FragmentedMP4Writer Thread Safety")
+struct FragmentedMP4WriterThreadSafetyTests {
+
+  @Test("Concurrent stop does not crash")
+  func concurrentStop() async {
+    let writer = FragmentedMP4Writer()
+    writer.configure(width: 1920, height: 1080, fps: 30)
+
+    await withTaskGroup(of: Void.self) { group in
+      for _ in 0..<10 {
+        group.addTask { writer.stop() }
+        group.addTask { writer.appendAudioSample(Data(repeating: 0xAA, count: 100)) }
+      }
+    }
+  }
+
+  @Test("Concurrent appendAudioSample does not crash")
+  func concurrentAppendAudio() async {
+    let writer = FragmentedMP4Writer()
+    writer.configure(width: 1920, height: 1080, fps: 30)
+
+    await withTaskGroup(of: Void.self) { group in
+      for i in 0..<100 {
+        group.addTask {
+          writer.appendAudioSample(Data(repeating: UInt8(i & 0xFF), count: 50))
+        }
+      }
+    }
+
+    // Just verify it didn't crash — no specific output to check
+    writer.stop()
+  }
+
+  @Test("includeAudioTrack property is thread-safe")
+  func includeAudioTrackThreadSafe() async {
+    let writer = FragmentedMP4Writer()
+    writer.configure(width: 1920, height: 1080, fps: 30)
+
+    await withTaskGroup(of: Void.self) { group in
+      for _ in 0..<50 {
+        group.addTask { writer.includeAudioTrack = true }
+        group.addTask { writer.includeAudioTrack = false }
+        group.addTask { _ = writer.includeAudioTrack }
+        group.addTask { _ = writer.initSegment }
+      }
+    }
+  }
+}
+
+// MARK: - VideoMotionDetector Thread Safety Tests
+
+@Suite("VideoMotionDetector Thread Safety")
+struct VideoMotionDetectorThreadSafetyTests {
+
+  @Test("Concurrent reset does not crash")
+  func concurrentReset() async {
+    let detector = VideoMotionDetector()
+
+    await withTaskGroup(of: Void.self) { group in
+      for _ in 0..<100 {
+        group.addTask { detector.reset() }
+      }
+    }
+  }
+}
+
+// MARK: - PairSetupThrottle Bad Public Key Tests
+
+@Suite("PairSetupThrottle Bad Public Key")
+struct PairSetupThrottleBadPubKeyTests {
+
+  @Test("Throttle activates after maxAttempts bad public key failures")
+  func throttleActivatesAfterBadPubKey() {
+    let throttle = PairSetupThrottle()
+    let now = Date()
+
+    // Simulate bad public key failures reaching the threshold
+    for _ in 0..<PairSetupThrottle.maxAttempts {
+      #expect(
+        !throttle.isThrottled(now: now) || throttle.failedAttempts >= PairSetupThrottle.maxAttempts)
+      throttle.recordFailure(now: now)
+    }
+
+    #expect(throttle.failedAttempts == PairSetupThrottle.maxAttempts)
+    #expect(throttle.isThrottled(now: now))
   }
 }

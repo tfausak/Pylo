@@ -412,12 +412,12 @@ final class HAPViewModel {
     batteryMonitor = nil
     motionMonitor?.stop()
     motionMonitor = nil
+    fragmentWriter?.stop()
+    fragmentWriter = nil
     monitoringSession?.stop()
     monitoringSession = nil
     dataStreamHandler?.stop()
     dataStreamHandler = nil
-    fragmentWriter?.stop()
-    fragmentWriter = nil
     cameraAccessory = nil
     server?.stop()
     server = nil
@@ -581,11 +581,11 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     try? ds.startListener()
     server.dataStream = ds
 
-    camera.onSetupDataStream = { [weak server, weak ds] requestData, respond in
-      guard let server, let ds else { return }
+    camera.onSetupDataStream = { [weak ds] requestData, sharedSecret, respond in
+      guard let ds else { return }
       // Use the shared secret from the connection making this write,
       // not from an arbitrary connection (which could be a different session).
-      guard let secret = server.activeWriteSharedSecret else { return }
+      guard let secret = sharedSecret else { return }
       respond(ds.setupTransport(requestTLV: requestData, sharedSecret: secret))
     }
   }

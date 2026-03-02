@@ -65,8 +65,8 @@ nonisolated final class FragmentRingBuffer {
 
 /// A buffered video sample extracted from a CMSampleBuffer.
 private struct VideoSample {
-  let data: Data        // Raw H.264 AVCC data (4-byte length-prefixed NAL units)
-  let pts: CMTime       // Presentation timestamp
+  let data: Data  // Raw H.264 AVCC data (4-byte length-prefixed NAL units)
+  let pts: CMTime  // Presentation timestamp
   let isKeyframe: Bool  // Whether this is a sync (IDR) sample
 }
 
@@ -94,45 +94,52 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
   /// keyframes land slightly early (e.g., frame 119 at 3.97s instead of 120 at 4.0s).
   private let fragmentDuration: TimeInterval = 3.5
 
-  /// The initialization segment (ftyp + moov) — manually constructed from the video
-  /// format description with H.264 SPS/PPS and AAC codec parameters.
-  private(set) var initSegment: Data?
-
-  /// Video format description (contains H.264 SPS/PPS) captured from the first sample.
-  private var videoFormatDescription: CMFormatDescription?
   /// Video track timescale used in mdhd, tfdt, and trun durations.
   /// 1000 = millisecond precision, matching positron/wyrecam's working HKSV implementation.
   private let videoTimescale: UInt32 = 1000
 
-  // Manual fragment construction state
-  private var pendingSamples: [VideoSample] = []
-  private var fragmentStartPTS: CMTime = .invalid
-  /// Accumulated decode time in timescale ticks across all emitted fragments (for tfdt).
-  private var accumulatedDecodeTime: UInt64 = 0
-  /// Global moof sequence number (ISO 14496-12 §8.8.5).
-  private var moofSequenceNumber: UInt32 = 0
-  /// Whether the first fragment has been logged for diagnostics.
-  private var hasLoggedFirstFragment = false
+  // Audio track constants
+  private let audioTimescale: UInt32 = 16000
+  private let audioFrameDuration: UInt32 = 480
 
-  // Audio track state
+  /// All mutable state protected by a single lock. This replaces the separate audioLock
+  /// and unprotected video-side properties to prevent data races when appendVideoSample,
+  /// appendAudioSample, configure, and stop are called from different threads.
+  private struct WriterState {
+    var pendingSamples: [VideoSample] = []
+    var fragmentStartPTS: CMTime = .invalid
+    var accumulatedDecodeTime: UInt64 = 0
+    var moofSequenceNumber: UInt32 = 0
+    var hasLoggedFirstFragment = false
+    var videoFormatDescription: CMFormatDescription?
+    var initSegment: Data?
+    var includeAudioTrack = false
+    var pendingAudioSamples: [Data] = []
+    var accumulatedAudioDecodeTime: UInt64 = 0
+  }
+
+  private let state = OSAllocatedUnfairLock(initialState: WriterState())
+
+  /// The initialization segment (ftyp + moov) — manually constructed from the video
+  /// format description with H.264 SPS/PPS and AAC codec parameters.
+  var initSegment: Data? {
+    state.withLock { $0.initSegment }
+  }
+
   /// Set externally by the capture session when mic + encoder are ready.
   /// Invalidates the cached init segment when changed so it's rebuilt with/without the audio track.
-  var includeAudioTrack = false {
-    didSet {
-      if includeAudioTrack != oldValue {
-        videoFormatDescription = nil
-        initSegment = nil
+  var includeAudioTrack: Bool {
+    get { state.withLock { $0.includeAudioTrack } }
+    set {
+      state.withLock { s in
+        if s.includeAudioTrack != newValue {
+          s.includeAudioTrack = newValue
+          s.videoFormatDescription = nil
+          s.initSegment = nil
+        }
       }
     }
   }
-  private let audioTimescale: UInt32 = 16000
-  private let audioFrameDuration: UInt32 = 480
-  /// Buffered encoded AAC-ELD frames (appended from captureQueue, drained from VT callback thread).
-  private var pendingAudioSamples: [Data] = []
-  /// Accumulated decode time in audio timescale ticks across all emitted fragments.
-  private var accumulatedAudioDecodeTime: UInt64 = 0
-  /// Protects pendingAudioSamples (written from captureQueue, read from encode callback thread).
-  private let audioLock = NSLock()
 
   func configure(width: Int, height: Int, fps: Int) {
     self.videoWidth = width
@@ -144,50 +151,18 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
 
   /// Append an encoded AAC-ELD frame to be included in the next fragment.
   func appendAudioSample(_ encodedFrame: Data) {
-    audioLock.withLock { pendingAudioSamples.append(encodedFrame) }
+    state.withLock { $0.pendingAudioSamples.append(encodedFrame) }
   }
 
   /// Append an encoded H.264 sample buffer to the current fragment.
   func appendVideoSample(_ sampleBuffer: CMSampleBuffer) {
     let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
 
-    // Detect PTS gaps from capture source transitions (snapshot pause, live stream
-    // start/stop). Flush pending samples so fragments don't span transitions — a
-    // PTS gap inflates sample durations and causes fragments to exceed the hub's
-    // 4000ms fragment limit. Require at least ~1 second of data (30 samples) to
-    // avoid emitting tiny fragments from startup jitter.
-    if let lastSamplePTS = pendingSamples.last?.pts {
-      let gap = CMTimeGetSeconds(CMTimeSubtract(pts, lastSamplePTS))
-      if (gap > 0.5 || gap < 0) && pendingSamples.count >= 30 {
-        emitFragment()
-      } else if gap > 0.5 || gap < 0 {
-        // Gap detected with too few samples — discard to avoid a tiny fragment.
-        pendingSamples.removeAll()
-        fragmentStartPTS = .invalid
-      }
-    }
-
-    // Capture video format description and eagerly build init segment
-    if videoFormatDescription == nil,
-      let fmt = CMSampleBufferGetFormatDescription(sampleBuffer)
-    {
-      videoFormatDescription = fmt
-      initSegment = buildInitSegment(videoFormat: fmt)
-    }
-
     // Determine if this is a keyframe (sync sample)
     let attachments =
       CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false)
       as? [[CFString: Any]]
     let isKeyframe = !(attachments?.first?[kCMSampleAttachmentKey_NotSync] as? Bool ?? false)
-
-    // If this is a keyframe and we have enough buffered data, emit a fragment
-    if isKeyframe && !pendingSamples.isEmpty && fragmentStartPTS.isValid {
-      let elapsed = CMTimeGetSeconds(CMTimeSubtract(pts, fragmentStartPTS))
-      if elapsed >= fragmentDuration {
-        emitFragment()
-      }
-    }
 
     // Extract raw H.264 data from the CMBlockBuffer
     guard let dataBuffer = sampleBuffer.dataBuffer else { return }
@@ -199,27 +174,64 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     guard status == kCMBlockBufferNoErr, let ptr = dataPointer, totalLength > 0 else { return }
     let sampleData = Data(bytes: ptr, count: totalLength)
 
-    // Track fragment start time
-    if !fragmentStartPTS.isValid {
-      fragmentStartPTS = pts
-    }
+    // Capture video format description outside the lock (requires the CMSampleBuffer)
+    let fmt = CMSampleBufferGetFormatDescription(sampleBuffer)
 
-    pendingSamples.append(VideoSample(data: sampleData, pts: pts, isKeyframe: isKeyframe))
+    state.withLock { s in
+      // Detect PTS gaps from capture source transitions (snapshot pause, live stream
+      // start/stop). Flush pending samples so fragments don't span transitions — a
+      // PTS gap inflates sample durations and causes fragments to exceed the hub's
+      // 4000ms fragment limit. Require at least ~1 second of data (30 samples) to
+      // avoid emitting tiny fragments from startup jitter.
+      if let lastSamplePTS = s.pendingSamples.last?.pts {
+        let gap = CMTimeGetSeconds(CMTimeSubtract(pts, lastSamplePTS))
+        if (gap > 0.5 || gap < 0) && s.pendingSamples.count >= 30 {
+          emitFragment(state: &s)
+        } else if gap > 0.5 || gap < 0 {
+          // Gap detected with too few samples — discard to avoid a tiny fragment.
+          s.pendingSamples.removeAll()
+          s.fragmentStartPTS = .invalid
+        }
+      }
+
+      // Capture video format description and eagerly build init segment
+      if s.videoFormatDescription == nil, let fmt {
+        s.videoFormatDescription = fmt
+        s.initSegment = buildInitSegment(videoFormat: fmt, includeAudio: s.includeAudioTrack)
+      }
+
+      // If this is a keyframe and we have enough buffered data, emit a fragment
+      if isKeyframe && !s.pendingSamples.isEmpty && s.fragmentStartPTS.isValid {
+        let elapsed = CMTimeGetSeconds(CMTimeSubtract(pts, s.fragmentStartPTS))
+        if elapsed >= fragmentDuration {
+          emitFragment(state: &s)
+        }
+      }
+
+      // Track fragment start time
+      if !s.fragmentStartPTS.isValid {
+        s.fragmentStartPTS = pts
+      }
+
+      s.pendingSamples.append(VideoSample(data: sampleData, pts: pts, isKeyframe: isKeyframe))
+    }
   }
 
   /// Stop the writer and flush any pending samples as a final fragment.
   /// Continuity counters (accumulatedDecodeTime, moofSequenceNumber) are preserved
   /// so prebuffered fragments in the ring buffer form a valid continuous fMP4 stream.
   func stop() {
-    if !pendingSamples.isEmpty {
-      emitFragment()
+    state.withLock { s in
+      if !s.pendingSamples.isEmpty {
+        emitFragment(state: &s)
+      }
+      s.fragmentStartPTS = .invalid
+      s.hasLoggedFirstFragment = false
+      s.pendingAudioSamples.removeAll()
+      // Reset format so init segment is rebuilt on next start, reflecting current includeAudioTrack state.
+      s.videoFormatDescription = nil
+      s.initSegment = nil
     }
-    fragmentStartPTS = .invalid
-    hasLoggedFirstFragment = false
-    audioLock.withLock { pendingAudioSamples.removeAll() }
-    // Reset format so init segment is rebuilt on next start, reflecting current includeAudioTrack state.
-    videoFormatDescription = nil
-    initSegment = nil
   }
 
   // MARK: - Fragment Construction
@@ -227,20 +239,18 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
   /// Build and emit a moof+mdat fragment from the buffered samples.
   /// Produces a two-track moof when audio samples are available: video traf (track 1)
   /// followed by audio traf (track 2) with real AAC-ELD frames.
-  private func emitFragment() {
-    guard pendingSamples.count >= 1 else { return }
+  /// Must be called with the lock held (takes inout WriterState).
+  private func emitFragment(state s: inout WriterState) {
+    guard s.pendingSamples.count >= 1 else { return }
 
-    let samples = pendingSamples
-    pendingSamples = []
-    let fragStart = fragmentStartPTS
-    fragmentStartPTS = .invalid
+    let samples = s.pendingSamples
+    s.pendingSamples = []
+    let fragStart = s.fragmentStartPTS
+    s.fragmentStartPTS = .invalid
 
-    // Drain pending audio samples under lock (needed early for moof size calculation)
-    let audioFrames: [Data] = audioLock.withLock {
-      let frames = pendingAudioSamples
-      pendingAudioSamples.removeAll()
-      return frames
-    }
+    // Drain pending audio samples
+    let audioFrames = s.pendingAudioSamples
+    s.pendingAudioSamples.removeAll()
     let na = audioFrames.count
 
     // Compute per-sample durations from PTS deltas (in timescale ticks)
@@ -261,7 +271,7 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     let sizes = samples.map { UInt32($0.data.count) }
     let firstIsKeyframe = samples.first?.isKeyframe ?? false
 
-    moofSequenceNumber += 1
+    s.moofSequenceNumber += 1
 
     // Pre-compute moof size for data_offset calculation.
     // tfhd: 8(box) + 4(ver/flags) + 4(trackID) + 4(default_sample_flags) = 20
@@ -270,7 +280,8 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     //       + [4(first_sample_flags) if keyframe] + Nv*8(duration+size) = 20+[4]+Nv*8
     // Video traf: 8(traf) + 20(tfhd) + 20(tfdt) + trun = 48 + trunSize
     let nv = samples.count
-    let trunPayloadSize = 4 + 4 + (firstIsKeyframe ? 4 : 0) + nv * 8  // count + offset + [fsf] + samples
+    // count + offset + [first_sample_flags] + samples
+    let trunPayloadSize = 4 + 4 + (firstIsKeyframe ? 4 : 0) + nv * 8
     let trunBoxSize = 8 + 4 + trunPayloadSize  // box header + ver/flags + payload
     let videoTrafSize = 8 + 20 + 20 + trunBoxSize
 
@@ -282,7 +293,7 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
 
     // mfhd
     var mfhdP = Data()
-    Self.putU32BE(&mfhdP, moofSequenceNumber)
+    Self.putU32BE(&mfhdP, s.moofSequenceNumber)
     let mfhd = Self.mp4FullBox("mfhd", payload: mfhdP)
 
     // Video traf (track 1): tfhd with default_sample_flags + tfdt + trun
@@ -293,8 +304,8 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     let vTfhd = Self.mp4FullBox("tfhd", flags: 0x02_0020, payload: vTfhdP)
 
     var vTfdtP = Data()
-    Self.putU32BE(&vTfdtP, UInt32((accumulatedDecodeTime >> 32) & 0xFFFF_FFFF))
-    Self.putU32BE(&vTfdtP, UInt32(accumulatedDecodeTime & 0xFFFF_FFFF))
+    Self.putU32BE(&vTfdtP, UInt32((s.accumulatedDecodeTime >> 32) & 0xFFFF_FFFF))
+    Self.putU32BE(&vTfdtP, UInt32(s.accumulatedDecodeTime & 0xFFFF_FFFF))
     let vTfdt = Self.mp4FullBox("tfdt", version: 1, payload: vTfdtP)
 
     // trun flags: 0x001=data-offset, 0x100=sample-duration, 0x200=sample-size
@@ -318,7 +329,8 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     var audioMdatPayload = Data()
     if na > 0 {
       let videoMdatSize = sizes.reduce(UInt32(0), +)
-      let audioDataOffset = UInt32(moofSize + 8) + videoMdatSize  // past moof + mdat header + video data
+      // past moof + mdat header + video data
+      let audioDataOffset = UInt32(moofSize + 8) + videoMdatSize
 
       // tfhd flags 0x020028: default-base-is-moof + default-sample-duration + default-sample-flags
       var aTfhdP = Data()
@@ -328,8 +340,8 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
       let aTfhd = Self.mp4FullBox("tfhd", flags: 0x02_0028, payload: aTfhdP)
 
       var aTfdtP = Data()
-      Self.putU32BE(&aTfdtP, UInt32((accumulatedAudioDecodeTime >> 32) & 0xFFFF_FFFF))
-      Self.putU32BE(&aTfdtP, UInt32(accumulatedAudioDecodeTime & 0xFFFF_FFFF))
+      Self.putU32BE(&aTfdtP, UInt32((s.accumulatedAudioDecodeTime >> 32) & 0xFFFF_FFFF))
+      Self.putU32BE(&aTfdtP, UInt32(s.accumulatedAudioDecodeTime & 0xFFFF_FFFF))
       let aTfdt = Self.mp4FullBox("tfdt", version: 1, payload: aTfdtP)
 
       // trun flags 0x000201: data-offset + sample-size (variable per frame)
@@ -357,17 +369,20 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     fragmentData.append(mdat)
 
     // Log first fragment diagnostics
-    if !hasLoggedFirstFragment {
+    if !s.hasLoggedFirstFragment {
+      let seqNum = s.moofSequenceNumber
+      let baseDT = s.accumulatedDecodeTime
+      let hasAudio = s.includeAudioTrack
       logger.info(
-        "First moof: seq=\(self.moofSequenceNumber), samples=\(nv), baseDecodeTime=\(self.accumulatedDecodeTime), totalTicks=\(totalTicks), audioFrames=\(na), audio=\(self.includeAudioTrack), moof=\(moof.count)B, mdat=\(mdat.count)B"
+        "First moof: seq=\(seqNum), samples=\(nv), baseDecodeTime=\(baseDT), totalTicks=\(totalTicks), audioFrames=\(na), audio=\(hasAudio), moof=\(moof.count)B, mdat=\(mdat.count)B"
       )
-      hasLoggedFirstFragment = true
+      s.hasLoggedFirstFragment = true
     }
 
     // Advance accumulated decode times for next fragment's tfdt
-    accumulatedDecodeTime += totalTicks
+    s.accumulatedDecodeTime += totalTicks
     if na > 0 {
-      accumulatedAudioDecodeTime += UInt64(na) * UInt64(audioFrameDuration)
+      s.accumulatedAudioDecodeTime += UInt64(na) * UInt64(audioFrameDuration)
     }
 
     // Compute total duration as CMTime
@@ -388,7 +403,8 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     onFragmentReady?(fragment)
 
     let durSec = String(format: "%.2f", CMTimeGetSeconds(totalDuration))
-    logger.debug("Fragment #\(seq): \(fragmentData.count) bytes, \(nv) samples, audioFrames=\(na), \(durSec)s")
+    logger.debug(
+      "Fragment #\(seq): \(fragmentData.count) bytes, \(nv) samples, audioFrames=\(na), \(durSec)s")
   }
 
   // MARK: - Init Segment Construction
@@ -396,25 +412,29 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
   /// Build a proper fMP4 initialization segment (ftyp + moov) from the video format
   /// description. AVAssetWriter in fragmented mode produces a minimal moov without
   /// track descriptions, so we construct one manually with H.264 SPS/PPS and AAC config.
-  private func buildInitSegment(videoFormat: CMFormatDescription) -> Data? {
+  private func buildInitSegment(videoFormat: CMFormatDescription, includeAudio: Bool) -> Data? {
     // Extract H.264 SPS and PPS from the video format description
     var paramCount = 0
-    guard CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
-      videoFormat, parameterSetIndex: 0,
-      parameterSetPointerOut: nil, parameterSetSizeOut: nil,
-      parameterSetCountOut: &paramCount, nalUnitHeaderLengthOut: nil
-    ) == noErr, paramCount >= 2 else {
+    guard
+      CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
+        videoFormat, parameterSetIndex: 0,
+        parameterSetPointerOut: nil, parameterSetSizeOut: nil,
+        parameterSetCountOut: &paramCount, nalUnitHeaderLengthOut: nil
+      ) == noErr, paramCount >= 2
+    else {
       logger.error("buildInitSegment: failed to get H.264 parameter set count")
       return nil
     }
 
     var spsPtr: UnsafePointer<UInt8>?
     var spsSize = 0
-    guard CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
-      videoFormat, parameterSetIndex: 0,
-      parameterSetPointerOut: &spsPtr, parameterSetSizeOut: &spsSize,
-      parameterSetCountOut: nil, nalUnitHeaderLengthOut: nil
-    ) == noErr, let spsP = spsPtr, spsSize >= 4 else {
+    guard
+      CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
+        videoFormat, parameterSetIndex: 0,
+        parameterSetPointerOut: &spsPtr, parameterSetSizeOut: &spsSize,
+        parameterSetCountOut: nil, nalUnitHeaderLengthOut: nil
+      ) == noErr, let spsP = spsPtr, spsSize >= 4
+    else {
       logger.error("buildInitSegment: failed to get SPS")
       return nil
     }
@@ -422,11 +442,13 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
 
     var ppsPtr: UnsafePointer<UInt8>?
     var ppsSize = 0
-    guard CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
-      videoFormat, parameterSetIndex: 1,
-      parameterSetPointerOut: &ppsPtr, parameterSetSizeOut: &ppsSize,
-      parameterSetCountOut: nil, nalUnitHeaderLengthOut: nil
-    ) == noErr, let ppsP = ppsPtr else {
+    guard
+      CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
+        videoFormat, parameterSetIndex: 1,
+        parameterSetPointerOut: &ppsPtr, parameterSetSizeOut: &ppsSize,
+        parameterSetCountOut: nil, nalUnitHeaderLengthOut: nil
+      ) == noErr, let ppsP = ppsPtr
+    else {
       logger.error("buildInitSegment: failed to get PPS")
       return nil
     }
@@ -436,10 +458,8 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     let width = UInt16(dims.width)
     let height = UInt16(dims.height)
 
-    let hasAudio = includeAudioTrack
-
     logger.info(
-      "buildInitSegment: \(width)x\(height), SPS=\(sps.count)B, PPS=\(pps.count)B, timescale=\(self.videoTimescale), audio=\(hasAudio)"
+      "buildInitSegment: \(width)x\(height), SPS=\(sps.count)B, PPS=\(pps.count)B, timescale=\(self.videoTimescale), audio=\(includeAudio)"
     )
 
     // ftyp box — mp42 major brand matching positron's working HKSV implementation
@@ -462,7 +482,7 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     mvhdP.append(Data(count: 10))  // reserved
     Self.appendIdentityMatrix(&mvhdP)
     mvhdP.append(Data(count: 24))  // pre_defined
-    Self.putU32BE(&mvhdP, hasAudio ? 3 : 2)  // next_track_ID
+    Self.putU32BE(&mvhdP, includeAudio ? 3 : 2)  // next_track_ID
     let mvhd = Self.mp4FullBox("mvhd", payload: mvhdP)
 
     let videoTrack = buildVideoTrack(
@@ -471,13 +491,13 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     // mvex (movie extends — required for fragmented MP4)
     // No mehd box — positron's working implementation omits it, and it's optional per ISO 14496-12.
     var mvexContent = Self.buildTrex(trackID: 1)
-    if hasAudio {
+    if includeAudio {
       mvexContent.append(Self.buildTrex(trackID: 2))
     }
     let mvex = Self.mp4Box("mvex", mvexContent)
 
     var moovContent = mvhd + videoTrack
-    if hasAudio {
+    if includeAudio {
       moovContent.append(buildAudioTrack(trackID: 2))
     }
     moovContent.append(mvex)
@@ -705,9 +725,15 @@ nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
   }
 
   private static func appendIdentityMatrix(_ data: inout Data) {
-    putU32BE(&data, 0x0001_0000); putU32BE(&data, 0); putU32BE(&data, 0)
-    putU32BE(&data, 0); putU32BE(&data, 0x0001_0000); putU32BE(&data, 0)
-    putU32BE(&data, 0); putU32BE(&data, 0); putU32BE(&data, 0x4000_0000)
+    putU32BE(&data, 0x0001_0000)
+    putU32BE(&data, 0)
+    putU32BE(&data, 0)
+    putU32BE(&data, 0)
+    putU32BE(&data, 0x0001_0000)
+    putU32BE(&data, 0)
+    putU32BE(&data, 0)
+    putU32BE(&data, 0)
+    putU32BE(&data, 0x4000_0000)
   }
 
   private static func buildDinf() -> Data {

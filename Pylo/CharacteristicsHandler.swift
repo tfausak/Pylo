@@ -110,13 +110,12 @@ nonisolated enum CharacteristicsHandler {
       // existence check for write-only characteristics (HAP spec §6.7.2.2).
       if let rawValue = char["value"], let value = HAPValue(fromJSON: rawValue) {
         logger.debug("PUT write \(aid).\(iid) = \(String(describing: value))")
-        // Stash the writing connection's shared secret so that downstream
+        // Pass the writing connection's shared secret so that downstream
         // callbacks (e.g. SetupDataStreamTransport) can derive HDS keys
         // from the correct pair-verify session.
-        server.activeWriteSharedSecret = connection.pairVerifySharedSecret
         let success =
-          server.accessory(aid: aid)?.writeCharacteristic(iid: iid, value: value) ?? false
-        server.activeWriteSharedSecret = nil
+          server.accessory(aid: aid)?.writeCharacteristic(
+            iid: iid, value: value, sharedSecret: connection.pairVerifySharedSecret) ?? false
         if !success {
           allOK = false
           logger.warning("PUT write \(aid).\(iid) FAILED")

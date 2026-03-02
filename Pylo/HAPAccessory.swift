@@ -1,4 +1,5 @@
 import AVFoundation
+import CryptoKit
 import Foundation
 import os
 
@@ -74,7 +75,9 @@ nonisolated protocol HAPAccessoryProtocol: AnyObject {
   var firmwareRevision: String { get }
   var onStateChange: ((_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)? { get set }
   func readCharacteristic(iid: Int) -> HAPValue?
-  @discardableResult func writeCharacteristic(iid: Int, value: HAPValue) -> Bool
+  @discardableResult func writeCharacteristic(
+    iid: Int, value: HAPValue, sharedSecret: SharedSecret?
+  ) -> Bool
   func identify()
   func toJSON() -> [String: Any]
 }
@@ -300,7 +303,7 @@ nonisolated final class HAPAccessory: HAPAccessoryProtocol, @unchecked Sendable 
 
   /// Returns true if the write was accepted.
   @discardableResult
-  func writeCharacteristic(iid: Int, value: HAPValue) -> Bool {
+  func writeCharacteristic(iid: Int, value: HAPValue, sharedSecret: SharedSecret? = nil) -> Bool {
     switch iid {
     case AccessoryInfoIID.identify:
       identify()
@@ -477,7 +480,7 @@ nonisolated final class HAPBridgeInfo: HAPAccessoryProtocol, @unchecked Sendable
   }
 
   @discardableResult
-  func writeCharacteristic(iid: Int, value: HAPValue) -> Bool {
+  func writeCharacteristic(iid: Int, value: HAPValue, sharedSecret: SharedSecret? = nil) -> Bool {
     if iid == AccessoryInfoIID.identify {
       identify()
       return true
@@ -574,7 +577,7 @@ nonisolated final class HAPMotionSensorAccessory: HAPAccessoryProtocol, @uncheck
   }
 
   @discardableResult
-  func writeCharacteristic(iid: Int, value: HAPValue) -> Bool {
+  func writeCharacteristic(iid: Int, value: HAPValue, sharedSecret: SharedSecret? = nil) -> Bool {
     if iid == AccessoryInfoIID.identify {
       identify()
       return true

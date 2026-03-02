@@ -70,8 +70,12 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   private var audioOctetsSent: Int = 0
   private var audioRTCPTimer: DispatchSourceTimer?
   /// Optional video motion detector — runs on every captured frame when set.
-  var videoMotionDetector: VideoMotionDetector?
-
+  /// Protected by a lock: written from the server queue, read from captureQueue.
+  private let _videoMotionDetector = OSAllocatedUnfairLock<VideoMotionDetector?>(initialState: nil)
+  var videoMotionDetector: VideoMotionDetector? {
+    get { _videoMotionDetector.withLock { $0 } }
+    set { _videoMotionDetector.withLock { $0 = newValue } }
+  }
 
   // Audio flags — written from the server queue, read from captureQueue/rtpQueue.
   private struct AudioFlags {
@@ -316,6 +320,8 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   }
 
   func stopStreaming() {
+    dispatchPrecondition(condition: .notOnQueue(captureQueue))
+    dispatchPrecondition(condition: .notOnQueue(rtpQueue))
     logger.info("Stopping stream")
 
     // Video cleanup
@@ -755,7 +761,8 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
 
     // Encrypt with SRTP
     if let ctx = srtpContext {
-      rtpPacket = ctx.protect(rtpPacket)
+      guard let protected = ctx.protect(rtpPacket) else { return }
+      rtpPacket = protected
     }
 
     // Send via BSD UDP socket
@@ -796,7 +803,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     let sr = Self.buildRTCPSenderReport(
       ssrc: videoSSRC, rtpTimestamp: rtpTimestamp,
       packetsSent: packetsSent, octetsSent: octetsSent)
-    let srtcpPacket = ctx.protectRTCP(sr)
+    guard let srtcpPacket = ctx.protectRTCP(sr) else { return }
     sendVideoUDP(srtcpPacket)
     logger.debug(
       "Sent RTCP-SR: packets=\(self.packetsSent) octets=\(self.octetsSent)")
@@ -1061,7 +1068,8 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
 
     // SRTP protect with audio context
     if let ctx = audioSRTPContext {
-      rtpPacket = ctx.protect(rtpPacket)
+      guard let protected = ctx.protect(rtpPacket) else { return }
+      rtpPacket = protected
     }
 
     audioPacketsSent += 1
@@ -1096,7 +1104,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     let sr = Self.buildRTCPSenderReport(
       ssrc: audioSSRC, rtpTimestamp: stats.timestamp,
       packetsSent: stats.packetsSent, octetsSent: stats.octetsSent)
-    let srtcpPacket = ctx.protectRTCP(sr)
+    guard let srtcpPacket = ctx.protectRTCP(sr) else { return }
     sendAudioUDP(srtcpPacket)
     logger.debug(
       "Sent audio RTCP-SR: packets=\(stats.packetsSent) octets=\(stats.octetsSent)"
