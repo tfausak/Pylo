@@ -400,7 +400,9 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     let moof = Self.mp4Box("moof", mfhd + videoTraf + audioTraf)
 
     // mdat: video sample data + audio frame data
+    let estimatedSize = samples.reduce(0) { $0 + $1.data.count } + audioMdatPayload.count
     var mdatPayload = Data()
+    mdatPayload.reserveCapacity(estimatedSize)
     for sample in samples { mdatPayload.append(sample.data) }
     mdatPayload.append(audioMdatPayload)
     let mdat = Self.mp4Box("mdat", mdatPayload)
