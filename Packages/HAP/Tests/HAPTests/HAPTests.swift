@@ -1399,16 +1399,11 @@ struct JSONPIDExtractionTests {
 
   @Test("PID extracted from JSONSerialization via Int cast")
   func pidExtractedFromJSON() throws {
-    // JSONSerialization deserializes numbers as NSNumber, which bridges to Int,
-    // not UInt64. Verify that casting through Int works correctly.
+    // JSONSerialization deserializes numbers as NSNumber. The Int cast approach
+    // is more reliable across platforms than as? UInt64.
     let jsonData = Data(#"{"pid": 12345678}"#.utf8)
     let json = try JSONSerialization.jsonObject(with: jsonData) as! [String: Any]
 
-    // This was the old broken code — as? UInt64 returns nil
-    let brokenPID = json["pid"] as? UInt64
-    #expect(brokenPID == nil)
-
-    // This is the correct approach — cast to Int then convert
     let pid = (json["pid"] as? Int).map { UInt64($0) }
     #expect(pid == 12_345_678)
   }
