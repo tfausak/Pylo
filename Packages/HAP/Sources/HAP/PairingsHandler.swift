@@ -100,6 +100,15 @@ public nonisolated enum PairingsHandler {
     guard let id = String(data: identifier, encoding: .utf8), !id.isEmpty else {
       return errorResponse(error: .unknown)
     }
+
+    // HAP spec §5.11: do not allow removal of the last admin pairing.
+    if let target = server.pairingStore.getPairing(identifier: id),
+      target.isAdmin, server.pairingStore.adminCount <= 1
+    {
+      logger.warning("Rejected removal of last admin pairing: \(id)")
+      return errorResponse(error: .authentication)
+    }
+
     server.pairingStore.removePairing(identifier: id)
 
     // HAP spec §5.11: terminate sessions for the removed controller.
