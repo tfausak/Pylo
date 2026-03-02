@@ -589,7 +589,17 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
 /// suppressing the warning, we observe orientation-change notifications on
 /// MainActor and cache the value atomically for any-thread reads.
 #if os(iOS)
-  private nonisolated enum DeviceOrientation {
+  // Uses the shared DeviceOrientationCache defined below.
+  private typealias DeviceOrientation = DeviceOrientationCache
+#endif
+
+// MARK: - Shared Device Orientation Cache
+
+/// Thread-safe device orientation cache. Observes orientation-change notifications
+/// on MainActor and caches the value atomically for any-thread reads.
+/// Shared by HAPCameraAccessory and MonitoringCaptureSession to avoid duplicate observers.
+#if os(iOS)
+  nonisolated enum DeviceOrientationCache {
     private static let state = OSAllocatedUnfairLock(
       initialState: Int(UIDeviceOrientation.portrait.rawValue)
     )

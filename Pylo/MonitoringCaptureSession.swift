@@ -362,10 +362,9 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
 
   private static func currentRotationAngle() -> Int {
     #if os(iOS)
-      // Read cached orientation from OSAllocatedUnfairLock — safe from any thread.
-      _ = orientationToken
-      let orientation = UIDeviceOrientation(rawValue: orientationState.withLock { $0 }) ?? .portrait
-      switch orientation {
+      // Use the shared orientation cache (DeviceOrientationCache) to avoid
+      // duplicate notification observers.
+      switch DeviceOrientationCache.current {
       case .landscapeLeft: return 0
       case .landscapeRight: return 180
       case .portraitUpsideDown: return 270
@@ -375,20 +374,6 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       return 0
     #endif
   }
-
-  /// Thread-safe device orientation cache — mirrors HAPCameraAccessory's DeviceOrientation pattern.
-  private static let orientationState = OSAllocatedUnfairLock(
-    initialState: Int(UIDeviceOrientation.portrait.rawValue)
-  )
-  private static let orientationToken: NSObjectProtocol =
-    NotificationCenter.default.addObserver(
-      forName: UIDevice.orientationDidChangeNotification,
-      object: nil,
-      queue: .main
-    ) { _ in
-      let raw = MainActor.assumeIsolated { UIDevice.current.orientation.rawValue }
-      orientationState.withLock { $0 = raw }
-    }
 }
 
 // MARK: - Video Capture Delegate
