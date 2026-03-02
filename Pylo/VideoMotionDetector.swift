@@ -50,25 +50,11 @@ nonisolated final class VideoMotionDetector {
 
   private let state = OSAllocatedUnfairLock(initialState: State())
 
-  // Pre-allocated buffers for vDSP frame comparison (avoids per-frame heap allocation).
-  // Thread safety: these are only accessed from processPixelBuffer → computeChangeRatio,
-  // which must be called from a single serial queue (the capture queue). They are NOT
-  // protected by the lock to avoid overhead on every video frame. The caller must ensure
-  // that only one capture session is active at a time.
-  private var prevFloat: [Float]
-  private var currFloat: [Float]
-  private var diff: [Float]
-
-  init() {
-    let n = Self.thumbWidth * Self.thumbHeight
-    prevFloat = [Float](repeating: 0, count: n)
-    currFloat = [Float](repeating: 0, count: n)
-    diff = [Float](repeating: 0, count: n)
-  }
+  init() {}
 
   /// Process a pixel buffer for motion detection.
-  /// Must be called from a single serial queue — the vDSP scratch buffers are not
-  /// lock-protected, so concurrent calls would cause data races.
+  /// Safe to call from any queue — all mutable state is lock-protected and
+  /// vDSP scratch buffers are stack-local.
   func processPixelBuffer(_ pixelBuffer: CVPixelBuffer) {
     // Skip frames to reduce CPU — only process every Nth frame.
     let shouldProcess = state.withLock { s -> Bool in
@@ -195,11 +181,15 @@ nonisolated final class VideoMotionDetector {
   }
 
   /// Compute the fraction of pixels that differ significantly between frames.
+  /// Uses local buffers — called only every `frameSkip` frames, so allocation is negligible.
   private func computeChangeRatio(previous: [UInt8], current: [UInt8]) -> Float {
     let count = min(previous.count, current.count)
     guard count > 0 else { return 0 }
 
-    // Use pre-allocated buffers for vDSP comparison
+    var prevFloat = [Float](repeating: 0, count: count)
+    var currFloat = [Float](repeating: 0, count: count)
+    var diff = [Float](repeating: 0, count: count)
+
     vDSP.convertElements(of: previous[0..<count], to: &prevFloat)
     vDSP.convertElements(of: current[0..<count], to: &currFloat)
 
