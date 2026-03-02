@@ -39,8 +39,8 @@ public nonisolated final class FragmentRingBuffer: Sendable {
   public func append(_ fragment: MP4Fragment) {
     state.withLock { state in
       state.fragments.append(fragment)
-      if state.fragments.count > capacity {
-        state.fragments = Array(state.fragments.suffix(capacity))
+      while state.fragments.count > capacity {
+        state.fragments.removeFirst()
       }
     }
   }
