@@ -44,7 +44,11 @@ struct PairingView: View {
     }
     .padding()
     .task(id: viewModel.setupCode) {
-      qrImage = generateQRCode(from: hapSetupURI(setupCode: viewModel.setupCode))
+      let code = viewModel.setupCode
+      let image = await Task.detached {
+        generateQRCode(from: hapSetupURI(setupCode: code))
+      }.value
+      qrImage = image
     }
   }
 }
