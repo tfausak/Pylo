@@ -152,6 +152,8 @@ public nonisolated enum PairSetupHandler {
   public static func handle(request: HTTPRequest, connection: HAPConnection, server: HAPServer)
     -> HTTPResponse
   {
+    precondition(keyStore != nil, "PairSetupHandler.keyStore must be set before the server starts")
+
     guard let body = request.body else {
       return errorResponse(state: 0x02, error: .unknown)
     }

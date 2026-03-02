@@ -503,8 +503,8 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
   )
 
   // File I/O and Keychain reads — the main motivation for running off MainActor
-  let keyStore = KeychainKeyStore()
-  PairSetupHandler.keyStore = keyStore
+  // PairSetupHandler.keyStore is already set by PyloApp._ensureKeyStore on the
+  // main thread before the server starts — no need to re-assign here.
   let pairingStore = PairingStore()
   let identity = DeviceIdentity(keyStore: keyStore)
 
