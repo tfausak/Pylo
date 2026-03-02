@@ -274,6 +274,11 @@ public nonisolated final class HAPServer: @unchecked Sendable {
       guard let self else { return }
       let toRemove = self.connections.filter { $0.value.verifiedControllerID == controllerID }
       for (id, conn) in toRemove {
+        // Clear the global pair-setup busy flag if this connection had an
+        // in-progress pair-setup, matching the cleanup in removeConnection().
+        if conn.pairSetupState != nil {
+          PairSetupHandler.isPairSetupInProgress = false
+        }
         conn.cancel()
         self.connections.removeValue(forKey: id)
       }
@@ -287,6 +292,9 @@ public nonisolated final class HAPServer: @unchecked Sendable {
       guard let self else { return }
       let toRemove = self.connections.filter { $0.value.verifiedControllerID == controllerID }
       for (id, conn) in toRemove {
+        if conn.pairSetupState != nil {
+          PairSetupHandler.isPairSetupInProgress = false
+        }
         conn.cancel()
         self.connections.removeValue(forKey: id)
       }
