@@ -377,14 +377,28 @@ public nonisolated final class HDSConnection: @unchecked Sendable {
       logger.warning("HDS: no init segment available (will send with first fragment)")
     }
 
-    // Send prebuffered fragments
+    // Send prebuffered fragments, yielding between each to avoid blocking the queue.
     let fragments = writer.ringBuffer.snapshot()
     logger.info("HDS sending \(fragments.count) prebuffered fragment(s)")
-    for fragment in fragments {
-      sendDataChunks(fragment.data, dataType: "mediaFragment", isLast: false)
-    }
+    sendPrebufferedBatch(fragments: fragments, index: 0, writer: writer)
+  }
 
-    // Set up live fragment delivery
+  /// Sends prebuffered fragments one at a time via recursive async dispatch,
+  /// yielding between each so the HDS queue can process other work.
+  private func sendPrebufferedBatch(fragments: [MP4Fragment], index: Int, writer: FragmentedMP4Writer) {
+    guard index < fragments.count else {
+      // All prebuffered fragments sent — set up live delivery.
+      setupLiveFragmentDelivery(writer: writer)
+      return
+    }
+    sendDataChunks(fragments[index].data, dataType: "mediaFragment", isLast: false)
+    queue.async { [weak self] in
+      self?.sendPrebufferedBatch(fragments: fragments, index: index + 1, writer: writer)
+    }
+  }
+
+  /// Wire up the live fragment callback after prebuffered fragments are flushed.
+  private func setupLiveFragmentDelivery(writer: FragmentedMP4Writer) {
     pendingEndOfStream = false
     writer.onFragmentReady = { [weak self, writer] (fragment: MP4Fragment) in
       self?.queue.async {
