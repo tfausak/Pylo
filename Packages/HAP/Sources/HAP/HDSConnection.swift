@@ -402,9 +402,9 @@ public nonisolated final class HDSConnection: @unchecked Sendable {
   /// Wire up the live fragment callback after prebuffered fragments are flushed.
   private func setupLiveFragmentDelivery(writer: FragmentedMP4Writer) {
     pendingEndOfStream = false
-    writer.onFragmentReady = { [weak self, writer] (fragment: MP4Fragment) in
+    writer.onFragmentReady = { [weak self, weak writer] (fragment: MP4Fragment) in
       self?.queue.async {
-        guard let self, self.activeStreamID != nil else { return }
+        guard let self, let writer, self.activeStreamID != nil else { return }
 
         // Send init segment before first fragment if it wasn't available at open time
         if !self.initSegmentSent, let initSeg = writer.initSegment {
