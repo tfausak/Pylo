@@ -199,11 +199,23 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     if needsInitSegment, let fmt {
       let includeAudio = state.withLock { $0.includeAudioTrack }
       let initSeg = buildInitSegment(videoFormat: fmt, includeAudio: includeAudio)
-      state.withLock { s in
+      let needsRebuild = state.withLock { s -> Bool in
         // Double-check under lock in case another thread raced us
-        if s.videoFormatDescription == nil {
-          s.videoFormatDescription = fmt
-          s.initSegment = initSeg
+        guard s.videoFormatDescription == nil else { return false }
+        // Re-check includeAudioTrack in case it changed while we were building
+        if s.includeAudioTrack != includeAudio { return true }
+        s.videoFormatDescription = fmt
+        s.initSegment = initSeg
+        return false
+      }
+      if needsRebuild {
+        let currentAudio = state.withLock { $0.includeAudioTrack }
+        let rebuilt = buildInitSegment(videoFormat: fmt, includeAudio: currentAudio)
+        state.withLock { s in
+          if s.videoFormatDescription == nil {
+            s.videoFormatDescription = fmt
+            s.initSegment = rebuilt
+          }
         }
       }
     }
