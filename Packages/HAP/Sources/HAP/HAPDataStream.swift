@@ -37,7 +37,8 @@ public nonisolated final class HAPDataStream: @unchecked Sendable {
   }
 
   /// The fragment writer to serve prebuffered and live video from.
-  public weak var fragmentWriter: FragmentedMP4Writer? {
+  /// Strong reference — HAPDataStream owns the writer's lifetime while active.
+  public var fragmentWriter: FragmentedMP4Writer? {
     get { stateLock.withLock { $0.fragmentWriter } }
     set { stateLock.withLock { $0.fragmentWriter = newValue } }
   }
