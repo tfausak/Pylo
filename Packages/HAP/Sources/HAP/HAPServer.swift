@@ -248,7 +248,12 @@ public nonisolated final class HAPServer: @unchecked Sendable {
   public func removeConnection(_ id: String) {
     queue.async { [weak self] in
       guard let self else { return }
-      self.connections.removeValue(forKey: id)
+      let conn = self.connections.removeValue(forKey: id)
+      // If this connection had an in-progress pair-setup, clear the global busy flag
+      // so other connections are no longer blocked.
+      if conn?.pairSetupState != nil {
+        PairSetupHandler.isPairSetupInProgress = false
+      }
       self.logger.info("Connection removed: \(id)")
     }
   }

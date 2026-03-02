@@ -76,6 +76,14 @@ public nonisolated enum PairSetupHandler {
   /// Rate limiter for pair-setup attempts (shared across all connections).
   public static let throttle = PairSetupThrottle()
 
+  /// Global flag: a pair-setup exchange is in progress on some connection.
+  /// HAP spec §5.6.1: additional M1 requests while another is in progress must return .busy.
+  private static let _pairSetupInProgress = OSAllocatedUnfairLock(initialState: false)
+  static var isPairSetupInProgress: Bool {
+    get { _pairSetupInProgress.withLock { $0 } }
+    set { _pairSetupInProgress.withLock { $0 = newValue } }
+  }
+
   /// Codes excluded by HAP spec Table 5-8.
   public static let invalidSetupCodes: Set<String> = {
     var codes: Set<String> = [
@@ -212,11 +220,13 @@ public nonisolated enum PairSetupHandler {
   private static func handleM1(tlv: [TLV8.Tag: Data], connection: HAPConnection, server: HAPServer)
     -> HTTPResponse
   {
-    // Reject if a pair-setup session is already in progress on this connection
-    if connection.pairSetupState != nil {
+    // Reject if a pair-setup session is already in progress (on any connection).
+    // HAP spec §5.6.1: only one pair-setup may proceed at a time.
+    if connection.pairSetupState != nil || isPairSetupInProgress {
       logger.warning("Pair-setup M1 received while session already in progress")
       return errorResponse(state: 0x02, error: .busy)
     }
+    isPairSetupInProgress = true
 
     // Reject if rate-limited (HAP spec §5.6.1)
     if throttle.isThrottled() {
@@ -277,6 +287,7 @@ public nonisolated enum PairSetupHandler {
       logger.error("Invalid client public key")
       throttle.recordFailure()
       connection.setPairSetupState(nil)
+      isPairSetupInProgress = false
       return errorResponse(state: 0x04, error: .authentication)
     }
 
@@ -284,6 +295,7 @@ public nonisolated enum PairSetupHandler {
       logger.error("Client proof verification failed (wrong setup code?)")
       throttle.recordFailure()
       connection.setPairSetupState(nil)
+      isPairSetupInProgress = false
       return errorResponse(state: 0x04, error: .authentication)
     }
 
@@ -419,6 +431,8 @@ public nonisolated enum PairSetupHandler {
           ))
       else {
         logger.warning("Pair-Setup M5 rejected — already paired (concurrent pair-setup race)")
+        connection.setPairSetupState(nil)
+        isPairSetupInProgress = false
         return errorResponse(state: 0x06, error: .unavailable)
       }
 
@@ -427,6 +441,7 @@ public nonisolated enum PairSetupHandler {
 
       // Clean up
       connection.setPairSetupState(nil)
+      isPairSetupInProgress = false
 
       // Update Bonjour to indicate we're now paired
       server.updateAdvertisement()
@@ -436,6 +451,8 @@ public nonisolated enum PairSetupHandler {
 
     } catch {
       logger.error("Pair-Setup M5 error: \(error)")
+      connection.setPairSetupState(nil)
+      isPairSetupInProgress = false
       return errorResponse(state: 0x06, error: .authentication)
     }
   }
