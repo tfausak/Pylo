@@ -171,6 +171,10 @@ public nonisolated final class SRPServer {
   /// Verifies the client's proof M1 and returns the server's proof M2.
   /// Returns nil if verification fails (wrong password).
   public func verifyClientProof(_ clientProof: Data) -> Data? {
+    // Validate proof length before constant-time comparison to avoid
+    // a timing-distinguishable early return on length mismatch.
+    guard clientProof.count == SHA512.byteCount else { return nil }
+
     // Snapshot the mutable state under the lock
     let (clientA, s) = state.withLock { (state: inout MutableState) -> (BigUInt, BigUInt)? in
       guard let a = state.clientPublicKey, let s = state.sharedSecret else { return nil }

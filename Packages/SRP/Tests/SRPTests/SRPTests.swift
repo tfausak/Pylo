@@ -47,6 +47,18 @@ struct SRPServerTests {
     let result = server.verifyClientProof(Data(repeating: 0xAB, count: 64))
     #expect(result == nil)
   }
+
+  @Test("Wrong-length proof is rejected early")
+  func wrongLengthProofRejected() {
+    let server = SRPServer(username: "Pair-Setup", password: "111-22-333")!
+    var fakeKey = Data(repeating: 0, count: 384)
+    fakeKey[383] = 0x05
+    _ = server.setClientPublicKey(fakeKey)
+    // SHA-512 digest is 64 bytes; shorter and longer should both fail
+    #expect(server.verifyClientProof(Data(repeating: 0xAB, count: 32)) == nil)
+    #expect(server.verifyClientProof(Data(repeating: 0xAB, count: 0)) == nil)
+    #expect(server.verifyClientProof(Data(repeating: 0xAB, count: 128)) == nil)
+  }
 }
 
 // MARK: - SRP Session Key Deferral Tests
