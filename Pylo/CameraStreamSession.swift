@@ -344,11 +344,13 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
       // Flush in-flight async encodes before invalidating (undefined behavior otherwise)
       VTCompressionSessionCompleteFrames(cs, untilPresentationTimeStamp: .positiveInfinity)
       VTCompressionSessionInvalidate(cs)
-      // Drain any processEncodedFrame blocks dispatched to rtpQueue by the
-      // VT output callback before we proceed to close sockets.
-      rtpQueue.sync {}
     }
     compressionSession = nil
+
+    // Drain any blocks dispatched to rtpQueue (from VT output callback or
+    // audio read source) before we proceed to close sockets. Moved outside
+    // the if-let so audio-only work is also drained.
+    rtpQueue.sync {}
 
     // Audio mic cleanup
     audioRTCPTimer?.cancel()
