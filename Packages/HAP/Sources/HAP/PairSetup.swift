@@ -111,30 +111,41 @@ public nonisolated enum PairSetupHandler {
 
   /// The setup code displayed to the user (format: XXX-XX-XXX).
   /// Generated randomly on first launch and persisted via keyStore.
-  public static let setupCode: String = {
+  /// Cached after first access so subsequent reads are free.
+  private static let _setupCode = OSAllocatedUnfairLock<String?>(initialState: nil)
+  public static var setupCode: String {
+    if let cached = _setupCode.withLock({ $0 }) { return cached }
+    precondition(keyStore != nil, "PairSetupHandler.keyStore must be set before accessing setupCode")
     if let data = keyStore.load(key: "setup-code"),
       let code = String(data: data, encoding: .utf8)
     {
+      _setupCode.withLock { $0 = code }
       return code
     }
     let code = generateSetupCode()
     keyStore.save(key: "setup-code", data: Data(code.utf8))
+    _setupCode.withLock { $0 = code }
     return code
-  }()
+  }
 
   /// 4-character alphanumeric Setup ID required for QR code pairing.
   /// Generated once and persisted via keyStore.
-  public static let setupID: String = {
+  private static let _setupID = OSAllocatedUnfairLock<String?>(initialState: nil)
+  public static var setupID: String {
+    if let cached = _setupID.withLock({ $0 }) { return cached }
+    precondition(keyStore != nil, "PairSetupHandler.keyStore must be set before accessing setupID")
     if let data = keyStore.load(key: "setup-id"),
       let id = String(data: data, encoding: .utf8)
     {
+      _setupID.withLock { $0 = id }
       return id
     }
     let chars = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ")
     let id = String((0..<4).map { _ in chars[Int.random(in: chars.indices)] })
     keyStore.save(key: "setup-id", data: Data(id.utf8))
+    _setupID.withLock { $0 = id }
     return id
-  }()
+  }
 
   /// Compute the Setup Hash (sh) for the Bonjour TXT record.
   /// sh = Base64(SHA512(setupID + deviceID)[0..<4])
