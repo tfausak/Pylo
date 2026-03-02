@@ -167,65 +167,6 @@ extension HAPCameraAccessory {
   }
 
   /// Generates a default SelectedCameraRecordingConfiguration matching our supported configs.
-  /// Used as a fallback when the hub has already written the config in a previous session
-  /// but it wasn't persisted.
-  func defaultSelectedRecordingConfig() -> Data {
-    // General recording config
-    var containerParams = TLV8.Builder()
-    containerParams.add(0x01, uint32: 4000)  // Fragment length: 4000ms
-
-    var container = TLV8.Builder()
-    container.add(0x01, byte: 0x00)  // Container type: fMP4
-    container.add(0x02, tlv: containerParams)
-
-    var generalConfig = TLV8.Builder()
-    generalConfig.add(0x01, uint32: 4000)  // Prebuffer length: 4000ms
-    generalConfig.add(0x02, uint64: 1)  // Event trigger options: Motion
-    generalConfig.add(0x03, tlv: container)
-
-    // Selected video config: H.264 High@4.0, 1280x720@24fps
-    var videoCodecParams = TLV8.Builder()
-    videoCodecParams.add(0x01, byte: 0x02)  // Profile: High
-    videoCodecParams.add(0x02, byte: 0x02)  // Level: 4.0
-
-    var videoAttrs = TLV8.Builder()
-    videoAttrs.add(0x01, uint16: 1280)
-    videoAttrs.add(0x02, uint16: 720)
-    videoAttrs.add(0x03, byte: 24)
-
-    var videoCodecConfig = TLV8.Builder()
-    videoCodecConfig.add(0x01, byte: 0x00)  // H.264
-    videoCodecConfig.add(0x02, tlv: videoCodecParams)
-    videoCodecConfig.add(0x03, tlv: videoAttrs)
-
-    var videoConfig = TLV8.Builder()
-    videoConfig.add(0x01, tlv: videoCodecConfig)
-    videoConfig.add(0x02, uint32: 2000)  // Bitrate: 2000 kbps
-    videoConfig.add(0x03, uint32: 24)  // I-frame interval: 24 frames
-
-    // Selected audio config: AAC-ELD, 1ch, variable, 24kHz
-    var audioCodecParams = TLV8.Builder()
-    audioCodecParams.add(0x01, byte: 1)  // Channels: 1
-    audioCodecParams.add(0x02, byte: 0)  // BitRate: Variable
-    audioCodecParams.add(0x03, byte: 2)  // SampleRate: 24kHz
-
-    var audioCodecConfig = TLV8.Builder()
-    audioCodecConfig.add(0x01, byte: 1)  // AAC-ELD
-    audioCodecConfig.add(0x02, tlv: audioCodecParams)
-
-    var audioConfig = TLV8.Builder()
-    audioConfig.add(0x01, tlv: audioCodecConfig)
-    audioConfig.add(0x02, uint32: 64)  // Bitrate: 64 kbps
-    audioConfig.add(0x03, uint32: 24)  // Max audio samples (not well documented)
-
-    // Build the full selected config
-    var selected = TLV8.Builder()
-    selected.add(0x01, tlv: generalConfig)
-    selected.add(0x02, tlv: videoConfig)
-    selected.add(0x03, tlv: audioConfig)
-    return selected.build()
-  }
-
   func handleSelectedRecordingConfig(_ data: Data) {
     let tlvs = TLV8.decode(data) as [(UInt8, Data)]
     for (tag, val) in tlvs {
