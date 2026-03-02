@@ -99,36 +99,37 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   }
 
   /// Whether video motion detection is active on the streaming session.
-  /// Protected by streamLock so the Bool storage itself is synchronized.
-  private var _videoMotionEnabled: Bool = false
   var videoMotionEnabled: Bool {
-    get { streamLock.withLock { _videoMotionEnabled } }
+    get { streamState.withLock { $0.videoMotionEnabled } }
     set {
-      streamLock.withLock {
-        _videoMotionEnabled = newValue
+      streamState.withLock { s in
+        s.videoMotionEnabled = newValue
         if newValue {
           let detector = VideoMotionDetector()
           detector.onMotionChange = { [weak self] detected in
             self?.onVideoMotionChange?(detected)
           }
-          _videoMotionDetector = detector
-          _streamSession?.videoMotionDetector = detector
+          s.videoMotionDetector = detector
+          s.streamSession?.videoMotionDetector = detector
         } else {
-          _videoMotionDetector?.reset()
-          _videoMotionDetector = nil
-          _streamSession?.videoMotionDetector = nil
+          s.videoMotionDetector?.reset()
+          s.videoMotionDetector = nil
+          s.streamSession?.videoMotionDetector = nil
         }
       }
     }
   }
 
-  /// Lock protecting _videoMotionDetector and _streamSession, which are
-  /// accessed from both createServerSetup (off-main) and the server queue.
-  private let streamLock = NSLock()
-  private var _videoMotionDetector: VideoMotionDetector?
+  /// Lock-protected streaming state accessed from multiple queues.
+  private struct StreamState {
+    var videoMotionDetector: VideoMotionDetector?
+    var streamSession: CameraStreamSession?
+    var videoMotionEnabled: Bool = false
+  }
+  private let streamState = OSAllocatedUnfairLock(initialState: StreamState())
   var videoMotionDetector: VideoMotionDetector? {
-    get { streamLock.withLock { _videoMotionDetector } }
-    set { streamLock.withLock { _videoMotionDetector = newValue } }
+    get { streamState.withLock { $0.videoMotionDetector } }
+    set { streamState.withLock { $0.videoMotionDetector = newValue } }
   }
 
   let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "Camera")
@@ -143,20 +144,18 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   var minimumBitrate: Int = 0
 
   /// Active streaming session (nil when idle).
-  private var _streamSession: CameraStreamSession?
   var streamSession: CameraStreamSession? {
-    get { streamLock.withLock { _streamSession } }
-    set { streamLock.withLock { _streamSession = newValue } }
+    get { streamState.withLock { $0.streamSession } }
+    set { streamState.withLock { $0.streamSession = newValue } }
   }
 
   /// Most recent JPEG snapshot captured during streaming (used as fallback for snapshot requests).
   /// Protected by a lock because it is written from captureQueue (via onSnapshotFrame) and from
   /// a global queue (captureSnapshot), and read from the server queue.
-  let snapshotLock = NSLock()
-  var _cachedSnapshot: Data?
+  private let _cachedSnapshot = OSAllocatedUnfairLock<Data?>(initialState: nil)
   var cachedSnapshot: Data? {
-    get { snapshotLock.withLock { _cachedSnapshot } }
-    set { snapshotLock.withLock { _cachedSnapshot = newValue } }
+    get { _cachedSnapshot.withLock { $0 } }
+    set { _cachedSnapshot.withLock { $0 = newValue } }
   }
 
   /// Audio settings accessed from the server queue (read/write characteristics)
