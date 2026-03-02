@@ -14,7 +14,10 @@ nonisolated final class VideoMotionDetector {
   }
 
   /// Fraction of pixels that must differ to trigger motion (0.0–1.0).
-  var threshold: Float = 0.05
+  var threshold: Float {
+    get { state.withLock { $0.threshold } }
+    set { state.withLock { $0.threshold = newValue } }
+  }
 
   /// Seconds of calm required before reporting no motion.
   var cooldown: TimeInterval {
@@ -32,6 +35,7 @@ nonisolated final class VideoMotionDetector {
   private struct State {
     var isMotionDetected = false
     var lastMotionDate = Date.distantPast
+    var threshold: Float = 0.05
     var cooldown: TimeInterval = 3.0
     var previousFrame: [UInt8]?
   }
