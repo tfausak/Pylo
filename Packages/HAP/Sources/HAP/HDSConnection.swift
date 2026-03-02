@@ -385,7 +385,9 @@ public nonisolated final class HDSConnection: @unchecked Sendable {
 
   /// Sends prebuffered fragments one at a time via recursive async dispatch,
   /// yielding between each so the HDS queue can process other work.
-  private func sendPrebufferedBatch(fragments: [MP4Fragment], index: Int, writer: FragmentedMP4Writer) {
+  private func sendPrebufferedBatch(
+    fragments: [MP4Fragment], index: Int, writer: FragmentedMP4Writer
+  ) {
     guard index < fragments.count else {
       // All prebuffered fragments sent — set up live delivery.
       setupLiveFragmentDelivery(writer: writer)

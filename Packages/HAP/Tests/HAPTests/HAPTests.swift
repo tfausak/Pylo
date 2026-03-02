@@ -868,10 +868,12 @@ struct PairingStoreTests {
   @Test("removeAll clears all pairings")
   func removeAllClearsPairings() {
     let store = PairingStore(testPairings: [:])
-    store.addPairing(PairingStore.Pairing(
-      identifier: "a", publicKey: Data(repeating: 0xAA, count: 32), isAdmin: true))
-    store.addPairing(PairingStore.Pairing(
-      identifier: "b", publicKey: Data(repeating: 0xBB, count: 32), isAdmin: false))
+    store.addPairing(
+      PairingStore.Pairing(
+        identifier: "a", publicKey: Data(repeating: 0xAA, count: 32), isAdmin: true))
+    store.addPairing(
+      PairingStore.Pairing(
+        identifier: "b", publicKey: Data(repeating: 0xBB, count: 32), isAdmin: false))
     #expect(store.isPaired == true)
     store.removeAll()
     // Test store save always succeeds (no-op), so pairings should be cleared
@@ -1577,8 +1579,10 @@ struct LastAdminRemovalGuardTests {
   @Test("adminCount returns count of admin pairings")
   func adminCountReflectsAdminPairings() {
     let store = PairingStore(testPairings: [
-      "A": PairingStore.Pairing(identifier: "A", publicKey: Data(repeating: 0xAA, count: 32), isAdmin: true),
-      "B": PairingStore.Pairing(identifier: "B", publicKey: Data(repeating: 0xBB, count: 32), isAdmin: false),
+      "A": PairingStore.Pairing(
+        identifier: "A", publicKey: Data(repeating: 0xAA, count: 32), isAdmin: true),
+      "B": PairingStore.Pairing(
+        identifier: "B", publicKey: Data(repeating: 0xBB, count: 32), isAdmin: false),
     ])
     #expect(store.adminCount == 1)
   }
@@ -1586,8 +1590,10 @@ struct LastAdminRemovalGuardTests {
   @Test("Removing non-admin pairing succeeds even when one admin exists")
   func removeNonAdminSucceeds() {
     let store = PairingStore(testPairings: [
-      "ADMIN": PairingStore.Pairing(identifier: "ADMIN", publicKey: Data(repeating: 0xAA, count: 32), isAdmin: true),
-      "USER": PairingStore.Pairing(identifier: "USER", publicKey: Data(repeating: 0xBB, count: 32), isAdmin: false),
+      "ADMIN": PairingStore.Pairing(
+        identifier: "ADMIN", publicKey: Data(repeating: 0xAA, count: 32), isAdmin: true),
+      "USER": PairingStore.Pairing(
+        identifier: "USER", publicKey: Data(repeating: 0xBB, count: 32), isAdmin: false),
     ])
     store.removePairing(identifier: "USER")
     #expect(store.pairings.count == 1)
@@ -1597,8 +1603,10 @@ struct LastAdminRemovalGuardTests {
   @Test("adminCount decreases when admin is removed")
   func adminCountDecreasesOnRemoval() {
     let store = PairingStore(testPairings: [
-      "A1": PairingStore.Pairing(identifier: "A1", publicKey: Data(repeating: 0xAA, count: 32), isAdmin: true),
-      "A2": PairingStore.Pairing(identifier: "A2", publicKey: Data(repeating: 0xBB, count: 32), isAdmin: true),
+      "A1": PairingStore.Pairing(
+        identifier: "A1", publicKey: Data(repeating: 0xAA, count: 32), isAdmin: true),
+      "A2": PairingStore.Pairing(
+        identifier: "A2", publicKey: Data(repeating: 0xBB, count: 32), isAdmin: true),
     ])
     #expect(store.adminCount == 2)
     store.removePairing(identifier: "A1")
