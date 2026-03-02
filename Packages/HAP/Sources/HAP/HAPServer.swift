@@ -232,6 +232,7 @@ public nonisolated final class HAPServer: @unchecked Sendable {
   // MARK: - Connection Handling
 
   private func handleNewConnection(_ nwConnection: NWConnection) {
+    dispatchPrecondition(condition: .onQueue(queue))
     let id = UUID().uuidString
     let connection = HAPConnection(
       id: id,

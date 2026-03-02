@@ -53,30 +53,37 @@ public nonisolated final class HAPConnection: @unchecked Sendable {
   // dispatch queue). These methods enforce the @unchecked Sendable contract.
 
   public func setPendingEncryptionContext(_ ctx: EncryptionContext) {
+    dispatchPrecondition(condition: .onQueue(queue))
     pendingEncryptionContext = ctx
   }
 
   public func setVerifiedControllerID(_ id: String?) {
+    dispatchPrecondition(condition: .onQueue(queue))
     verifiedControllerID = id
   }
 
   public func setPairSetupState(_ state: PairSetupSession?) {
+    dispatchPrecondition(condition: .onQueue(queue))
     pairSetupState = state
   }
 
   public func setPairVerifyState(_ state: PairVerifySession?) {
+    dispatchPrecondition(condition: .onQueue(queue))
     pairVerifyState = state
   }
 
   public func setPairVerifySharedSecret(_ secret: SharedSecret?) {
+    dispatchPrecondition(condition: .onQueue(queue))
     pairVerifySharedSecret = secret
   }
 
   public func subscribe(to charID: CharacteristicID) {
+    dispatchPrecondition(condition: .onQueue(queue))
     eventSubscriptions.insert(charID)
   }
 
   public func unsubscribe(from charID: CharacteristicID) {
+    dispatchPrecondition(condition: .onQueue(queue))
     eventSubscriptions.remove(charID)
   }
 
