@@ -186,10 +186,17 @@ public nonisolated final class HAPDataStream: @unchecked Sendable {
 
   /// Stop the HDS listener and close any active connection.
   public func stop() {
-    connection?.cancel()
-    connection = nil
-    listener?.cancel()
-    listener = nil
+    let (conn, lst) = stateLock.withLock { _ -> (HDSConnection?, NWListener?) in
+      let c = connection
+      let l = listener
+      connection = nil
+      listener = nil
+      pendingReadKey = nil
+      pendingWriteKey = nil
+      return (c, l)
+    }
+    conn?.cancel()
+    lst?.cancel()
   }
 }
 
