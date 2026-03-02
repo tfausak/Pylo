@@ -172,19 +172,20 @@ public nonisolated final class HAPDataStream: @unchecked Sendable {
     //   "HDS-Read-Encryption-Key"  = what the controller reads (accessory->controller)
     //   "HDS-Write-Encryption-Key" = what the controller writes (controller->accessory)
     let hkdfSalt = controllerKeySalt + accessoryKeySalt
-    let sharedSecretData = sharedSecret.withUnsafeBytes { Data($0) }
 
-    let readKey = HKDF<SHA512>.deriveSymmetricKey(
-      inputKeyMaterial: sharedSecretData,
+    // Derive keys directly from SharedSecret to avoid leaking key material
+    // into unzeroed Data intermediaries.
+    let readKey = sharedSecret.hkdfDerivedSymmetricKey(
+      using: SHA512.self,
       salt: hkdfSalt,
-      info: Data("HDS-Write-Encryption-Key".utf8),
+      sharedInfo: Data("HDS-Write-Encryption-Key".utf8),
       outputByteCount: 32
     )
 
-    let writeKey = HKDF<SHA512>.deriveSymmetricKey(
-      inputKeyMaterial: sharedSecretData,
+    let writeKey = sharedSecret.hkdfDerivedSymmetricKey(
+      using: SHA512.self,
       salt: hkdfSalt,
-      info: Data("HDS-Read-Encryption-Key".utf8),
+      sharedInfo: Data("HDS-Read-Encryption-Key".utf8),
       outputByteCount: 32
     )
 
