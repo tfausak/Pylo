@@ -588,15 +588,24 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     encodeFrameCount += 1
 
     // Periodically cache a JPEG for snapshot requests while streaming.
+    // Render to CGImage synchronously (fast — just materializes the lazy CIImage),
+    // then dispatch JPEG compression to a background queue to avoid blocking
+    // video frame delivery on captureQueue.
     snapshotFrameCounter += 1
     if snapshotFrameCounter >= snapshotInterval, let callback = onSnapshotFrame {
       snapshotFrameCounter = 0
       let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-      if let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-        let jpeg = snapshotCIContext.jpegRepresentation(
-          of: ciImage, colorSpace: colorSpace, options: [:])
-      {
-        callback(jpeg)
+      if let cgImage = snapshotCIContext.createCGImage(ciImage, from: ciImage.extent) {
+        let ctx = snapshotCIContext
+        DispatchQueue.global(qos: .utility).async {
+          let rendered = CIImage(cgImage: cgImage)
+          if let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+            let jpeg = ctx.jpegRepresentation(
+              of: rendered, colorSpace: colorSpace, options: [:])
+          {
+            callback(jpeg)
+          }
+        }
       }
     }
 
