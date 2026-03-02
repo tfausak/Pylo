@@ -522,6 +522,45 @@ struct SRTPThreadSafetyTests {
     #expect(result != nil)
   }
 
+  @Test("Late packet when ROC is 0 does not wrap to UInt32.max")
+  func latePacketAtROCZero() throws {
+    let sender = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+    let receiver = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+
+    // Send packets 1, 2, 3 in order
+    var srtpPackets: [UInt16: Data] = [:]
+    for seq: UInt16 in 1...3 {
+      let rtp = Self.makeRTPPacket(
+        seq: seq, ssrc: 0xDEAD_BEEF, payload: Data(repeating: UInt8(seq), count: 20))
+      srtpPackets[seq] = try #require(sender.protect(rtp))
+    }
+
+    // Receive 1, 3 (skip 2) — establishes s_l = 3 at ROC = 0
+    let _ = receiver.unprotect(srtpPackets[1]!)
+    let _ = receiver.unprotect(srtpPackets[3]!)
+
+    // Now send a packet with a high seq number that would trigger the
+    // "late packet" branch (s_l < 0x8000 && seq > s_l + 0x8000).
+    // With ROC == 0, the old code did roc &-= 1 wrapping to UInt32.max.
+    // The fix guards against this.
+    let rtp4 = Self.makeRTPPacket(
+      seq: 0xFFF0, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0xFF, count: 20))
+    let srtp4 = try #require(sender.protect(rtp4))
+    // This should fail auth (wrong ROC) but must NOT crash or wrap ROC
+    let result = receiver.unprotect(srtp4)
+    // The packet should fail auth since the sender's ROC is 0 but the
+    // receiver would have tried ROC = 0 (guarded) or ROC = UInt32.max (old bug)
+    #expect(result == nil)
+
+    // Verify normal operation still works after the failed unprotect
+    let rtp5 = Self.makeRTPPacket(
+      seq: 4, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0x44, count: 20))
+    let srtp5 = try #require(sender.protect(rtp5))
+    let recovered5 = receiver.unprotect(srtp5)
+    #expect(
+      recovered5 == rtp5, "Normal packets must still decrypt after failed late-packet unprotect")
+  }
+
   @Test("ROC boundary: s_l=0x8000, SEQ=0x0000 does not spuriously increment ROC")
   func rocBoundaryNoSpuriousIncrement() throws {
     // This tests the off-by-one fix: when s_l=0x8000 and SEQ=0x0000,

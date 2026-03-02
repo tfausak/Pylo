@@ -175,9 +175,9 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
         return (s.incomingROC, seq, false)
       }
       var roc = s.incomingROC
-      if s.incomingLastSeq < 0x8000 && seq > (s.incomingLastSeq &+ 0x8000) {
+      if roc > 0 && s.incomingLastSeq < 0x8000 && seq > (s.incomingLastSeq &+ 0x8000) {
         // Late packet from previous ROC period (RFC 3711 §3.3.1 v = ROC-1)
-        roc &-= 1
+        roc -= 1
       } else if seq < s.incomingLastSeq && (s.incomingLastSeq &- seq) > 0x8000 {
         // Forward rollover (RFC 3711 §3.3.1 v = ROC+1)
         roc &+= 1
