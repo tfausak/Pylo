@@ -53,7 +53,7 @@ extension HAPCameraAccessory {
       rtpCharacteristics.append([
         "iid": Self.iidRTPStreamActive,
         "type": Self.uuidActive, "format": "uint8",
-        "perms": ["pr", "pw", "ev"], "value": recordingActive,
+        "perms": ["pr", "pw", "ev"], "value": rtpStreamActive,
         "minValue": 0, "maxValue": 1,
       ])
     }
