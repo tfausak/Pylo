@@ -231,8 +231,17 @@ public nonisolated final class HAPServer: @unchecked Sendable {
 
   // MARK: - Connection Handling
 
+  /// Maximum concurrent connections. HAP spec recommends supporting at least 8.
+  static let maxConnections = 16
+
   private func handleNewConnection(_ nwConnection: NWConnection) {
     dispatchPrecondition(condition: .onQueue(queue))
+    if connections.count >= Self.maxConnections {
+      logger.warning(
+        "Rejecting connection: limit of \(Self.maxConnections) reached")
+      nwConnection.cancel()
+      return
+    }
     let id = UUID().uuidString
     let connection = HAPConnection(
       id: id,
