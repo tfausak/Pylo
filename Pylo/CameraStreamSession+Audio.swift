@@ -248,12 +248,17 @@ extension CameraStreamSession {
     // Wrap in RFC 3640 AU header section (HomeKit expects this framing)
     guard let framedPayload = AUHeader.add(to: aacData) else { return }
 
-    sendAudioRTPPacket(payload: framedPayload)
+    // Dispatch RTP send to rtpQueue so all audio RTP state (seq, timestamp,
+    // stats) is accessed from a single queue, avoiding data races with RTCP.
+    rtpQueue.async { [self] in
+      sendAudioRTPPacket(payload: framedPayload)
+    }
   }
 
   // MARK: - Audio RTP Send
 
   private nonisolated func sendAudioRTPPacket(payload: Data) {
+    dispatchPrecondition(condition: .onQueue(rtpQueue))
     // Build 12-byte RTP header
     var header = Data(count: 12)
     header[0] = 0x80  // V=2
