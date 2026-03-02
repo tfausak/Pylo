@@ -223,6 +223,13 @@ public nonisolated final class HAPConnection: @unchecked Sendable {
         return
       }
 
+      // If the connection is already closing, don't issue another receive
+      // that would hang waiting for payload bytes that will never arrive.
+      if isComplete {
+        self.cancel()
+        return
+      }
+
       let totalLength = frameLength + 16  // + Poly1305 auth tag
 
       // Now read the encrypted payload + tag
