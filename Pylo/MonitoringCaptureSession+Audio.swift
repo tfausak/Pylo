@@ -9,7 +9,7 @@ import os
 extension MonitoringCaptureSession {
 
   nonisolated func handleAudioSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
-    let converter = lock.withLock { _state.audioConverter }
+    let converter = withState { $0.audioConverter }
     guard converter != nil else { return }
 
     guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { return }
@@ -34,14 +34,14 @@ extension MonitoringCaptureSession {
     }
 
     // Accumulate PCM and encode when we have enough for an AAC-ELD frame
-    lock.withLock { _state.pcmAccumulator.append(pcmFloat32) }
+    withState { $0.pcmAccumulator.append(pcmFloat32) }
     let frameSizeBytes = aacFrameSamples * 4  // 480 samples * 4 bytes/sample (Float32)
 
     while true {
-      let frameData: Data? = lock.withLock {
-        guard _state.pcmAccumulator.count >= frameSizeBytes else { return nil }
-        let frame = Data(_state.pcmAccumulator.prefix(frameSizeBytes))
-        _state.pcmAccumulator = Data(_state.pcmAccumulator.dropFirst(frameSizeBytes))
+      let frameData: Data? = withState {
+        guard $0.pcmAccumulator.count >= frameSizeBytes else { return nil }
+        let frame = Data($0.pcmAccumulator.prefix(frameSizeBytes))
+        $0.pcmAccumulator = Data($0.pcmAccumulator.dropFirst(frameSizeBytes))
         return frame
       }
       guard let frameData else { break }
@@ -50,7 +50,7 @@ extension MonitoringCaptureSession {
   }
 
   private nonisolated func encodeAndAppendAudioFrame(_ pcmData: Data) {
-    let converter = lock.withLock { _state.audioConverter }
+    let converter = withState { $0.audioConverter }
     guard let converter else { return }
 
     var packetSize: UInt32 = 1

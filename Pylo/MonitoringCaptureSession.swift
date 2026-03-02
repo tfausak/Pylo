@@ -54,22 +54,26 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     var audioConverter: AudioConverterRef?
     var pcmAccumulator = Data()
   }
-  /// All access to `_state` must go through `lock.withLock { }`.
-  /// Cannot be `private` because the +Audio.swift extension needs access.
-  var _state = State()
+  /// All access to `_state` must go through `lock.withLock { }` or `withState()`.
+  private var _state = State()
+
+  /// Thread-safe accessor for mutable state.
+  func withState<T>(_ body: (inout State) -> T) -> T {
+    lock.withLock { body(&_state) }
+  }
 
   // Strong references to delegates to prevent premature deallocation.
   private var videoCaptureDelegate: VideoCaptureDelegate?
   private var audioCaptureDelegate: AudioCaptureDelegate?
 
   private var captureSession: AVCaptureSession? {
-    get { lock.withLock { _state.captureSession } }
-    set { lock.withLock { _state.captureSession = newValue } }
+    get { withState { $0.captureSession } }
+    set { withState { $0.captureSession = newValue } }
   }
 
   private var compressionSession: VTCompressionSession? {
-    get { lock.withLock { _state.compressionSession } }
-    set { lock.withLock { _state.compressionSession = newValue } }
+    get { withState { $0.compressionSession } }
+    set { withState { $0.compressionSession = newValue } }
   }
 
   // MARK: - Lifecycle
