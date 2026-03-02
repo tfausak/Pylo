@@ -91,11 +91,6 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
 
   private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "fMP4Writer")
 
-  // Configuration
-  private var videoWidth: Int = 1920
-  private var videoHeight: Int = 1080
-  private var fps: Int = 30
-
   /// Minimum elapsed time before emitting a fragment at the next keyframe.
   /// Set below the hub's 4000ms fragment limit so we don't overshoot when
   /// keyframes land slightly early (e.g., frame 119 at 3.97s instead of 120 at 4.0s).
@@ -113,6 +108,7 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
   /// and unprotected video-side properties to prevent data races when appendVideoSample,
   /// appendAudioSample, configure, and stop are called from different threads.
   private struct WriterState {
+    var fps: Int = 30
     var pendingSamples: [VideoSample] = []
     var fragmentStartPTS: CMTime = .invalid
     var accumulatedDecodeTime: UInt64 = 0
@@ -151,9 +147,7 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
   }
 
   public func configure(width: Int, height: Int, fps: Int) {
-    self.videoWidth = width
-    self.videoHeight = height
-    self.fps = fps
+    state.withLock { $0.fps = fps }
   }
 
   // MARK: - Writing
@@ -271,7 +265,7 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
         let ticks = CMTimeConvertScale(delta, timescale: Int32(timescale), method: .roundTowardZero)
         durations.append(UInt32(max(ticks.value, 1)))
       } else {
-        let d = durations.isEmpty ? UInt32(timescale / Int64(fps)) : durations.last!
+        let d = durations.isEmpty ? UInt32(timescale / Int64(s.fps)) : durations.last!
         durations.append(d)
       }
     }
