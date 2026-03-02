@@ -87,7 +87,11 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
   public let ringBuffer = FragmentRingBuffer(capacity: 6)
 
   /// Called when a new fragment is completed.
-  public var onFragmentReady: ((MP4Fragment) -> Void)?
+  private let _onFragmentReady = OSAllocatedUnfairLock<((MP4Fragment) -> Void)?>(initialState: nil)
+  public var onFragmentReady: ((MP4Fragment) -> Void)? {
+    get { _onFragmentReady.withLock { $0 } }
+    set { _onFragmentReady.withLock { $0 = newValue } }
+  }
 
   private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "fMP4Writer")
 
@@ -180,6 +184,9 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     // Capture video format description outside the lock (requires the CMSampleBuffer)
     let fmt = CMSampleBufferGetFormatDescription(sampleBuffer)
 
+    // Collect fragments emitted during the lock and notify outside the lock
+    // to prevent deadlock if the callback reenters the writer.
+    var emitted: [MP4Fragment] = []
     state.withLock { s in
       // Detect PTS gaps from capture source transitions (snapshot pause, live stream
       // start/stop). Flush pending samples so fragments don't span transitions — a
@@ -189,7 +196,7 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
       if let lastSamplePTS = s.pendingSamples.last?.pts {
         let gap = CMTimeGetSeconds(CMTimeSubtract(pts, lastSamplePTS))
         if (gap > 0.5 || gap < 0) && s.pendingSamples.count >= 30 {
-          emitFragment(state: &s)
+          if let f = emitFragment(state: &s) { emitted.append(f) }
         } else if gap > 0.5 || gap < 0 {
           // Gap detected with too few samples — discard to avoid a tiny fragment.
           s.pendingSamples.removeAll()
@@ -207,7 +214,7 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
       if isKeyframe && !s.pendingSamples.isEmpty && s.fragmentStartPTS.isValid {
         let elapsed = CMTimeGetSeconds(CMTimeSubtract(pts, s.fragmentStartPTS))
         if elapsed >= fragmentDuration {
-          emitFragment(state: &s)
+          if let f = emitFragment(state: &s) { emitted.append(f) }
         }
       }
 
@@ -218,15 +225,17 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
 
       s.pendingSamples.append(VideoSample(data: sampleData, pts: pts, isKeyframe: isKeyframe))
     }
+    for fragment in emitted { onFragmentReady?(fragment) }
   }
 
   /// Stop the writer and flush any pending samples as a final fragment.
   /// Continuity counters (accumulatedDecodeTime, moofSequenceNumber) are preserved
   /// so prebuffered fragments in the ring buffer form a valid continuous fMP4 stream.
   public func stop() {
-    state.withLock { s in
+    let flushed: MP4Fragment? = state.withLock { s in
+      var result: MP4Fragment?
       if !s.pendingSamples.isEmpty {
-        emitFragment(state: &s)
+        result = emitFragment(state: &s)
       }
       s.fragmentStartPTS = .invalid
       s.hasLoggedFirstFragment = false
@@ -234,7 +243,9 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
       // Reset format so init segment is rebuilt on next start, reflecting current includeAudioTrack state.
       s.videoFormatDescription = nil
       s.initSegment = nil
+      return result
     }
+    if let flushed { onFragmentReady?(flushed) }
   }
 
   // MARK: - Fragment Construction
@@ -243,8 +254,10 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
   /// Produces a two-track moof when audio samples are available: video traf (track 1)
   /// followed by audio traf (track 2) with real AAC-ELD frames.
   /// Must be called with the lock held (takes inout WriterState).
-  private func emitFragment(state s: inout WriterState) {
-    guard s.pendingSamples.count >= 1 else { return }
+  /// Returns the completed fragment so the caller can invoke the callback outside the lock.
+  @discardableResult
+  private func emitFragment(state s: inout WriterState) -> MP4Fragment? {
+    guard s.pendingSamples.count >= 1 else { return nil }
 
     let samples = s.pendingSamples
     s.pendingSamples = []
@@ -403,11 +416,11 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
       data: fragmentData, timestamp: fragStart,
       duration: totalDuration, sequenceNumber: seq)
     ringBuffer.append(fragment)
-    onFragmentReady?(fragment)
 
     let durSec = String(format: "%.2f", CMTimeGetSeconds(totalDuration))
     logger.debug(
       "Fragment #\(seq): \(fragmentData.count) bytes, \(nv) samples, audioFrames=\(na), \(durSec)s")
+    return fragment
   }
 
   // MARK: - Init Segment Construction
