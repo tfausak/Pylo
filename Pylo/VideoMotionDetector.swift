@@ -42,6 +42,18 @@ nonisolated final class VideoMotionDetector {
 
   private let state = OSAllocatedUnfairLock(initialState: State())
 
+  // Pre-allocated buffers for vDSP frame comparison (avoids per-frame heap allocation).
+  private var prevFloat: [Float]
+  private var currFloat: [Float]
+  private var diff: [Float]
+
+  init() {
+    let n = Self.thumbWidth * Self.thumbHeight
+    prevFloat = [Float](repeating: 0, count: n)
+    currFloat = [Float](repeating: 0, count: n)
+    diff = [Float](repeating: 0, count: n)
+  }
+
   /// Process a pixel buffer for motion detection.
   /// Call this from the capture delegate callback. The pixel buffer's base address
   /// must already be locked by the caller (or by AVFoundation's delegate contract).
@@ -163,14 +175,11 @@ nonisolated final class VideoMotionDetector {
     let count = min(previous.count, current.count)
     guard count > 0 else { return 0 }
 
-    // Use vDSP for efficient comparison
-    var prevFloat = [Float](repeating: 0, count: count)
-    var currFloat = [Float](repeating: 0, count: count)
+    // Use pre-allocated buffers for vDSP comparison
     vDSP.convertElements(of: previous[0..<count], to: &prevFloat)
     vDSP.convertElements(of: current[0..<count], to: &currFloat)
 
     // Squared difference
-    var diff = [Float](repeating: 0, count: count)
     vDSP.subtract(prevFloat, currFloat, result: &diff)
     vDSP.square(diff, result: &diff)
 
