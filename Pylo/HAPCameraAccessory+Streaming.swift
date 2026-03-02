@@ -341,7 +341,18 @@ extension HAPCameraAccessory {
           nil, 0, NI_NUMERICHOST) == 0
       else { continue }
       let ip = String(cString: hostname)
-      guard ip.hasPrefix("192.") || ip.hasPrefix("10.") || ip.hasPrefix("172.") else { continue }
+      // RFC-1918 private ranges: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+      let isPrivate: Bool = {
+        if ip.hasPrefix("192.168.") || ip.hasPrefix("10.") { return true }
+        if ip.hasPrefix("172.") {
+          let parts = ip.split(separator: ".")
+          if parts.count >= 2, let second = Int(parts[1]) {
+            return second >= 16 && second <= 31
+          }
+        }
+        return false
+      }()
+      guard isPrivate else { continue }
 
       let ifName = String(cString: ptr.pointee.ifa_name)
 
