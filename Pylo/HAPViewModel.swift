@@ -245,7 +245,7 @@ final class HAPViewModel {
         setup.lightbulb.onStateChange = {
           [weak self, weak server = setup.server] aid, iid, value in
           server?.notifySubscribers(aid: aid, iid: iid, value: value)
-          Task { @MainActor in
+          Task { @MainActor [weak self] in
             guard let self else { return }
             if iid == HAPAccessory.iidOn, case .bool(let on) = value {
               self.isLightOn = on
@@ -261,7 +261,7 @@ final class HAPViewModel {
         setup.camera.onStateChange = {
           [weak self, weak server = setup.server] aid, iid, value in
           server?.notifySubscribers(aid: aid, iid: iid, value: value)
-          Task { @MainActor in
+          Task { @MainActor [weak self] in
             guard let self else { return }
             if iid == HAPCameraAccessory.iidStreamingStatus,
               case .string(let b64) = value,
@@ -278,7 +278,7 @@ final class HAPViewModel {
         setup.motionSensor.onStateChange = {
           [weak self, weak server = setup.server] aid, iid, value in
           server?.notifySubscribers(aid: aid, iid: iid, value: value)
-          Task { @MainActor in
+          Task { @MainActor [weak self] in
             guard let self else { return }
             if iid == HAPMotionSensorAccessory.iidMotionDetected,
               case .bool(let detected) = value
@@ -291,7 +291,7 @@ final class HAPViewModel {
       }
 
       setup.server.pairingStore.onChange = { [weak self, weak server = setup.server] in
-        Task { @MainActor in
+        Task { @MainActor [weak self, weak server] in
           withAnimation { self?.hasPairings = server?.pairingStore.isPaired ?? false }
         }
       }

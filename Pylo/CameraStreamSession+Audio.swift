@@ -11,7 +11,7 @@ extension CameraStreamSession {
 
   // MARK: - Audio Encoder (PCM → AAC-ELD)
 
-  func setupAudioEncoder() {
+  nonisolated func setupAudioEncoder() {
     // Input: Linear PCM Float32, 16kHz, mono
     var inputDesc = AudioStreamBasicDescription(
       mSampleRate: 16000,
@@ -57,7 +57,7 @@ extension CameraStreamSession {
 
   // MARK: - Audio Sample Buffer Processing
 
-  func handleAudioSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
+  nonisolated func handleAudioSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
     guard audioConverter != nil else { return }
     guard audioSocketFD >= 0 else { return }
     guard !isMuted else { return }
@@ -99,7 +99,7 @@ extension CameraStreamSession {
   }
 
   /// Convert PCM audio data to Float32 at 16kHz mono.
-  private func convertToFloat32At16kHz(
+  private nonisolated func convertToFloat32At16kHz(
     _ data: Data, sourceASBD: AudioStreamBasicDescription
   ) -> Data {
     let sourceSampleRate = sourceASBD.mSampleRate
@@ -167,7 +167,7 @@ extension CameraStreamSession {
   }
 
   /// Encode a single AAC-ELD frame (480 samples) and send as an RTP packet.
-  private func encodeAndSendAudioFrame(_ pcmData: Data) {
+  private nonisolated func encodeAndSendAudioFrame(_ pcmData: Data) {
     guard let converter = audioConverter else { return }
 
     var packetSize: UInt32 = 1
@@ -243,7 +243,7 @@ extension CameraStreamSession {
 
   // MARK: - Audio RTP Send
 
-  private func sendAudioRTPPacket(payload: Data) {
+  private nonisolated func sendAudioRTPPacket(payload: Data) {
     // Build 12-byte RTP header
     var header = Data(count: 12)
     header[0] = 0x80  // V=2
@@ -286,7 +286,7 @@ extension CameraStreamSession {
 
   // MARK: - Audio RTCP Sender Report
 
-  func startAudioRTCPTimer() {
+  nonisolated func startAudioRTCPTimer() {
     let timer = DispatchSource.makeTimerSource(queue: rtpQueue)
     timer.schedule(deadline: .now() + 1.0, repeating: 5.0)
     timer.setEventHandler { [weak self] in
@@ -296,7 +296,7 @@ extension CameraStreamSession {
     self.audioRTCPTimer = timer
   }
 
-  private func sendAudioRTCPSenderReport() {
+  private nonisolated func sendAudioRTCPSenderReport() {
     guard let ctx = audioSRTPContext else { return }
 
     let stats = audioRTPStats.withLock { $0 }
@@ -312,7 +312,7 @@ extension CameraStreamSession {
 
   // MARK: - Audio Decoder (AAC-ELD → PCM)
 
-  func setupAudioDecoder() {
+  nonisolated func setupAudioDecoder() {
     // Input: AAC-ELD, 16kHz, mono
     var inputDesc = AudioStreamBasicDescription(
       mSampleRate: 16000,
@@ -352,7 +352,7 @@ extension CameraStreamSession {
 
   // MARK: - Audio Playback (AVAudioEngine)
 
-  func setupAudioPlayback() {
+  nonisolated func setupAudioPlayback() {
     let engine = AVAudioEngine()
     let playerNode = AVAudioPlayerNode()
 
@@ -380,7 +380,7 @@ extension CameraStreamSession {
 
   /// Ensure the AVAudioEngine is running. Call before scheduling buffers.
   /// The engine may have been interrupted by the capture session or audio route changes.
-  private func ensureAudioEngineRunning() -> Bool {
+  private nonisolated func ensureAudioEngineRunning() -> Bool {
     guard let engine = audioEngine else { return false }
     if engine.isRunning { return true }
     do {
@@ -396,7 +396,7 @@ extension CameraStreamSession {
   // MARK: - Audio BSD Socket Send/Receive
 
   /// Send data via the BSD audio socket to the controller's audio port.
-  private func sendAudioUDP(_ data: Data) {
+  private nonisolated func sendAudioUDP(_ data: Data) {
     guard audioSocketFD >= 0, var addr = controllerAudioAddr else { return }
     data.withUnsafeBytes { buf in
       guard let base = buf.baseAddress else { return }
@@ -410,7 +410,7 @@ extension CameraStreamSession {
   }
 
   /// Called by GCD read source when data is available on the audio socket.
-  func readAudioSocket() {
+  nonisolated func readAudioSocket() {
     var buf = [UInt8](repeating: 0, count: 2048)
     while true {
       let n = recv(audioSocketFD, &buf, buf.count, 0)
@@ -428,7 +428,7 @@ extension CameraStreamSession {
     }
   }
 
-  private func handleIncomingAudioPacket(_ srtpData: Data) {
+  private nonisolated func handleIncomingAudioPacket(_ srtpData: Data) {
     guard let ctx = incomingSRTPContext else { return }
     guard !speakerMuted else { return }
     incomingAudioPacketCount += 1

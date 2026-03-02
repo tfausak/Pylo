@@ -8,7 +8,7 @@ import os
 
 extension MonitoringCaptureSession {
 
-  func handleAudioSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
+  nonisolated func handleAudioSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
     let converter = lock.withLock { _state.audioConverter }
     guard converter != nil else { return }
 
@@ -49,7 +49,7 @@ extension MonitoringCaptureSession {
     }
   }
 
-  private func encodeAndAppendAudioFrame(_ pcmData: Data) {
+  private nonisolated func encodeAndAppendAudioFrame(_ pcmData: Data) {
     let converter = lock.withLock { _state.audioConverter }
     guard let converter else { return }
 
@@ -122,7 +122,7 @@ extension MonitoringCaptureSession {
   }
 
   /// Convert PCM audio data to Float32 at 16kHz mono.
-  private static func convertToFloat32At16kHz(
+  private nonisolated static func convertToFloat32At16kHz(
     _ data: Data, sourceASBD: AudioStreamBasicDescription
   ) -> Data {
     let sourceSampleRate = sourceASBD.mSampleRate
@@ -187,7 +187,7 @@ extension MonitoringCaptureSession {
   }
 
   /// Create an AAC-ELD encoder (PCM Float32 16kHz mono → AAC-ELD 24kbps).
-  static func createAudioEncoder(logger: Logger) -> AudioConverterRef? {
+  nonisolated static func createAudioEncoder(logger: Logger) -> AudioConverterRef? {
     var inputDesc = AudioStreamBasicDescription(
       mSampleRate: 16000,
       mFormatID: kAudioFormatLinearPCM,

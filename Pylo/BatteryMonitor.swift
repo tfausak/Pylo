@@ -30,11 +30,11 @@ import os
     observers.append(
       NotificationCenter.default.addObserver(
         forName: UIDevice.batteryLevelDidChangeNotification, object: nil, queue: .main
-      ) { [weak self] _ in self?.batteryDidChange() })
+      ) { [weak self] _ in MainActor.assumeIsolated { self?.batteryDidChange() } })
     observers.append(
       NotificationCenter.default.addObserver(
         forName: UIDevice.batteryStateDidChangeNotification, object: nil, queue: .main
-      ) { [weak self] _ in self?.batteryDidChange() })
+      ) { [weak self] _ in MainActor.assumeIsolated { self?.batteryDidChange() } })
 
     logger.info("Battery monitor started")
   }

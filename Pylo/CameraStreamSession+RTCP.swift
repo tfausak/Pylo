@@ -5,7 +5,7 @@ import Foundation
 extension CameraStreamSession {
 
   /// Builds a 28-byte RTCP Sender Report (RFC 3550 §6.4.1).
-  static func buildRTCPSenderReport(
+  nonisolated static func buildRTCPSenderReport(
     ssrc: UInt32,
     rtpTimestamp: UInt32,
     packetsSent: Int,
