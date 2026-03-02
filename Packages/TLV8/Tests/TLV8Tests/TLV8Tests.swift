@@ -234,6 +234,66 @@ struct TLV8Tests {
     let data = builder.build()
     #expect(data == Data([0xFF, 0x00]))
   }
+  @Test("Builder addDelimiter inserts 00 00")
+  func builderDelimiter() {
+    var builder = TLV8.Builder()
+    builder.add(0x01, byte: 0xAA)
+    builder.addDelimiter()
+    builder.add(0x01, byte: 0xBB)
+    let data = builder.build()
+    // [tag=0x01 len=1 val=0xAA] [tag=0x00 len=0x00] [tag=0x01 len=1 val=0xBB]
+    #expect(data == Data([0x01, 0x01, 0xAA, 0x00, 0x00, 0x01, 0x01, 0xBB]))
+  }
+
+  @Test("Builder addList with bytes inserts delimiters between entries")
+  func builderAddListBytes() {
+    var builder = TLV8.Builder()
+    builder.addList(0x02, bytes: [0x01, 0x02, 0x03])
+    let data = builder.build()
+    // 3 entries with 00 00 delimiters between:
+    // [02 01 01] [00 00] [02 01 02] [00 00] [02 01 03]
+    #expect(
+      data == Data([
+        0x02, 0x01, 0x01,
+        0x00, 0x00,
+        0x02, 0x01, 0x02,
+        0x00, 0x00,
+        0x02, 0x01, 0x03,
+      ]))
+  }
+
+  @Test("Builder addList with single byte has no delimiter")
+  func builderAddListSingleByte() {
+    var builder = TLV8.Builder()
+    builder.addList(0x05, bytes: [0xFF])
+    let data = builder.build()
+    #expect(data == Data([0x05, 0x01, 0xFF]))
+  }
+
+  @Test("Builder addList with empty array produces no output")
+  func builderAddListEmpty() {
+    var builder = TLV8.Builder()
+    builder.addList(0x01, bytes: [])
+    #expect(builder.build().isEmpty)
+  }
+
+  @Test("Builder addList with nested TLVs inserts delimiters between entries")
+  func builderAddListTLVs() {
+    var inner1 = TLV8.Builder()
+    inner1.add(0x01, byte: 0xAA)
+    var inner2 = TLV8.Builder()
+    inner2.add(0x01, byte: 0xBB)
+    var builder = TLV8.Builder()
+    builder.addList(0x10, tlvs: [inner1, inner2])
+    let data = builder.build()
+    // [10 03 01-01-AA] [00 00] [10 03 01-01-BB]
+    #expect(
+      data == Data([
+        0x10, 0x03, 0x01, 0x01, 0xAA,
+        0x00, 0x00,
+        0x10, 0x03, 0x01, 0x01, 0xBB,
+      ]))
+  }
 }
 
 // MARK: - TLV8 Truncation Tests
