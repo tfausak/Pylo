@@ -50,6 +50,11 @@ public nonisolated final class PairingStore: @unchecked Sendable {
     lock.withLock { !$0.isEmpty }
   }
 
+  /// Number of admin pairings currently stored.
+  public var adminCount: Int {
+    lock.withLock { state in state.values.filter(\.isAdmin).count }
+  }
+
   public init() {
     if let url = try? Self.storageURL,
       let data = try? Data(contentsOf: url),
@@ -135,8 +140,16 @@ public nonisolated final class PairingStore: @unchecked Sendable {
   }
 
   public func removeAll() {
-    lock.withLock { $0.removeAll() }
-    save([:])
+    let previous = lock.withLock { state -> [String: Pairing] in
+      let snapshot = state
+      state.removeAll()
+      return snapshot
+    }
+    guard save([:]) else {
+      // Rollback on disk failure.
+      lock.withLock { $0 = previous }
+      return
+    }
     onChange?()
   }
 

@@ -865,6 +865,21 @@ struct PairingStoreTests {
     #expect(store.getPairing(identifier: "first") != nil)
   }
 
+  @Test("removeAll clears all pairings")
+  func removeAllClearsPairings() {
+    let store = PairingStore(testPairings: [:])
+    store.addPairing(PairingStore.Pairing(
+      identifier: "a", publicKey: Data(repeating: 0xAA, count: 32), isAdmin: true))
+    store.addPairing(PairingStore.Pairing(
+      identifier: "b", publicKey: Data(repeating: 0xBB, count: 32), isAdmin: false))
+    #expect(store.isPaired == true)
+    store.removeAll()
+    // Test store save always succeeds (no-op), so pairings should be cleared
+    #expect(store.isPaired == false)
+    #expect(store.getPairing(identifier: "a") == nil)
+    #expect(store.getPairing(identifier: "b") == nil)
+  }
+
   @Test("addPairingIfUnpaired fails when store already has a pairing")
   func addIfUnpairedRejectsSecond() {
     let store = PairingStore(testPairings: [:])
