@@ -43,14 +43,22 @@ Accessories (aid 1-5: bridge, lightbulb, camera, light sensor, motion sensor)
 
 | File | Role |
 |------|------|
-| `Pylo/PyloApp.swift` | App entry point, `HAPViewModel` (central coordinator) |
-| `Pylo/HAPAccessory.swift` | Lightbulb accessory (torch control) |
-| `Pylo/HAPCameraAccessory.swift` | Camera accessory: TLV8 negotiation, snapshot capture, HAP service definition |
-| `Pylo/CameraStreamSession.swift` | Camera streaming pipeline: video capture, H.264, RTP, BSD sockets, audio encode/decode |
-| `Pylo/HAPTypes.swift` | Keychain helpers (`KeychainKeyStore`) |
-| `Pylo/MotionMonitor.swift` | Accelerometer threshold detection |
-| `Pylo/VideoMotionDetector.swift` | Camera-based motion detection for HKSV |
-| `Pylo/MonitoringCaptureSession.swift` | Background video capture for HKSV pre-buffering |
+| `PyloApp.swift` | `@main` entry point, `VideoQuality`/`MotionSensitivity` enums |
+| `HAPViewModel.swift` | Central coordinator: server lifecycle, accessory wiring, QR code helpers |
+| `HAPAccessory.swift` | Lightbulb accessory (torch control) |
+| `HAPCameraAccessory.swift` | Camera accessory: class, properties, characteristic read/write, IIDs/UUIDs |
+| `  +StreamConfig.swift` | TLV8 config builders (supported/selected video/audio/recording configs) |
+| `  +Streaming.swift` | Setup endpoints, RTP stream config, start/stop streaming, local IP |
+| `  +Snapshot.swift` | Silent snapshot capture via `FrameGrabber` |
+| `  +JSON.swift` | `toJSON()` HAP service serialization |
+| `CameraStreamSession.swift` | Video capture, H.264 compression, RTP packetization, BSD sockets |
+| `  +Audio.swift` | Audio encoder/decoder (AAC-ELD), audio RTP/RTCP, playback |
+| `  +RTCP.swift` | `buildRTCPSenderReport()` static helper |
+| `MonitoringCaptureSession.swift` | Background video capture for HKSV pre-buffering |
+| `  +Audio.swift` | Audio encoding pipeline for monitoring (AAC-ELD, PCM conversion) |
+| `HAPTypes.swift` | Keychain helpers (`KeychainKeyStore`) |
+| `MotionMonitor.swift` | Accelerometer threshold detection |
+| `VideoMotionDetector.swift` | Camera-based motion detection for HKSV |
 
 **Packages/**
 
@@ -60,6 +68,10 @@ Accessories (aid 1-5: bridge, lightbulb, camera, light sensor, motion sensor)
 | `HAP` | `PairSetup.swift`, `PairVerify.swift` | SRP-6a pair-setup, Curve25519 pair-verify state machines |
 | `HAP` | `PairingStore.swift`, `DeviceIdentity.swift` | Pairing persistence, Ed25519 identity |
 | `HAP` | `CharacteristicsHandler.swift`, `PairingsHandler.swift` | GET/PUT /characteristics, pairing management |
+| `HAP` | `HAPDataStream.swift` | HomeKit Data Stream TCP listener and transport setup |
+| `HAP` | `HDSConnection.swift` | HDS connection: ChaCha20 encryption, message framing, dataSend |
+| `HAP` | `HDSMessage.swift` | HDS message encode/decode (event, request, response) |
+| `HAP` | `HDSCodec.swift` | HDS binary codec for dicts, arrays, strings, ints, Data |
 | `SRP` | `SRPServer.swift` | SRP-6a crypto (3072-bit group, RFC 5054) |
 | `SRTP` | `SRTPContext.swift`, `AUHeader.swift` | SRTP encryption (AES-128-ICM + HMAC-SHA1-80), RFC 3640 AU headers |
 | `TLV8` | `TLV8.swift` | HomeKit TLV8 binary codec |
