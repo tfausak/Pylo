@@ -1,8 +1,8 @@
 @preconcurrency import AVFoundation
 import CoreImage
 import CryptoKit
-import FragmentedMP4
 import Foundation
+import FragmentedMP4
 import HAP
 import TLV8
 @preconcurrency import UIKit
@@ -73,7 +73,11 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     var onRecordingConfigChange: ((_ active: Bool) -> Void)?
     var onRecordingAudioActiveChange: ((_ active: Bool) -> Void)?
     var onSelectedRecordingConfigChange: ((_ config: Data) -> Void)?
-    var onSetupDataStream: ((_ requestData: Data, _ sharedSecret: SharedSecret?, _ respond: @escaping (Data) -> Void) -> Void)?
+    var onSetupDataStream:
+      (
+        (_ requestData: Data, _ sharedSecret: SharedSecret?, _ respond: @escaping (Data) -> Void) ->
+          Void
+      )?
   }
   private let _callbacks = OSAllocatedUnfairLock(initialState: Callbacks())
 
@@ -798,7 +802,8 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
 
   /// Callback for DataStream setup — set by HAPDataStream.
   var onSetupDataStream:
-    ((_ request: Data, _ sharedSecret: SharedSecret?, _ respond: @escaping (Data) -> Void) -> Void)? {
+    ((_ request: Data, _ sharedSecret: SharedSecret?, _ respond: @escaping (Data) -> Void) -> Void)?
+  {
     get { _callbacks.withLock { $0.onSetupDataStream } }
     set { _callbacks.withLock { $0.onSetupDataStream = newValue } }
   }
@@ -1238,7 +1243,8 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
 
     let ciImage = CIImage(cgImage: cgImage)
     guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-      let jpeg = snapshotCIContext.jpegRepresentation(of: ciImage, colorSpace: colorSpace, options: [:])
+      let jpeg = snapshotCIContext.jpegRepresentation(
+        of: ciImage, colorSpace: colorSpace, options: [:])
     else { return cachedSnapshot }
 
     cachedSnapshot = jpeg

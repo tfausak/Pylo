@@ -1,8 +1,8 @@
 import CryptoKit
 import Foundation
 import Network
-import os
 import TLV8
+import os
 
 // MARK: - HAP Connection
 // Manages a single TCP connection from a HomeKit controller (e.g., Home.app).

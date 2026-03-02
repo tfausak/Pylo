@@ -1,6 +1,6 @@
 import CryptoKit
-import FragmentedMP4
 import Foundation
+import FragmentedMP4
 import Network
 import TLV8
 import os
@@ -71,7 +71,8 @@ public nonisolated final class HAPDataStream: @unchecked Sendable {
       let conn = HDSConnection(connection: nwConnection, queue: queue)
 
       // Snapshot state under lock, then perform side effects outside
-      let (oldConn, writer, keys) = self.stateLock.withLock { s -> (HDSConnection?, FragmentedMP4Writer?, (SymmetricKey, SymmetricKey)?) in
+      let (oldConn, writer, keys) = self.stateLock.withLock {
+        s -> (HDSConnection?, FragmentedMP4Writer?, (SymmetricKey, SymmetricKey)?) in
         let old = s.connection
         s.connection = conn
         let w = s.fragmentWriter
@@ -736,7 +737,9 @@ public nonisolated final class HDSConnection: @unchecked Sendable {
     // dataType → string (HDS short-string encoding: 0x40 + length, max 32 bytes)
     buf.append(contentsOf: [0x48, 0x64, 0x61, 0x74, 0x61, 0x54, 0x79, 0x70, 0x65])
     let dtBytes = Data(dataType.utf8)
-    precondition(dtBytes.count <= 32, "dataType too long for HDS short-string encoding (\(dtBytes.count) > 32)")
+    precondition(
+      dtBytes.count <= 32, "dataType too long for HDS short-string encoding (\(dtBytes.count) > 32)"
+    )
     buf.append(UInt8(0x40 + dtBytes.count))
     buf.append(dtBytes)
 

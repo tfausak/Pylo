@@ -232,7 +232,8 @@ public nonisolated final class SRPServer {
   /// Pads a BigUInt to the length of N (384 bytes for 3072-bit group)
   private static func pad(_ value: BigUInt) -> Data {
     let data = value.serialize()
-    precondition(data.count <= nLength, "BigUInt value exceeds SRP group size (\(data.count) > \(nLength))")
+    precondition(
+      data.count <= nLength, "BigUInt value exceeds SRP group size (\(data.count) > \(nLength))")
     if data.count == nLength {
       return data
     }

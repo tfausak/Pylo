@@ -126,11 +126,13 @@ public nonisolated enum BatteryUUID {
   public static let chargingState = "8F"
   public static let lowBattery = "79"
 }
+nonisolated
 
-public nonisolated extension HAPAccessoryProtocol {
+  extension HAPAccessoryProtocol
+{
   /// Builds the Accessory Information service JSON (iid 1, characteristics 2-7).
   /// Shared by all accessories to avoid duplicating this boilerplate.
-  func accessoryInformationServiceJSON() -> [String: Any] {
+  public func accessoryInformationServiceJSON() -> [String: Any] {
     [
       "iid": AccessoryInfoIID.service,
       "type": HAPUUID.accessoryInformation,
@@ -171,7 +173,7 @@ public nonisolated extension HAPAccessoryProtocol {
 
   /// Builds the Battery Service JSON (iid 100, characteristics 101-103).
   /// Returns nil if the given `BatteryState` is nil (no battery on this device).
-  func batteryServiceJSON(state: BatteryState?) -> [String: Any]? {
+  public func batteryServiceJSON(state: BatteryState?) -> [String: Any]? {
     guard let state else { return nil }
     return [
       "iid": BatteryIID.service,

@@ -254,10 +254,12 @@ struct SRPEndToEndTests {
     let server = SRPServer(username: username, password: password)!
 
     // Client receives salt and B from server
-    guard let client = SRPTestClient.handshake(
-      username: username, password: password,
-      salt: server.salt, serverPublicKey: server.publicKey
-    ) else {
+    guard
+      let client = SRPTestClient.handshake(
+        username: username, password: password,
+        salt: server.salt, serverPublicKey: server.publicKey
+      )
+    else {
       Issue.record("Client handshake computation failed")
       return
     }
@@ -288,10 +290,12 @@ struct SRPEndToEndTests {
     let server = SRPServer(username: username, password: "111-22-333")!
 
     // Client uses wrong password
-    guard let client = SRPTestClient.handshake(
-      username: username, password: "999-99-999",
-      salt: server.salt, serverPublicKey: server.publicKey
-    ) else {
+    guard
+      let client = SRPTestClient.handshake(
+        username: username, password: "999-99-999",
+        salt: server.salt, serverPublicKey: server.publicKey
+      )
+    else {
       Issue.record("Client handshake computation failed")
       return
     }

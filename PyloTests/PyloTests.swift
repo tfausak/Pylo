@@ -1,8 +1,8 @@
 import CryptoKit
 import Foundation
 import HAP
-import Testing
 import TLV8
+import Testing
 
 @testable import Pylo
 

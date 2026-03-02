@@ -945,7 +945,8 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
         }
       }
     } else {
-      logger.warning("Unsupported audio format: \(sourceASBD.mBitsPerChannel)-bit, float=\(isFloat)")
+      logger.warning(
+        "Unsupported audio format: \(sourceASBD.mBitsPerChannel)-bit, float=\(isFloat)")
       return Data()
     }
 

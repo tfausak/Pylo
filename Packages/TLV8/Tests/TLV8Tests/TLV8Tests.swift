@@ -133,10 +133,11 @@ struct TLV8Tests {
   func decodeRecordsLeadingSeparator() {
     // Blob that starts with a separator should not produce a leading empty record
     var raw = Data([0xFF, 0x00])  // leading separator
-    raw.append(TLV8.encode([
-      (.identifier, Data("A".utf8)),
-      (.publicKey, Data([0xAA])),
-    ]))
+    raw.append(
+      TLV8.encode([
+        (.identifier, Data("A".utf8)),
+        (.publicKey, Data([0xAA])),
+      ]))
     let records = TLV8.decodeRecords(raw)
     #expect(records.count == 1)
     #expect(records[0][.identifier] == Data("A".utf8))
@@ -266,13 +267,14 @@ struct TLV8Tests {
     // 3 entries with 00 00 delimiters between:
     // [02 01 01] [00 00] [02 01 02] [00 00] [02 01 03]
     #expect(
-      data == Data([
-        0x02, 0x01, 0x01,
-        0x00, 0x00,
-        0x02, 0x01, 0x02,
-        0x00, 0x00,
-        0x02, 0x01, 0x03,
-      ]))
+      data
+        == Data([
+          0x02, 0x01, 0x01,
+          0x00, 0x00,
+          0x02, 0x01, 0x02,
+          0x00, 0x00,
+          0x02, 0x01, 0x03,
+        ]))
   }
 
   @Test("Builder addList with single byte has no delimiter")
@@ -301,11 +303,12 @@ struct TLV8Tests {
     let data = builder.build()
     // [10 03 01-01-AA] [00 00] [10 03 01-01-BB]
     #expect(
-      data == Data([
-        0x10, 0x03, 0x01, 0x01, 0xAA,
-        0x00, 0x00,
-        0x10, 0x03, 0x01, 0x01, 0xBB,
-      ]))
+      data
+        == Data([
+          0x10, 0x03, 0x01, 0x01, 0xAA,
+          0x00, 0x00,
+          0x10, 0x03, 0x01, 0x01, 0xBB,
+        ]))
   }
 }
 
