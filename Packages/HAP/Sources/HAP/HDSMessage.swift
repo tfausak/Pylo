@@ -118,7 +118,7 @@ public nonisolated struct HDSMessage {
       topic = response
       identifier = headerDict["id"] as? Int ?? 0
       let statusRaw = headerDict["status"] as? Int ?? 0
-      status = Status(rawValue: statusRaw) ?? .success
+      status = Status(rawValue: statusRaw) ?? .protocolError
     } else {
       return nil
     }
