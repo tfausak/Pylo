@@ -102,13 +102,14 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   var videoMotionEnabled: Bool {
     get { streamState.withLock { $0.videoMotionEnabled } }
     set {
+      // Allocate detector outside the lock to avoid heavy work while locked.
+      let detector: VideoMotionDetector? = newValue ? VideoMotionDetector() : nil
+      detector?.onMotionChange = { [weak self] detected in
+        self?.onVideoMotionChange?(detected)
+      }
       streamState.withLock { s in
         s.videoMotionEnabled = newValue
         if newValue {
-          let detector = VideoMotionDetector()
-          detector.onMotionChange = { [weak self] detected in
-            self?.onVideoMotionChange?(detected)
-          }
           s.videoMotionDetector = detector
           s.streamSession?.videoMotionDetector = detector
         } else {
