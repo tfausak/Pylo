@@ -313,6 +313,44 @@ struct SRPEndToEndTests {
   }
 }
 
+// MARK: - SRP Idempotency Guard Tests
+
+@Suite("SRP Proof Idempotency")
+struct SRPProofIdempotencyTests {
+
+  @Test("Second call to verifyClientProof returns nil after successful verification")
+  func secondVerifyReturnsNil() {
+    let username = "Pair-Setup"
+    let password = "111-22-333"
+
+    let server = SRPServer(username: username, password: password)!
+
+    guard
+      let client = SRPTestClient.handshake(
+        username: username, password: password,
+        salt: server.salt, serverPublicKey: server.publicKey
+      )
+    else {
+      Issue.record("Client handshake computation failed")
+      return
+    }
+
+    #expect(server.setClientPublicKey(client.clientPublicKey) == true)
+
+    // First call should succeed
+    let firstResult = server.verifyClientProof(client.clientProof)
+    #expect(firstResult != nil, "First verification should succeed")
+    #expect(server.sessionKey != nil)
+
+    // Second call with the same valid proof should return nil (idempotency guard)
+    let secondResult = server.verifyClientProof(client.clientProof)
+    #expect(secondResult == nil, "Second verification should return nil")
+
+    // Session key should still be available from the first successful call
+    #expect(server.sessionKey != nil)
+  }
+}
+
 // MARK: - SRP Deterministic Test Vectors
 
 @Suite("SRP Deterministic Vectors")

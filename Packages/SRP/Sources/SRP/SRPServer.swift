@@ -210,9 +210,11 @@ public nonisolated final class SRPServer {
     // a timing-distinguishable early return on length mismatch.
     guard clientProof.count == SHA512.byteCount else { return nil }
 
-    // Snapshot the mutable state under the lock
+    // Snapshot the mutable state under the lock.
+    // Idempotency guard: if sessionKey is already set, proof was already verified.
     guard
       let (clientA, s) = state.withLock({ (state: inout MutableState) -> (BigUInt, BigUInt)? in
+        guard state.sessionKey == nil else { return nil }
         guard let a = state.clientPublicKey, let s = state.sharedSecret else { return nil }
         return (a, s)
       })
