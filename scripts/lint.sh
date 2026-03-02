@@ -3,4 +3,4 @@ exec swift format lint \
   --parallel \
   --recursive \
   --strict \
-  . "$@"
+  Pylo PyloTests Packages "$@"
