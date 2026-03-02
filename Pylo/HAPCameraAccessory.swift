@@ -109,6 +109,9 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
 
   private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "Camera")
 
+  /// Reusable CIContext for snapshot JPEG encoding (CIContext is expensive to allocate).
+  private let snapshotCIContext = CIContext()
+
   /// Which camera to use for streaming and snapshots (nil = default back wide-angle).
   var selectedCameraID: String?
 
@@ -1195,9 +1198,8 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     }
 
     let ciImage = CIImage(cgImage: cgImage)
-    let context = CIContext()
     guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-      let jpeg = context.jpegRepresentation(of: ciImage, colorSpace: colorSpace, options: [:])
+      let jpeg = snapshotCIContext.jpegRepresentation(of: ciImage, colorSpace: colorSpace, options: [:])
     else { return cachedSnapshot }
 
     cachedSnapshot = jpeg
