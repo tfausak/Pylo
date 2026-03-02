@@ -113,6 +113,14 @@ public nonisolated final class EncryptionContext {
 
 /// Tracks in-progress pair-setup state for a connection.
 public nonisolated final class PairSetupSession: @unchecked Sendable {
+  /// Explicit state machine phase to prevent out-of-order messages.
+  public enum Phase {
+    case awaitingM3  // M1 processed, waiting for client proof
+    case awaitingM5  // M3 processed, waiting for key exchange
+  }
+
+  public var phase: Phase = .awaitingM3
+
   // SRP session values — filled in progressively during the M1→M6 exchange.
   public var salt: Data?
   public var serverPublicKey: Data?  // B

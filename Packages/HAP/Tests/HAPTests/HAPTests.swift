@@ -1520,3 +1520,22 @@ struct HDSCodecBackReferenceTests {
     #expect(second?["x"] as? Int == 1)
   }
 }
+
+// MARK: - Pair Setup Session Phase Tests
+
+@Suite("PairSetupSession Phase")
+struct PairSetupSessionPhaseTests {
+
+  @Test("Initial phase is awaitingM3")
+  func initialPhase() {
+    let session = PairSetupSession()
+    #expect(session.phase == .awaitingM3)
+  }
+
+  @Test("Phase transitions to awaitingM5")
+  func phaseTransition() {
+    let session = PairSetupSession()
+    session.phase = .awaitingM5
+    #expect(session.phase == .awaitingM5)
+  }
+}

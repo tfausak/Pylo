@@ -280,6 +280,7 @@ public nonisolated enum PairSetupHandler {
     -> HTTPResponse
   {
     guard let session = connection.pairSetupState,
+      session.phase == .awaitingM3,
       let srpSession = session.srpSession,
       let clientPublicKey = tlv[.publicKey],
       let clientProof = tlv[.proof]
@@ -304,9 +305,10 @@ public nonisolated enum PairSetupHandler {
       return errorResponse(state: 0x04, error: .authentication)
     }
 
-    // Store the shared session key for M5 and invalidate the SRP session
-    // to prevent a replayed M3 from mutating state mid-exchange.
+    // Store the shared session key for M5, advance the phase, and
+    // invalidate the SRP session to prevent a replayed M3.
     session.sessionKey = srpSession.sessionKey
+    session.phase = .awaitingM5
     session.srpSession = nil
 
     let responseTLV = TLV8.encode([
@@ -326,6 +328,7 @@ public nonisolated enum PairSetupHandler {
     -> HTTPResponse
   {
     guard let session = connection.pairSetupState,
+      session.phase == .awaitingM5,
       let sessionKey = session.sessionKey,
       let encryptedData = tlv[.encryptedData]
     else {
