@@ -134,26 +134,7 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
       return (s.rolloverCounter, UInt64(s.rolloverCounter) << 16 | UInt64(seq))
     }
 
-    // Build the IV for AES-ICM (RFC 3711 §4.1.1)
-    // IV = (k_s * 2^16) XOR (SSRC * 2^64) XOR (i * 2^16)
-    // k_s (14 bytes) at bytes 0-13, SSRC (4 bytes) at bytes 4-7,
-    // packet index (6 bytes) at bytes 8-13, block counter at bytes 14-15
-    var iv = Data(count: 16)
-    iv[4] = UInt8((ssrc >> 24) & 0xFF)
-    iv[5] = UInt8((ssrc >> 16) & 0xFF)
-    iv[6] = UInt8((ssrc >> 8) & 0xFF)
-    iv[7] = UInt8(ssrc & 0xFF)
-    iv[8] = UInt8((packetIndex >> 40) & 0xFF)
-    iv[9] = UInt8((packetIndex >> 32) & 0xFF)
-    iv[10] = UInt8((packetIndex >> 24) & 0xFF)
-    iv[11] = UInt8((packetIndex >> 16) & 0xFF)
-    iv[12] = UInt8((packetIndex >> 8) & 0xFF)
-    iv[13] = UInt8(packetIndex & 0xFF)
-
-    // XOR with session salt (14 bytes at bytes 0-13)
-    for i in 0..<min(14, sessionSalt.count) {
-      iv[i] ^= sessionSalt[sessionSalt.startIndex + i]
-    }
+    let iv = Self.buildIV(ssrc: ssrc, packetIndex: packetIndex, salt: sessionSalt)
 
     // Encrypt payload with AES-128-CTR
     guard let encryptedPayload = aesCTREncrypt(key: sessionKey, iv: iv, data: Data(payload)) else {
@@ -241,22 +222,7 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
       | UInt32(header[header.startIndex + 10]) << 8 | UInt32(header[header.startIndex + 11])
 
     let packetIndex = UInt64(candidateROC) << 16 | UInt64(seq)
-
-    var iv = Data(count: 16)
-    iv[4] = UInt8((ssrc >> 24) & 0xFF)
-    iv[5] = UInt8((ssrc >> 16) & 0xFF)
-    iv[6] = UInt8((ssrc >> 8) & 0xFF)
-    iv[7] = UInt8(ssrc & 0xFF)
-    iv[8] = UInt8((packetIndex >> 40) & 0xFF)
-    iv[9] = UInt8((packetIndex >> 32) & 0xFF)
-    iv[10] = UInt8((packetIndex >> 24) & 0xFF)
-    iv[11] = UInt8((packetIndex >> 16) & 0xFF)
-    iv[12] = UInt8((packetIndex >> 8) & 0xFF)
-    iv[13] = UInt8(packetIndex & 0xFF)
-
-    for i in 0..<min(14, sessionSalt.count) {
-      iv[i] ^= sessionSalt[sessionSalt.startIndex + i]
-    }
+    let iv = Self.buildIV(ssrc: ssrc, packetIndex: packetIndex, salt: sessionSalt)
 
     // AES-CTR decrypt (symmetric — same as encrypt)
     guard let decryptedPayload = aesCTREncrypt(key: sessionKey, iv: iv, data: encryptedPayload)
@@ -289,21 +255,8 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
       return idx
     }
 
-    // Build IV: (srtcp_salt * 2^16) XOR (SSRC * 2^64) XOR (index * 2^16)
-    var iv = Data(count: 16)
-    iv[4] = UInt8((ssrc >> 24) & 0xFF)
-    iv[5] = UInt8((ssrc >> 16) & 0xFF)
-    iv[6] = UInt8((ssrc >> 8) & 0xFF)
-    iv[7] = UInt8(ssrc & 0xFF)
-    // SRTCP index is 32-bit (not 48-bit like SRTP packet index), placed at bytes 10-13
-    iv[10] = UInt8((index >> 24) & 0xFF)
-    iv[11] = UInt8((index >> 16) & 0xFF)
-    iv[12] = UInt8((index >> 8) & 0xFF)
-    iv[13] = UInt8(index & 0xFF)
-
-    for i in 0..<min(14, srtcpSalt.count) {
-      iv[i] ^= srtcpSalt[srtcpSalt.startIndex + i]
-    }
+    // SRTCP index is 32-bit — fits in the lower 32 bits of the 48-bit field
+    let iv = Self.buildIV(ssrc: ssrc, packetIndex: UInt64(index), salt: srtcpSalt)
 
     guard let encryptedPayload = aesCTREncrypt(key: srtcpKey, iv: iv, data: payload) else {
       return nil
@@ -323,6 +276,28 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
     srtcpPacket.append(tag.prefix(10))
 
     return srtcpPacket
+  }
+
+  // MARK: - IV Construction
+
+  /// Build the 16-byte IV for AES-ICM (RFC 3711 §4.1.1).
+  /// IV = (salt * 2^16) XOR (SSRC * 2^64) XOR (packetIndex * 2^16)
+  private static func buildIV(ssrc: UInt32, packetIndex: UInt64, salt: Data) -> Data {
+    var iv = Data(count: 16)
+    iv[4] = UInt8((ssrc >> 24) & 0xFF)
+    iv[5] = UInt8((ssrc >> 16) & 0xFF)
+    iv[6] = UInt8((ssrc >> 8) & 0xFF)
+    iv[7] = UInt8(ssrc & 0xFF)
+    iv[8] = UInt8((packetIndex >> 40) & 0xFF)
+    iv[9] = UInt8((packetIndex >> 32) & 0xFF)
+    iv[10] = UInt8((packetIndex >> 24) & 0xFF)
+    iv[11] = UInt8((packetIndex >> 16) & 0xFF)
+    iv[12] = UInt8((packetIndex >> 8) & 0xFF)
+    iv[13] = UInt8(packetIndex & 0xFF)
+    for i in 0..<min(14, salt.count) {
+      iv[i] ^= salt[salt.startIndex + i]
+    }
+    return iv
   }
 
   // MARK: - Key Derivation (AES-CM PRF)
