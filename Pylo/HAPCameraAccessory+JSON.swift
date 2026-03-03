@@ -8,6 +8,9 @@ import os
 extension HAPCameraAccessory {
 
   func toJSON() -> [String: Any] {
+    // Snapshot HKSV state once to avoid holding the lock during serialization.
+    let hksv = hksvState.withLock { $0 }
+
     // Camera RTP Stream Management -- conditionally include Active for HKSV
     var rtpCharacteristics: [[String: Any]] = [
       [
@@ -53,7 +56,7 @@ extension HAPCameraAccessory {
       rtpCharacteristics.append([
         "iid": Self.iidRTPStreamActive,
         "type": Self.uuidActive, "format": "uint8",
-        "perms": ["pr", "pw", "ev"], "value": rtpStreamActive,
+        "perms": ["pr", "pw", "ev"], "value": hksv.rtpStreamActive,
         "minValue": 0, "maxValue": 1,
       ])
     }
@@ -108,17 +111,17 @@ extension HAPCameraAccessory {
           [
             "iid": Self.iidHomeKitCameraActive,
             "type": Self.uuidHomeKitCameraActive, "format": "bool",
-            "perms": ["pr", "pw", "ev"], "value": homeKitCameraActive,
+            "perms": ["pr", "pw", "ev"], "value": hksv.homeKitCameraActive,
           ],
           [
             "iid": Self.iidEventSnapshotsActive,
             "type": Self.uuidEventSnapshotsActive, "format": "bool",
-            "perms": ["pr", "pw", "ev"], "value": eventSnapshotsActive,
+            "perms": ["pr", "pw", "ev"], "value": hksv.eventSnapshotsActive,
           ],
           [
             "iid": Self.iidPeriodicSnapshotsActive,
             "type": Self.uuidPeriodicSnapshotsActive, "format": "bool",
-            "perms": ["pr", "pw", "ev"], "value": periodicSnapshotsActive,
+            "perms": ["pr", "pw", "ev"], "value": hksv.periodicSnapshotsActive,
           ],
         ],
       ])
@@ -132,7 +135,7 @@ extension HAPCameraAccessory {
           [
             "iid": Self.iidRecordingActive,
             "type": Self.uuidActive, "format": "uint8",
-            "perms": ["pr", "pw", "ev"], "value": recordingActive,
+            "perms": ["pr", "pw", "ev"], "value": hksv.recordingActive,
             "minValue": 0, "maxValue": 1,
           ],
           [
@@ -157,12 +160,12 @@ extension HAPCameraAccessory {
             "iid": Self.iidSelectedCameraRecordingConfig,
             "type": Self.uuidSelectedCameraRecordingConfig, "format": "tlv8",
             "perms": ["pr", "pw", "ev"],
-            "value": selectedRecordingConfig.base64EncodedString(),
+            "value": hksv.selectedRecordingConfig.base64EncodedString(),
           ],
           [
             "iid": Self.iidRecordingAudioActive,
             "type": Self.uuidRecordingAudioActive, "format": "uint8",
-            "perms": ["pr", "pw", "ev"], "value": recordingAudioActive,
+            "perms": ["pr", "pw", "ev"], "value": hksv.recordingAudioActive,
             "minValue": 0, "maxValue": 1,
           ],
         ],
@@ -181,7 +184,7 @@ extension HAPCameraAccessory {
           [
             "iid": Self.iidMotionSensorStatusActive,
             "type": Self.uuidStatusActive, "format": "bool",
-            "perms": ["pr", "ev"], "value": homeKitCameraActive,
+            "perms": ["pr", "ev"], "value": hksv.homeKitCameraActive,
           ],
         ],
       ])

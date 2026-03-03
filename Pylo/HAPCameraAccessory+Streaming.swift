@@ -293,7 +293,7 @@ extension HAPCameraAccessory {
     onStateChange?(
       aid, Self.iidStreamingStatus, .string(streamingStatusTLV().base64EncodedString()))
     // Resume monitoring capture if recording is still armed
-    if recordingActive != 0 {
+    if hksvState.withLock({ $0.recordingActive }) != 0 {
       onMonitoringCaptureNeeded?(true)
     }
   }

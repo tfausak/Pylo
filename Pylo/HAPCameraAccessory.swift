@@ -144,9 +144,13 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   let snapshotCIContext = CIContext()
 
   /// Which camera to use for streaming and snapshots (nil = default back wide-angle).
+  /// Written once during setup before the server starts. Not locked because
+  /// no concurrent access occurs — the server queue is not active during setup.
   var selectedCameraID: String?
 
   /// Minimum bitrate (kbps) to use regardless of what the controller negotiates.
+  /// Written once during setup before the server starts. Not locked because
+  /// no concurrent access occurs — the server queue is not active during setup.
   var minimumBitrate: Int = 0
 
   /// Active streaming session (nil when idle).
@@ -175,37 +179,49 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
 
   // MARK: - HKSV State
 
-  /// Camera Operating Mode state
-  private(set) var homeKitCameraActive: Bool = true
-  private(set) var eventSnapshotsActive: Bool = true
-  private(set) var periodicSnapshotsActive: Bool = true
+  /// HKSV-related state accessed from the server queue (read/write characteristics)
+  /// and from toJSON() / stopStreaming(). Protected by an unfair lock.
+  struct HKSVState {
+    var homeKitCameraActive: Bool = true
+    var eventSnapshotsActive: Bool = true
+    var periodicSnapshotsActive: Bool = true
+    var recordingActive: UInt8 = 0  // 0=disabled, 1=enabled
+    var recordingAudioActive: UInt8 = 0
+    var selectedRecordingConfig = Data()
+    var rtpStreamActive: UInt8 = 1
+  }
+  let hksvState = OSAllocatedUnfairLock(initialState: HKSVState())
 
-  /// Camera Event Recording Management state.
-  /// Written by writeCharacteristic (server queue) and restore* (setup, before server starts).
-  /// Read by closures that run on the server queue and during createServerSetup (before
-  /// the server accepts connections). No concurrent access occurs in practice.
-  private(set) var recordingActive: UInt8 = 0  // 0=disabled, 1=enabled
-  private(set) var recordingAudioActive: UInt8 = 0
-  private(set) var selectedRecordingConfig = Data()
+  /// Convenience read-only accessors that read through the lock.
+  /// `periodicSnapshotsActive` and `eventSnapshotsActive` also satisfy `HAPSnapshotProvider`.
+  var homeKitCameraActive: Bool { hksvState.withLock { $0.homeKitCameraActive } }
+  var periodicSnapshotsActive: Bool { hksvState.withLock { $0.periodicSnapshotsActive } }
+  var eventSnapshotsActive: Bool { hksvState.withLock { $0.eventSnapshotsActive } }
+  var recordingActive: UInt8 { hksvState.withLock { $0.recordingActive } }
+  var recordingAudioActive: UInt8 { hksvState.withLock { $0.recordingAudioActive } }
+  var selectedRecordingConfig: Data { hksvState.withLock { $0.selectedRecordingConfig } }
+  var rtpStreamActive: UInt8 { hksvState.withLock { $0.rtpStreamActive } }
 
   /// Restores `recordingActive` from persisted state without triggering callbacks.
   /// Must be called before wiring `onRecordingConfigChange` / `onMonitoringCaptureNeeded`.
   func restoreRecordingActive(_ value: UInt8) {
-    recordingActive = value
+    hksvState.withLock { $0.recordingActive = value }
   }
 
   /// Restores `recordingAudioActive` from persisted state without triggering callbacks.
   func restoreRecordingAudioActive(_ value: UInt8) {
-    recordingAudioActive = value
+    hksvState.withLock { $0.recordingAudioActive = value }
   }
 
   /// Restores `selectedRecordingConfig` from persisted state.
   func restoreSelectedRecordingConfig(_ data: Data) {
-    selectedRecordingConfig = data
+    hksvState.withLock { $0.selectedRecordingConfig = data }
   }
 
   /// Shared fMP4 writer for HKSV pre-buffering.  Set by the host so it can be
   /// forwarded to `CameraStreamSession` during live streams.
+  /// Written once during setup before the server starts. Not locked because
+  /// no concurrent access occurs — the server queue is not active during setup.
   var fragmentWriter: FragmentedMP4Writer?
 
   /// Motion sensor state (linked to this camera accessory)
@@ -215,6 +231,8 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   }
 
   /// Whether HKSV services are enabled on this accessory.
+  /// Written once during setup before the server starts. Not locked because
+  /// no concurrent access occurs — the server queue is not active during setup.
   var hksvEnabled: Bool = false
 
   var onRecordingConfigChange: ((_ active: Bool) -> Void)? {
@@ -229,10 +247,6 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     get { _callbacks.withLock { $0.onSelectedRecordingConfigChange } }
     set { _callbacks.withLock { $0.onSelectedRecordingConfigChange = newValue } }
   }
-
-  /// Active characteristic on CameraRTPStreamManagement -- indicates whether
-  /// the streaming service is enabled. Written by the HomeKit hub.
-  private(set) var rtpStreamActive: UInt8 = 1
 
   // Pending setup endpoint response (written by controller, read back after).
   // Protected by lock since writes happen from the server queue and snapshot
@@ -384,11 +398,12 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     case Self.iidSpeakerMute: return .bool(audioSettings.withLock { $0.speakerMuted })
     case Self.iidSpeakerVolume: return .int(audioSettings.withLock { $0.speakerVolume })
     // Camera Operating Mode
-    case Self.iidHomeKitCameraActive: return .bool(homeKitCameraActive)
-    case Self.iidEventSnapshotsActive: return .bool(eventSnapshotsActive)
-    case Self.iidPeriodicSnapshotsActive: return .bool(periodicSnapshotsActive)
+    case Self.iidHomeKitCameraActive: return .bool(hksvState.withLock { $0.homeKitCameraActive })
+    case Self.iidEventSnapshotsActive: return .bool(hksvState.withLock { $0.eventSnapshotsActive })
+    case Self.iidPeriodicSnapshotsActive:
+      return .bool(hksvState.withLock { $0.periodicSnapshotsActive })
     // Camera Event Recording Management
-    case Self.iidRecordingActive: return .int(Int(recordingActive))
+    case Self.iidRecordingActive: return .int(Int(hksvState.withLock { $0.recordingActive }))
     case Self.iidSupportedCameraRecordingConfig:
       return .string(supportedCameraRecordingConfig().base64())
     case Self.iidSupportedVideoRecordingConfig:
@@ -396,18 +411,20 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     case Self.iidSupportedAudioRecordingConfig:
       return .string(supportedAudioRecordingConfig().base64())
     case Self.iidSelectedCameraRecordingConfig:
-      if selectedRecordingConfig.isEmpty {
+      let config = hksvState.withLock { $0.selectedRecordingConfig }
+      if config.isEmpty {
         logger.info("SelectedCameraRecordingConfig read: empty (not yet configured)")
       } else {
-        logger.info(
-          "SelectedCameraRecordingConfig read: \(self.selectedRecordingConfig.count) bytes")
+        logger.info("SelectedCameraRecordingConfig read: \(config.count) bytes")
       }
-      return .string(selectedRecordingConfig.base64EncodedString())
-    case Self.iidRecordingAudioActive: return .int(Int(recordingAudioActive))
-    case Self.iidRTPStreamActive: return .int(Int(rtpStreamActive))
+      return .string(config.base64EncodedString())
+    case Self.iidRecordingAudioActive:
+      return .int(Int(hksvState.withLock { $0.recordingAudioActive }))
+    case Self.iidRTPStreamActive: return .int(Int(hksvState.withLock { $0.rtpStreamActive }))
     // Motion Sensor
     case Self.iidMotionDetected: return .bool(isMotionDetected)
-    case Self.iidMotionSensorStatusActive: return .bool(homeKitCameraActive)
+    case Self.iidMotionSensorStatusActive:
+      return .bool(hksvState.withLock { $0.homeKitCameraActive })
     // DataStream Transport Management
     case Self.iidSupportedDataStreamConfig:
       return .string(supportedDataStreamConfig().base64())
@@ -473,7 +490,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     // Camera Operating Mode
     case Self.iidHomeKitCameraActive:
       if let v = boolFromValue(value) {
-        homeKitCameraActive = v
+        hksvState.withLock { $0.homeKitCameraActive = v }
         onStateChange?(aid, iid, .bool(v))
         // Mirror to motion sensor StatusActive (HAP-NodeJS convention)
         onStateChange?(aid, Self.iidMotionSensorStatusActive, .bool(v))
@@ -482,14 +499,14 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
       return false
     case Self.iidEventSnapshotsActive:
       if let v = boolFromValue(value) {
-        eventSnapshotsActive = v
+        hksvState.withLock { $0.eventSnapshotsActive = v }
         onStateChange?(aid, iid, .bool(v))
         return true
       }
       return false
     case Self.iidPeriodicSnapshotsActive:
       if let v = boolFromValue(value) {
-        periodicSnapshotsActive = v
+        hksvState.withLock { $0.periodicSnapshotsActive = v }
         onStateChange?(aid, iid, .bool(v))
         return true
       }
@@ -497,7 +514,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     // Camera Event Recording Management
     case Self.iidRecordingActive:
       if let v = intFromValue(value) {
-        recordingActive = UInt8(v)
+        hksvState.withLock { $0.recordingActive = UInt8(v) }
         let isActive = v != 0
         onRecordingConfigChange?(isActive)
         onStateChange?(aid, iid, .int(v))
@@ -515,7 +532,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     case Self.iidSelectedCameraRecordingConfig:
       if case .string(let b64) = value, let data = Data(base64Encoded: b64) {
         logger.info("SelectedCameraRecordingConfig written: \(data.count) bytes")
-        selectedRecordingConfig = data
+        hksvState.withLock { $0.selectedRecordingConfig = data }
         onSelectedRecordingConfigChange?(data)
         handleSelectedRecordingConfig(data)
         return true
@@ -523,7 +540,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
       return false
     case Self.iidRecordingAudioActive:
       if let v = intFromValue(value) {
-        recordingAudioActive = UInt8(v)
+        hksvState.withLock { $0.recordingAudioActive = UInt8(v) }
         onStateChange?(aid, iid, .int(v))
         onRecordingAudioActiveChange?(v != 0)
         return true
@@ -531,7 +548,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
       return false
     case Self.iidRTPStreamActive:
       if let v = intFromValue(value) {
-        rtpStreamActive = UInt8(v)
+        hksvState.withLock { $0.rtpStreamActive = UInt8(v) }
         onStateChange?(aid, iid, .int(v))
         return true
       }
