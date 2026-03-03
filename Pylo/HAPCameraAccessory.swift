@@ -180,7 +180,10 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   private(set) var eventSnapshotsActive: Bool = true
   private(set) var periodicSnapshotsActive: Bool = true
 
-  /// Camera Event Recording Management state
+  /// Camera Event Recording Management state.
+  /// Written by writeCharacteristic (server queue) and restore* (setup, before server starts).
+  /// Read by closures that run on the server queue and during createServerSetup (before
+  /// the server accepts connections). No concurrent access occurs in practice.
   private(set) var recordingActive: UInt8 = 0  // 0=disabled, 1=enabled
   private(set) var recordingAudioActive: UInt8 = 0
   private(set) var selectedRecordingConfig = Data()
