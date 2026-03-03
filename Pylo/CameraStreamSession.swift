@@ -65,6 +65,9 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   // Accessed exclusively on rtpQueue (serial), so no synchronization needed.
   var rtpBuffer = Data()  // rtpQueue
 
+  // Reusable receive buffer for incoming audio UDP packets (rtpQueue only).
+  var audioRecvBuffer = [UInt8](repeating: 0, count: 2048)
+
   // RTCP timer
   private var rtcpTimer: DispatchSourceTimer?
 
@@ -682,6 +685,9 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
       totalLengthOut: &totalLength, dataPointerOut: &dataPointer)
     guard let ptr = dataPointer, totalLength > 0 else { return }
 
+    // Copy the frame data — CMBlockBuffer's pointer is only valid for this call,
+    // and NAL slices (below) must outlive it. This single copy is amortized across
+    // all NAL units since Data slices share the backing buffer via COW.
     let data = Data(bytes: ptr, count: totalLength)
 
     // Check for keyframe — if so, send SPS/PPS first
@@ -767,6 +773,8 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
       sendRTPPacket(payload: nal, marker: marker)
     } else {
       // FU-A fragmentation (RFC 6184 §5.8)
+      // Writes FU indicator + FU header + chunk directly into rtpBuffer,
+      // avoiding a per-fragment Data allocation.
       let nalHeader = nal[nal.startIndex]
       let nri = nalHeader & 0x60  // NRI bits
       let nalType = nalHeader & 0x1F  // NAL unit type
@@ -786,10 +794,11 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
         if isFirst { fuHeader |= 0x80 }  // Start bit
         if isLast { fuHeader |= 0x40 }  // End bit
 
-        var payload = Data([fuIndicator, fuHeader])
-        payload.append(nal[(nal.startIndex + offset)..<(nal.startIndex + offset + chunkSize)])
-        // Only set marker on the last fragment AND only if this is the last NAL of the access unit
-        sendRTPPacket(payload: payload, marker: isLast && marker)
+        writeRTPHeader(marker: isLast && marker, payloadSize: 2 + chunkSize)
+        rtpBuffer.append(fuIndicator)
+        rtpBuffer.append(fuHeader)
+        rtpBuffer.append(nal[(nal.startIndex + offset)..<(nal.startIndex + offset + chunkSize)])
+        encryptAndSendVideo(payloadSize: 2 + chunkSize)
 
         offset += chunkSize
       }
@@ -797,10 +806,16 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   }
 
   private func sendRTPPacket(payload: Data, marker: Bool) {
+    writeRTPHeader(marker: marker, payloadSize: payload.count)
+    rtpBuffer.append(payload)
+    encryptAndSendVideo(payloadSize: payload.count)
+  }
+
+  /// Write the 12-byte RTP header into rtpBuffer and advance the sequence number.
+  private func writeRTPHeader(marker: Bool, payloadSize: Int) {
     dispatchPrecondition(condition: .onQueue(rtpQueue))
-    // Reuse rtpBuffer — reset count to reclaim backing storage without deallocating.
     rtpBuffer.count = 0
-    rtpBuffer.reserveCapacity(12 + payload.count)
+    rtpBuffer.reserveCapacity(12 + payloadSize)
 
     // RTP header (12 bytes) per RFC 3550
     rtpBuffer.append(0x80)  // V=2, P=0, X=0, CC=0
@@ -817,10 +832,10 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     rtpBuffer.append(UInt8(videoSSRC & 0xFF))
 
     sequenceNumber &+= 1
+  }
 
-    rtpBuffer.append(payload)
-
-    // Encrypt with SRTP (protect() allocates internally — see SRTPContext.swift)
+  /// Encrypt rtpBuffer with SRTP and send via UDP socket.
+  private func encryptAndSendVideo(payloadSize: Int) {
     let packet: Data
     if let ctx = srtpContext {
       guard let protected = ctx.protect(rtpBuffer) else { return }
@@ -829,9 +844,8 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
       packet = rtpBuffer
     }
 
-    // Send via BSD UDP socket
     packetsSent += 1
-    octetsSent += payload.count
+    octetsSent += payloadSize
     sendVideoUDP(packet)
   }
 
