@@ -173,17 +173,30 @@ struct ContentView: View {
         Spacer()
         Text(viewModel.isCameraStreaming ? "Streaming" : "Idle")
       }
-      Picker("Camera", selection: streamCameraBinding) {
-        ForEach(viewModel.availableCameras) { camera in
-          Text(camera.name).tag(camera)
+      HStack {
+        Text("Camera")
+          .foregroundStyle(.secondary)
+        Spacer()
+        Picker("Camera", selection: streamCameraBinding) {
+          ForEach(viewModel.availableCameras) { camera in
+            Text(camera.name).tag(camera)
+          }
         }
+        .labelsHidden()
+        .pickerStyle(.menu)
       }
-      Picker("Quality", selection: $viewModel.videoQuality) {
-        ForEach(VideoQuality.allCases) { quality in
-          Text(quality.rawValue).tag(quality)
+      HStack {
+        Text("Quality")
+          .foregroundStyle(.secondary)
+        Spacer()
+        Picker("Quality", selection: $viewModel.videoQuality) {
+          ForEach(VideoQuality.allCases) { quality in
+            Text(quality.rawValue).tag(quality)
+          }
         }
+        .labelsHidden()
+        .pickerStyle(.menu)
       }
-      .pickerStyle(.segmented)
     }
   }
 
@@ -210,12 +223,18 @@ struct ContentView: View {
         Spacer()
         Text(viewModel.isMotionDetected ? "Motion Detected" : "No Motion")
       }
-      Picker("Sensitivity", selection: $viewModel.motionSensitivity) {
-        ForEach(MotionSensitivity.allCases) { sensitivity in
-          Text(sensitivity.rawValue).tag(sensitivity)
+      HStack {
+        Text("Sensitivity")
+          .foregroundStyle(.secondary)
+        Spacer()
+        Picker("Sensitivity", selection: $viewModel.motionSensitivity) {
+          ForEach(MotionSensitivity.allCases) { sensitivity in
+            Text(sensitivity.rawValue).tag(sensitivity)
+          }
         }
+        .labelsHidden()
+        .pickerStyle(.menu)
       }
-      .pickerStyle(.segmented)
     }
   }
 
@@ -224,11 +243,18 @@ struct ContentView: View {
     VStack(spacing: 12) {
       Toggle("Screen Saver", isOn: $viewModel.screenSaverEnabled)
       if viewModel.screenSaverEnabled {
-        Picker("Delay", selection: $viewModel.screenSaverDelay) {
-          Text("1 min").tag(TimeInterval(60))
-          Text("2 min").tag(TimeInterval(120))
-          Text("5 min").tag(TimeInterval(300))
-          Text("10 min").tag(TimeInterval(600))
+        HStack {
+          Text("Delay")
+            .foregroundStyle(.secondary)
+          Spacer()
+          Picker("Delay", selection: $viewModel.screenSaverDelay) {
+            Text("1 min").tag(TimeInterval(60))
+            Text("2 min").tag(TimeInterval(120))
+            Text("5 min").tag(TimeInterval(300))
+            Text("10 min").tag(TimeInterval(600))
+          }
+          .labelsHidden()
+          .pickerStyle(.menu)
         }
       }
     }
