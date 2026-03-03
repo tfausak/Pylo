@@ -113,7 +113,8 @@ extension HAPCameraAccessory {
       localVideoPort: videoPort,
       localAudioPort: audioPort,
       videoSSRC: videoSSRC,
-      audioSSRC: audioSSRC
+      audioSSRC: audioSSRC,
+      ciContext: snapshotCIContext
     )
     self.streamSession = session
 

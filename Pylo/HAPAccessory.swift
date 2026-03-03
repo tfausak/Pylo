@@ -49,6 +49,10 @@ nonisolated final class HAPAccessory: HAPAccessoryProtocol, @unchecked Sendable 
     set { _batteryState.withLock { $0 = newValue } }
   }
 
+  /// In-progress identify blink task, cancelled on server stop to avoid
+  /// leaving the torch in an unexpected state.
+  private let _identifyTask = OSAllocatedUnfairLock<Task<Void, Never>?>(initialState: nil)
+
   /// Callback for notifying the server of state changes (for EVENT notifications).
   /// Protected by a lock: written from @MainActor, read from sensor/server callbacks.
   private let _onStateChange = OSAllocatedUnfairLock<
@@ -147,15 +151,23 @@ nonisolated final class HAPAccessory: HAPAccessoryProtocol, @unchecked Sendable 
 
   func identify() {
     logger.info("Identify requested — blinking torch")
-    // Blink the torch 3 times
-    Task { @MainActor in
-      for _ in 0..<3 {
-        setTorch(on: true, level: 1.0)
-        try? await Task.sleep(nanoseconds: 200_000_000)
-        setTorch(on: false, level: 0)
-        try? await Task.sleep(nanoseconds: 200_000_000)
+    _identifyTask.withLock { task in
+      task?.cancel()
+      task = Task { @MainActor [weak self] in
+        for _ in 0..<3 {
+          guard !Task.isCancelled else { break }
+          self?.setTorch(on: true, level: 1.0)
+          try? await Task.sleep(nanoseconds: 200_000_000)
+          self?.setTorch(on: false, level: 0)
+          try? await Task.sleep(nanoseconds: 200_000_000)
+        }
       }
     }
+  }
+
+  /// Cancel any in-progress identify blink.
+  func cancelIdentify() {
+    _identifyTask.withLock { $0?.cancel(); $0 = nil }
   }
 
   // MARK: - Torch Control

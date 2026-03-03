@@ -137,6 +137,7 @@ final class HAPViewModel {
   @ObservationIgnored private var server: HAPServer?
   @ObservationIgnored private var motionMonitor: MotionMonitor?
   @ObservationIgnored private var batteryMonitor: BatteryMonitor?
+  @ObservationIgnored private var lightbulbAccessory: HAPAccessory?
   @ObservationIgnored private var cameraAccessory: HAPCameraAccessory?
   @ObservationIgnored private var monitoringSession: MonitoringCaptureSession?
   @ObservationIgnored private var fragmentWriter: FragmentedMP4Writer?
@@ -237,6 +238,7 @@ final class HAPViewModel {
       self.server = setup.server
       self.monitoringSession = setup.monitoringSession
       self.motionMonitor = setup.motionMonitor
+      self.lightbulbAccessory = config.flashlightEnabled ? setup.lightbulb : nil
       self.cameraAccessory = config.selectedStreamCameraID != nil ? setup.camera : nil
       self.fragmentWriter = setup.fmp4Writer
       self.dataStreamHandler = setup.dataStream
@@ -373,6 +375,8 @@ final class HAPViewModel {
     monitoringSession = nil
     dataStreamHandler?.stop()
     dataStreamHandler = nil
+    lightbulbAccessory?.cancelIdentify()
+    lightbulbAccessory = nil
     cameraAccessory = nil
     server?.stop()
     server = nil

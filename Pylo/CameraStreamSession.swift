@@ -166,7 +166,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   }
   private var snapshotFrameCounter = 0
   private let snapshotInterval = 150  // every ~5s at 30fps
-  private let snapshotCIContext = CIContext()
+  private let snapshotCIContext: CIContext
 
   // Audio encoder state — accumulates PCM until we have a full AAC-ELD frame
   var pcmAccumulator = Data()
@@ -181,7 +181,8 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     videoSRTPKey: Data, videoSRTPSalt: Data,
     audioSRTPKey: Data, audioSRTPSalt: Data,
     localAddress: String, localVideoPort: UInt16, localAudioPort: UInt16,
-    videoSSRC: UInt32, audioSSRC: UInt32
+    videoSSRC: UInt32, audioSSRC: UInt32,
+    ciContext: CIContext
   ) {
     self.sessionID = sessionID
     self.controllerAddress = controllerAddress
@@ -196,6 +197,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     self.localAudioPort = localAudioPort
     self.videoSSRC = videoSSRC
     self.audioSSRC = audioSSRC
+    self.snapshotCIContext = ciContext
   }
 
   deinit {
