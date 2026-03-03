@@ -168,6 +168,12 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
 
     // Compute candidate ROC without mutating state (RFC 3711 §3.3:
     // state must only be updated after authentication succeeds).
+    //
+    // The conditions below implement RFC 3711 §3.3.1 index estimation:
+    //   if s_l < 2^15:  SEQ - s_l > 2^15 → v = ROC-1, else v = ROC
+    //   if s_l >= 2^15: s_l - 2^15 > SEQ → v = ROC+1, else v = ROC
+    // The second branch's condition (s_l - SEQ > 0x8000) is algebraically
+    // equivalent to (s_l - 0x8000 > SEQ) and implicitly requires s_l >= 0x8000.
     let (candidateROC, candidateSeq, wasInitialized) = state.withLock {
       s -> (UInt32, UInt16, Bool) in
       if !s.incomingInitialized {
@@ -175,10 +181,10 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
       }
       var roc = s.incomingROC
       if roc > 0 && s.incomingLastSeq < 0x8000 && seq > (s.incomingLastSeq &+ 0x8000) {
-        // Late packet from previous ROC period (RFC 3711 §3.3.1 v = ROC-1)
+        // Late packet from previous ROC period (v = ROC-1)
         roc -= 1
       } else if seq < s.incomingLastSeq && (s.incomingLastSeq &- seq) > 0x8000 {
-        // Forward rollover (RFC 3711 §3.3.1 v = ROC+1)
+        // Forward rollover (v = ROC+1)
         roc &+= 1
       }
       return (roc, seq, true)
