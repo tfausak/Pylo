@@ -14,17 +14,38 @@ import os
 nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
 
   /// Optional video motion detector — runs on every captured frame.
-  var videoMotionDetector: VideoMotionDetector?
+  /// Protected: written from server queue, read from captureQueue.
+  private let _videoMotionDetector = OSAllocatedUnfairLock<VideoMotionDetector?>(initialState: nil)
+  var videoMotionDetector: VideoMotionDetector? {
+    get { _videoMotionDetector.withLock { $0 } }
+    set { _videoMotionDetector.withLock { $0 = newValue } }
+  }
 
   /// Optional ambient light detector — samples device exposure on every frame (internally throttled).
-  var ambientLightDetector: AmbientLightDetector?
+  /// Protected: written from server queue, read from captureQueue.
+  private let _ambientLightDetector = OSAllocatedUnfairLock<AmbientLightDetector?>(
+    initialState: nil)
+  var ambientLightDetector: AmbientLightDetector? {
+    get { _ambientLightDetector.withLock { $0 } }
+    set { _ambientLightDetector.withLock { $0 = newValue } }
+  }
 
   /// Optional fMP4 writer for HKSV recording — feeds encoded H.264 samples.
-  var fragmentWriter: FragmentedMP4Writer?
+  /// Protected: written from server queue, read from VT output handler and start/stop.
+  private let _fragmentWriter = OSAllocatedUnfairLock<FragmentedMP4Writer?>(initialState: nil)
+  var fragmentWriter: FragmentedMP4Writer? {
+    get { _fragmentWriter.withLock { $0 } }
+    set { _fragmentWriter.withLock { $0 = newValue } }
+  }
 
   /// Whether the hub has enabled audio recording (recordingAudioActive == 1).
   /// When false, microphone capture and AAC-ELD encoding are skipped entirely.
-  var audioRecordingEnabled = false
+  /// Protected: written from server queue, read from start().
+  private let _audioRecordingEnabled = OSAllocatedUnfairLock(initialState: false)
+  var audioRecordingEnabled: Bool {
+    get { _audioRecordingEnabled.withLock { $0 } }
+    set { _audioRecordingEnabled.withLock { $0 = newValue } }
+  }
 
   let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "MonitoringCapture")
   let lock = NSLock()
