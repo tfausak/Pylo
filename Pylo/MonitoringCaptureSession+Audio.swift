@@ -9,8 +9,7 @@ import os
 extension MonitoringCaptureSession {
 
   nonisolated func handleAudioSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
-    let converter = withState { $0.audioConverter }
-    guard converter != nil else { return }
+    guard let converter = withState({ $0.audioConverter }) else { return }
 
     guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { return }
     var totalLength = 0
@@ -49,7 +48,7 @@ extension MonitoringCaptureSession {
       return result
     }
     for frameData in frames {
-      encodeAndAppendAudioFrame(frameData, converter: converter!)
+      encodeAndAppendAudioFrame(frameData, converter: converter)
     }
   }
 
