@@ -209,6 +209,8 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     self.targetFPS = fps
     self.rtpPayloadType = payloadType
     self.audioPayloadType = audioPayloadType
+    // Safe to reset from any queue here: the capture pipeline hasn't started yet
+    // (setupCapture is called below), so no captureQueue or rtpQueue work exists.
     // Start seq/ts at low values — some SRTP receivers mis-estimate the
     // rollover counter when the first sequence number is > 2^15, causing
     // every authentication check to fail (black video).
