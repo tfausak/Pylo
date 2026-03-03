@@ -404,7 +404,9 @@ public nonisolated final class HDSConnection: @unchecked Sendable {
     pendingEndOfStream = false
     writer.onFragmentReady = { [weak self, weak writer] (fragment: MP4Fragment) in
       self?.queue.async {
-        guard let self, let writer, self.activeStreamID != nil else { return }
+        guard let self, let writer, self.activeStreamID != nil,
+          self.fragmentWriter === writer
+        else { return }
 
         // Send init segment before first fragment if it wasn't available at open time
         if !self.initSegmentSent, let initSeg = writer.initSegment {
