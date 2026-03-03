@@ -220,7 +220,12 @@ public nonisolated final class SRPServer {
       })
     else { return nil }
 
-    // Derive K = H(S) — only exposed as sessionKey after proof succeeds
+    // Derive K = H(S) — only exposed as sessionKey after proof succeeds.
+    // Note: derivedKey lives as a plain Data on the heap until ARC frees it.
+    // Ideally we'd zero it, but: (a) copies exist in m1Data/m2Data via append,
+    // (b) Swift's optimizer can elide dead stores, and (c) the iOS sandbox
+    // already prevents cross-process memory reads. The final SymmetricKey
+    // wraps the material in locked, auto-zeroed memory (SecureBytes).
     let derivedKey = Data(SHA512.hash(data: Self.pad(s)))
 
     // Compute M1 = H(H(N) XOR H(g) | H(I) | s | A | B | K)
