@@ -56,7 +56,10 @@ public nonisolated final class EncryptionContext {
   /// Returns nil on failure — the caller should close the connection since
   /// the write counter has been consumed and the session is desynced.
   public func encrypt(plaintext: Data) -> Data? {
+    // Pre-allocate: each 1024-byte chunk adds 2 (length) + chunk + 16 (tag) = 18 overhead.
+    let chunkCount = (plaintext.count + 1023) / 1024
     var result = Data()
+    result.reserveCapacity(plaintext.count + chunkCount * 18)
     var offset = plaintext.startIndex
 
     while offset < plaintext.endIndex {
