@@ -308,9 +308,10 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   // Active characteristic on CameraRTPStreamManagement (iid 37)
   static let iidRTPStreamActive = 37
 
-  // Motion Sensor linked to camera (iid 50-51)
+  // Motion Sensor linked to camera (iid 50-52)
   static let iidMotionSensorService = 50
   static let iidMotionDetected = 51
+  static let iidMotionSensorStatusActive = 52
 
   // DataStream Transport Management Service (iid 60-62)
   static let iidDataStreamService = 60
@@ -350,6 +351,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   // Motion Sensor UUIDs
   static let uuidMotionSensor = HKServiceUUID.motionSensor
   static let uuidMotionDetected = HKCharacteristicUUID.motionDetected
+  static let uuidStatusActive = "75"
 
   // DataStream Transport Management UUIDs (no public HomeKit constants)
   static let uuidDataStreamTransportManagement = "129"
@@ -405,6 +407,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     case Self.iidRTPStreamActive: return .int(Int(rtpStreamActive))
     // Motion Sensor
     case Self.iidMotionDetected: return .bool(isMotionDetected)
+    case Self.iidMotionSensorStatusActive: return .bool(homeKitCameraActive)
     // DataStream Transport Management
     case Self.iidSupportedDataStreamConfig:
       return .string(supportedDataStreamConfig().base64())
@@ -472,6 +475,8 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
       if let v = boolFromValue(value) {
         homeKitCameraActive = v
         onStateChange?(aid, iid, .bool(v))
+        // Mirror to motion sensor StatusActive (HAP-NodeJS convention)
+        onStateChange?(aid, Self.iidMotionSensorStatusActive, .bool(v))
         return true
       }
       return false

@@ -177,7 +177,12 @@ extension HAPCameraAccessory {
             "iid": Self.iidMotionDetected,
             "type": Self.uuidMotionDetected, "format": "bool",
             "perms": ["pr", "ev"], "value": isMotionDetected,
-          ]
+          ],
+          [
+            "iid": Self.iidMotionSensorStatusActive,
+            "type": Self.uuidStatusActive, "format": "bool",
+            "perms": ["pr", "ev"], "value": homeKitCameraActive,
+          ],
         ],
       ])
 
