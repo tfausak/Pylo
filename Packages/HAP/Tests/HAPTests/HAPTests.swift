@@ -515,15 +515,16 @@ struct HAPMotionSensorTests {
     #expect(receivedValue == .bool(true))
   }
 
-  @Test("toJSON has motion sensor service")
+  @Test("toJSON has motion sensor and battery services")
   func toJSONService() {
     let sensor = HAPMotionSensorAccessory(aid: 5)
     let json = sensor.toJSON()
     let services = json["services"] as! [[String: Any]]
-    #expect(services.count == 2)
-    #expect(services[1]["type"] as? String == "85")
+    #expect(services.count == 3)  // accessory info + motion sensor + battery
+    #expect(services[1]["type"] as? String == "85")  // motion sensor
     let chars = services[1]["characteristics"] as! [[String: Any]]
     #expect(chars[0]["format"] as? String == "bool")
+    #expect(services[2]["type"] as? String == BatteryUUID.service)  // battery
   }
 }
 

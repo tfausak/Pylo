@@ -446,13 +446,17 @@ struct BatteryServiceTests {
     #expect(chars[2]["value"] as? Int == 0)
   }
 
-  @Test("Lightbulb toJSON omits battery service when batteryState is nil")
+  @Test("Lightbulb toJSON always includes battery service")
   func lightbulbWithoutBattery() {
     let light = HAPAccessory(aid: 2)
     let json = light.toJSON()
     let services = json["services"] as! [[String: Any]]
-    // Only Accessory Info + Lightbulb = 2 services
-    #expect(services.count == 2)
+    // Accessory Info + Lightbulb + Battery = 3 services (battery always present for stable c#)
+    #expect(services.count == 3)
+    #expect(services[2]["type"] as? String == BatteryUUID.service)
+    // Verify default values when batteryState is nil
+    let chars = services[2]["characteristics"] as! [[String: Any]]
+    #expect(chars[0]["value"] as? Int == 0)  // level defaults to 0
   }
 
   @Test("Motion sensor toJSON includes battery service when batteryState is set")
@@ -470,12 +474,14 @@ struct BatteryServiceTests {
     #expect(services[2]["type"] as? String == BatteryUUID.service)
   }
 
-  @Test("Motion sensor toJSON omits battery service when batteryState is nil")
+  @Test("Motion sensor toJSON always includes battery service")
   func motionSensorWithoutBattery() {
     let sensor = HAPMotionSensorAccessory(aid: 5)
     let json = sensor.toJSON()
     let services = json["services"] as! [[String: Any]]
-    #expect(services.count == 2)
+    // Accessory Info + Motion Sensor + Battery = 3 services
+    #expect(services.count == 3)
+    #expect(services[2]["type"] as? String == BatteryUUID.service)
   }
 
   @Test("Camera toJSON includes battery service when batteryState is set")
@@ -494,13 +500,14 @@ struct BatteryServiceTests {
     #expect(services[4]["type"] as? String == BatteryUUID.service)
   }
 
-  @Test("Camera toJSON omits battery service when batteryState is nil")
+  @Test("Camera toJSON always includes battery service")
   func cameraWithoutBattery() {
     let camera = HAPCameraAccessory(aid: 3)
     let json = camera.toJSON()
     let services = json["services"] as! [[String: Any]]
-    // Accessory Info + Camera RTP + Microphone + Speaker = 4 services
-    #expect(services.count == 4)
+    // Accessory Info + Camera RTP + Microphone + Speaker + Battery = 5 services
+    #expect(services.count == 5)
+    #expect(services[4]["type"] as? String == BatteryUUID.service)
   }
 
   @Test("readCharacteristic returns battery values when state is set")

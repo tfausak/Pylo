@@ -180,9 +180,12 @@ extension HAPAccessoryProtocol {
   }
 
   /// Builds the Battery Service JSON (iid 100, characteristics 101-103).
-  /// Returns nil if the given `BatteryState` is nil (no battery on this device).
-  public func batteryServiceJSON(state: BatteryState?) -> [String: Any]? {
-    guard let state else { return nil }
+  /// Always included so the accessory database structure is stable for c# hashing.
+  /// When `batteryState` is nil (not yet wired), uses safe defaults (0/0/0).
+  public func batteryServiceJSON(state: BatteryState?) -> [String: Any] {
+    let level = state?.level ?? 0
+    let chargingState = state?.chargingState ?? 0
+    let statusLowBattery = state?.statusLowBattery ?? 0
     return [
       "iid": BatteryIID.service,
       "type": BatteryUUID.service,
@@ -190,20 +193,20 @@ extension HAPAccessoryProtocol {
         [
           "iid": BatteryIID.batteryLevel,
           "type": BatteryUUID.level, "format": "uint8",
-          "perms": ["pr", "ev"], "value": state.level,
+          "perms": ["pr", "ev"], "value": level,
           "minValue": 0, "maxValue": 100, "minStep": 1,
           "unit": "percentage",
         ],
         [
           "iid": BatteryIID.chargingState,
           "type": BatteryUUID.chargingState, "format": "uint8",
-          "perms": ["pr", "ev"], "value": state.chargingState,
+          "perms": ["pr", "ev"], "value": chargingState,
           "minValue": 0, "maxValue": 2,
         ],
         [
           "iid": BatteryIID.statusLowBattery,
           "type": BatteryUUID.lowBattery, "format": "uint8",
-          "perms": ["pr", "ev"], "value": state.statusLowBattery,
+          "perms": ["pr", "ev"], "value": statusLowBattery,
           "minValue": 0, "maxValue": 1,
         ],
       ],
@@ -384,9 +387,7 @@ public nonisolated final class HAPMotionSensorAccessory: HAPAccessoryProtocol, @
         ],
       ],
     ]
-    if let battery = batteryServiceJSON(state: batteryState) {
-      services.append(battery)
-    }
+    services.append(batteryServiceJSON(state: batteryState))
     return ["aid": aid, "services": services]
   }
 }
@@ -494,9 +495,7 @@ public nonisolated final class HAPLightSensorAccessory: HAPAccessoryProtocol, @u
         ],
       ],
     ]
-    if let battery = batteryServiceJSON(state: batteryState) {
-      services.append(battery)
-    }
+    services.append(batteryServiceJSON(state: batteryState))
     return ["aid": aid, "services": services]
   }
 }

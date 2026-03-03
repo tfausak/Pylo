@@ -80,11 +80,13 @@ public nonisolated final class HAPServer: @unchecked Sendable {
     params.includePeerToPeer = true
     self.listener = try NWListener(using: params)
 
-    // Compute c# from the accessory database structure so it auto-updates
-    // when services/characteristics change (HAP spec §6.6.1, range 1...2^32-1).
-    // The hash is UInt32 which always fits as a positive Int on 64-bit platforms.
+    // Compute c# from the accessory database *structure* (HAP spec §6.6.1).
+    // Only service/characteristic types, IIDs, formats, and permissions are
+    // included — NOT values, which change at runtime and would cause spurious
+    // c# changes across app restarts.
     let allJSON = self.accessories.keys.sorted().compactMap { self.accessories[$0]?.toJSON() }
-    if let data = try? JSONSerialization.data(withJSONObject: allJSON),
+    let structural = allJSON.map { Self.structuralHash(accessory: $0) }
+    if let data = try? JSONSerialization.data(withJSONObject: structural),
       let str = String(data: data, encoding: .utf8)
     {
       var hash: UInt32 = 5381
@@ -201,6 +203,36 @@ public nonisolated final class HAPServer: @unchecked Sendable {
   /// Look up an accessory by its aid.
   public func accessory(aid: Int) -> HAPAccessoryProtocol? {
     accessories[aid]
+  }
+
+  // MARK: - Configuration Number
+
+  /// Extracts structural elements from an accessory JSON for c# hashing.
+  /// Keeps aid, service iid/type/linked, and characteristic iid/type/format/perms.
+  /// Strips runtime values (value, ev state) that don't affect the database schema.
+  private static func structuralHash(accessory: [String: Any]) -> [String: Any] {
+    var result: [String: Any] = ["aid": accessory["aid"] ?? 0]
+    if let services = accessory["services"] as? [[String: Any]] {
+      result["services"] = services.map { service -> [String: Any] in
+        var s: [String: Any] = [:]
+        if let iid = service["iid"] { s["iid"] = iid }
+        if let type = service["type"] { s["type"] = type }
+        if let linked = service["linked"] { s["linked"] = linked }
+        if let chars = service["characteristics"] as? [[String: Any]] {
+          s["characteristics"] = chars.map { char -> [String: Any] in
+            var c: [String: Any] = [:]
+            for key in [
+              "iid", "type", "format", "perms", "minValue", "maxValue", "minStep", "unit",
+            ] {
+              if let v = char[key] { c[key] = v }
+            }
+            return c
+          }
+        }
+        return s
+      }
+    }
+    return result
   }
 
   // MARK: - Bonjour TXT Record

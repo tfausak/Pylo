@@ -212,9 +212,7 @@ extension HAPCameraAccessory {
       ])
     }
 
-    if let battery = batteryServiceJSON(state: batteryState) {
-      services.append(battery)
-    }
+    services.append(batteryServiceJSON(state: batteryState))
     return ["aid": aid, "services": services]
   }
 }
