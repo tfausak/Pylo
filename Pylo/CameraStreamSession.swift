@@ -98,6 +98,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     var isMuted: Bool = false
     var speakerMuted: Bool = false
     var speakerVolume: Int = 100
+    var playerStarted: Bool = false
   }
   private let audioFlags = OSAllocatedUnfairLock(initialState: AudioFlags())
 
@@ -135,7 +136,10 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   var audioDecoder: AudioConverterRef?
   var audioEngine: AVAudioEngine?
   var audioPlayerNode: AVAudioPlayerNode?
-  var audioPlayerStarted: Bool = false
+  var audioPlayerStarted: Bool {
+    get { audioFlags.withLock { $0.playerStarted } }
+    set { audioFlags.withLock { $0.playerStarted = newValue } }
+  }
   var incomingSRTPContext: SRTPContext?
   /// Cached audio format for playback buffers (Float32, 16kHz, mono).
   let playbackFormat = AVAudioFormat(
