@@ -12,6 +12,12 @@ extension HAPCameraAccessory {
   /// the system shutter sound. Falls back to a cached frame from the last
   /// active stream when a fresh capture isn't possible.
   func captureSnapshot(width: Int, height: Int) -> Data? {
+    // This method blocks synchronously for up to 3 seconds while waiting for
+    // a camera frame. AVCaptureSession.startRunning() posts internal
+    // notifications on the main thread, so calling this from the main thread
+    // (or any context the main thread is blocked on) would deadlock.
+    dispatchPrecondition(condition: .notOnQueue(.main))
+
     // If streaming is active, return the cached frame (can't run two sessions
     // on the same camera simultaneously).
     if streamSession != nil {
