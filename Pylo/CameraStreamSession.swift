@@ -165,8 +165,8 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   var pcmAccumulator = Data()
   let aacFrameSamples = 480  // AAC-ELD frame size at 16kHz
 
-  var audioSampleCount: Int = 0
-  var incomingAudioPacketCount: Int = 0
+  var audioSampleCount: Int = 0  // captureQueue only
+  var incomingAudioPacketCount: Int = 0  // rtpQueue only
 
   init(
     sessionID: Data,
