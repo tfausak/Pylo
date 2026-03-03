@@ -704,10 +704,8 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
       offset += 4
       guard nalLength > 0, offset + nalLength <= data.count else { break }
 
-      let nalUnit = data[offset..<offset + nalLength]
-      _ = nalUnit[nalUnit.startIndex] & 0x1F
-
-      nalUnits.append(Data(nalUnit))
+      // Data subscript returns a slice sharing the backing buffer (no copy).
+      nalUnits.append(data[offset..<offset + nalLength])
       offset += nalLength
     }
 
