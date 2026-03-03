@@ -1,9 +1,20 @@
+import Accelerate
 import AudioToolbox
 import Foundation
 
 // MARK: - Shared Audio Conversion
 
 /// Convert PCM audio data to Float32 at 16kHz mono.
+/// Uses vDSP for vectorized int16→float conversion, channel downmixing,
+/// and linear-interpolation resampling.
+///
+/// Several vDSP calls here read from and write to the same array (in-place).
+/// Swift's exclusivity rules forbid passing `&array` for both the input and
+/// output parameters of a function, even though vDSP supports aliased
+/// source/destination pointers. We use `withUnsafeMutableBufferPointer` to
+/// obtain a single pointer and pass it for both roles, which is safe because
+/// vDSP guarantees correct in-place operation and the closure holds exclusive
+/// access to the buffer for its duration.
 nonisolated func convertToFloat32At16kHz(
   _ data: Data, sourceASBD: AudioStreamBasicDescription
 ) -> Data {
@@ -14,66 +25,84 @@ nonisolated func convertToFloat32At16kHz(
 
   guard sourceASBD.mBytesPerFrame > 0, sourceChannels > 0 else { return Data() }
 
-  // Pre-allocate to avoid repeated heap growth during the per-callback conversion
-  let totalSamples = data.count / Int(sourceASBD.mBytesPerFrame)
-  let monoSamples = totalSamples / sourceChannels
-  var floatSamples: [Float] = []
-  floatSamples.reserveCapacity(monoSamples)
+  let totalFrames = data.count / Int(sourceASBD.mBytesPerFrame)
+  var monoFloat: [Float]
 
   if isFloat && sourceASBD.mBitsPerChannel == 32 {
-    // AudioToolbox wrote this buffer as Float32 samples; use assumingMemoryBound
-    // rather than bindMemory to avoid rebinding memory that Data still references
-    // as UInt8 (which is technically undefined behavior per Swift's aliasing rules).
-    data.withUnsafeBytes { ptr in
-      let floatPtr = ptr.assumingMemoryBound(to: Float.self)
-      if sourceChannels == 1 {
-        floatSamples = Array(floatPtr)
-      } else {
-        for i in stride(from: 0, to: floatPtr.count, by: sourceChannels) {
-          var sum: Float = 0
-          for ch in 0..<sourceChannels where i + ch < floatPtr.count {
-            sum += floatPtr[i + ch]
+    if sourceChannels == 1 {
+      monoFloat = data.withUnsafeBytes { Array($0.assumingMemoryBound(to: Float.self)) }
+    } else {
+      monoFloat = [Float](repeating: 0, count: totalFrames)
+      monoFloat.withUnsafeMutableBufferPointer { dst in
+        data.withUnsafeBytes { ptr in
+          let src = ptr.assumingMemoryBound(to: Float.self).baseAddress!
+          var scale = 1.0 / Float(sourceChannels)
+          for ch in 0..<sourceChannels {
+            vDSP_vsma(src + ch, vDSP_Stride(sourceChannels),
+                      &scale, dst.baseAddress!, 1, dst.baseAddress!, 1,
+                      vDSP_Length(totalFrames))
           }
-          floatSamples.append(sum / Float(sourceChannels))
         }
       }
     }
   } else if is16Bit {
-    data.withUnsafeBytes { ptr in
-      let int16Ptr = ptr.assumingMemoryBound(to: Int16.self)
-      for i in stride(from: 0, to: int16Ptr.count, by: sourceChannels) {
-        var sum: Float = 0
-        for ch in 0..<sourceChannels where i + ch < int16Ptr.count {
-          sum += Float(int16Ptr[i + ch]) / 32768.0
+    let int16Count = data.count / 2
+    // Vectorized Int16 → Float conversion
+    var allFloat = [Float](unsafeUninitializedCapacity: int16Count) { buf, count in
+      data.withUnsafeBytes { ptr in
+        vDSP_vflt16(ptr.assumingMemoryBound(to: Int16.self).baseAddress!, 1,
+                    buf.baseAddress!, 1, vDSP_Length(int16Count))
+      }
+      count = int16Count
+    }
+    var divisor: Float = 32768.0
+    allFloat.withUnsafeMutableBufferPointer { buf in
+      vDSP_vsdiv(buf.baseAddress!, 1, &divisor, buf.baseAddress!, 1, vDSP_Length(int16Count))
+    }
+
+    if sourceChannels == 1 {
+      monoFloat = allFloat
+    } else {
+      monoFloat = [Float](repeating: 0, count: totalFrames)
+      var scale = 1.0 / Float(sourceChannels)
+      monoFloat.withUnsafeMutableBufferPointer { dst in
+        allFloat.withUnsafeBufferPointer { src in
+          for ch in 0..<sourceChannels {
+            vDSP_vsma(src.baseAddress! + ch, vDSP_Stride(sourceChannels),
+                      &scale, dst.baseAddress!, 1, dst.baseAddress!, 1,
+                      vDSP_Length(totalFrames))
+          }
         }
-        floatSamples.append(sum / Float(sourceChannels))
       }
     }
   } else {
     return Data()
   }
 
-  // Resample to 16kHz if needed. Allocates a temporary [Float] per call;
-  // acceptable because audio buffers are small (~480 samples) and this runs
-  // at audio callback rate (~30-50Hz), not video frame rate.
+  // Resample to 16kHz using vectorized linear interpolation
   if abs(sourceSampleRate - 16000) > 1 {
     let ratio = 16000.0 / sourceSampleRate
-    let outputCount = Int((Double(floatSamples.count) * ratio).rounded())
-    var resampled = [Float](repeating: 0, count: outputCount)
-    for i in 0..<outputCount {
-      let srcIdx = Double(i) / ratio
-      let idx = Int(srcIdx)
-      let frac = Float(srcIdx - Double(idx))
-      if idx + 1 < floatSamples.count {
-        resampled[i] = floatSamples[idx] * (1 - frac) + floatSamples[idx + 1] * frac
-      } else if idx < floatSamples.count {
-        resampled[i] = floatSamples[idx]
-      }
+    let outputCount = Int((Double(monoFloat.count) * ratio).rounded())
+    guard outputCount > 0 else { return Data() }
+
+    // Build ramp of fractional source indices for vDSP_vlint
+    var control = [Float](unsafeUninitializedCapacity: outputCount) { buf, count in
+      var start: Float = 0
+      var step = Float(1.0 / ratio)
+      vDSP_vramp(&start, &step, buf.baseAddress!, 1, vDSP_Length(outputCount))
+      // Clamp to valid range so vlint doesn't read out of bounds
+      var lo: Float = 0
+      var hi = Float(monoFloat.count - 1)
+      vDSP_vclip(buf.baseAddress!, 1, &lo, &hi, buf.baseAddress!, 1, vDSP_Length(outputCount))
+      count = outputCount
     }
-    floatSamples = resampled
+    var resampled = [Float](repeating: 0, count: outputCount)
+    vDSP_vlint(&monoFloat, &control, 1, &resampled, 1,
+               vDSP_Length(outputCount), vDSP_Length(monoFloat.count))
+    monoFloat = resampled
   }
 
-  return floatSamples.withUnsafeBytes { Data($0) }
+  return monoFloat.withUnsafeBytes { Data($0) }
 }
 
 // MARK: - AAC-ELD Encoder Factory
