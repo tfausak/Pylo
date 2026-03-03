@@ -48,7 +48,6 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   }
 
   let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "MonitoringCapture")
-  let lock = NSLock()
 
   /// Serial queue for AVCaptureSession start/stop — these are not thread-safe.
   private let sessionQueue: DispatchQueue
@@ -82,36 +81,30 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     var compressionSession: VTCompressionSession?
     var audioConverter: AudioConverterRef?
     var pcmAccumulator = Data()
+    // Strong references to delegates to prevent premature deallocation.
+    // Stored as AnyObject to avoid exposing file-private delegate types.
+    var videoCaptureDelegate: AnyObject?
+    var audioCaptureDelegate: AnyObject?
   }
-  /// All access to `_state` must go through `lock.withLock { }` or `withState()`.
-  private var _state = State()
-
-  /// Thread-safe accessor for mutable state.
-  func withState<T>(_ body: (inout State) -> T) -> T {
-    lock.withLock { body(&_state) }
-  }
-
-  // Strong references to delegates to prevent premature deallocation.
-  private var videoCaptureDelegate: VideoCaptureDelegate?
-  private var audioCaptureDelegate: AudioCaptureDelegate?
+  let mState = OSAllocatedUnfairLock(initialState: State())
 
   private var captureSession: AVCaptureSession? {
-    get { withState { $0.captureSession } }
-    set { withState { $0.captureSession = newValue } }
+    get { mState.withLock { $0.captureSession } }
+    set { mState.withLock { $0.captureSession = newValue } }
   }
 
   private var compressionSession: VTCompressionSession? {
-    get { withState { $0.compressionSession } }
-    set { withState { $0.compressionSession = newValue } }
+    get { mState.withLock { $0.compressionSession } }
+    set { mState.withLock { $0.compressionSession = newValue } }
   }
 
   // MARK: - Lifecycle
 
   func start(camera: AVCaptureDevice) {
     // Atomically check-and-mark to prevent concurrent start().
-    let alreadyRunning = lock.withLock { () -> Bool in
-      if _state.captureSession != nil { return true }
-      _state.captureSession = AVCaptureSession()  // sentinel
+    let alreadyRunning = mState.withLock { (state: inout State) -> Bool in
+      if state.captureSession != nil { return true }
+      state.captureSession = AVCaptureSession()  // sentinel
       return false
     }
     guard !alreadyRunning else { return }
@@ -134,7 +127,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       camera.unlockForConfiguration()
     } catch {
       logger.error("Camera config error: \(error)")
-      lock.withLock { _state.captureSession = nil }
+      mState.withLock { $0.captureSession = nil }
       return
     }
 
@@ -162,7 +155,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       if session.canAddInput(input) { session.addInput(input) }
     } catch {
       logger.error("Camera input error: \(error)")
-      lock.withLock { _state.captureSession = nil }
+      mState.withLock { $0.captureSession = nil }
       return
     }
 
@@ -199,13 +192,13 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       audioOut.setSampleBufferDelegate(audioDelegate, queue: captureQueue)
       if session.canAddOutput(audioOut) {
         session.addOutput(audioOut)
-        lock.withLock { self.audioCaptureDelegate = audioDelegate }
+        mState.withLock { $0.audioCaptureDelegate = audioDelegate }
 
         // Create AAC-ELD encoder
         if let converter = Self.createAudioEncoder(logger: logger) {
-          lock.withLock {
-            _state.audioConverter = converter
-            _state.pcmAccumulator = Data()
+          mState.withLock {
+            $0.audioConverter = converter
+            $0.pcmAccumulator = Data()
           }
           audioReady = true
           logger.info("Monitoring audio capture + AAC-ELD encoder ready")
@@ -239,15 +232,15 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       let cs = Self.createCompressionSession(
         width: encWidth, height: encHeight, fps: fps, bitrate: bitrate, logger: logger)
     else {
-      lock.withLock { _state.captureSession = nil }
+      mState.withLock { $0.captureSession = nil }
       return
     }
 
     // Commit state atomically. If stop() was called concurrently, bail.
-    let cancelled: Bool = lock.withLock {
-      guard _state.captureSession != nil else { return true }
-      _state.captureSession = session
-      _state.compressionSession = cs
+    let cancelled: Bool = mState.withLock { (state: inout State) -> Bool in
+      guard state.captureSession != nil else { return true }
+      state.captureSession = session
+      state.compressionSession = cs
       return false
     }
     if cancelled {
@@ -255,8 +248,8 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       logger.info("Monitoring capture start aborted (stop() called concurrently)")
       return
     }
-    lock.withLock {
-      self.videoCaptureDelegate = delegate
+    mState.withLock {
+      $0.videoCaptureDelegate = delegate
     }
     fragmentWriter?.includeAudioTrack = audioReady
 
@@ -274,14 +267,14 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
 
   func stop() {
     let (oldSession, oldCS, oldAudioConverter):
-      (AVCaptureSession?, VTCompressionSession?, AudioConverterRef?) = lock.withLock {
-        let s = _state.captureSession
-        let cs = _state.compressionSession
-        let ac = _state.audioConverter
-        _state.captureSession = nil
-        _state.compressionSession = nil
-        _state.audioConverter = nil
-        _state.pcmAccumulator = Data()
+      (AVCaptureSession?, VTCompressionSession?, AudioConverterRef?) = mState.withLock {
+        let s = $0.captureSession
+        let cs = $0.compressionSession
+        let ac = $0.audioConverter
+        $0.captureSession = nil
+        $0.compressionSession = nil
+        $0.audioConverter = nil
+        $0.pcmAccumulator = Data()
         return (s, cs, ac)
       }
     guard oldSession != nil || oldCS != nil else { return }
@@ -308,9 +301,9 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       AudioConverterDispose(ac)
     }
 
-    lock.withLock {
-      videoCaptureDelegate = nil
-      audioCaptureDelegate = nil
+    mState.withLock {
+      $0.videoCaptureDelegate = nil
+      $0.audioCaptureDelegate = nil
     }
     logger.info("Monitoring capture stopped")
   }

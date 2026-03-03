@@ -9,7 +9,7 @@ import os
 extension MonitoringCaptureSession {
 
   nonisolated func handleAudioSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
-    guard let converter = withState({ $0.audioConverter }) else { return }
+    guard let converter = mState.withLock({ $0.audioConverter }) else { return }
 
     guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { return }
     var totalLength = 0
@@ -34,7 +34,7 @@ extension MonitoringCaptureSession {
 
     // Accumulate PCM and extract complete AAC-ELD frames under a single lock.
     let frameSizeBytes = aacFrameSamples * 4  // 480 samples * 4 bytes/sample (Float32)
-    let frames: [Data] = withState { state in
+    let frames: [Data] = mState.withLock { state in
       state.pcmAccumulator.append(pcmFloat32)
       var result: [Data] = []
       var offset = state.pcmAccumulator.startIndex
