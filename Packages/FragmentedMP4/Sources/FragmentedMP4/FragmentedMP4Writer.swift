@@ -172,8 +172,15 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
   // MARK: - Writing
 
   /// Append an encoded AAC-ELD frame to be included in the next fragment.
+  /// Audio samples are drained when the next video fragment is emitted; if video
+  /// keyframes stop arriving, this caps accumulation at ~10s of audio (~330 frames)
+  /// to prevent unbounded memory growth.
   public func appendAudioSample(_ encodedFrame: Data) {
-    state.withLock { $0.pendingAudioSamples.append(encodedFrame) }
+    state.withLock { s in
+      if s.pendingAudioSamples.count < 340 {
+        s.pendingAudioSamples.append(encodedFrame)
+      }
+    }
   }
 
   /// Append an encoded H.264 sample buffer to the current fragment.
@@ -430,18 +437,22 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
       for frame in audioFrames { audioMdatPayload.append(frame) }
     }
 
-    let moof = Self.mp4Box("moof", mfhd + videoTraf + audioTraf)
+    let moofPayload = mfhd + videoTraf + audioTraf
+    let moof = Self.mp4Box("moof", moofPayload)
 
-    // mdat: video sample data + audio frame data
-    let estimatedSize = samples.reduce(0) { $0 + $1.data.count } + audioMdatPayload.count
-    var mdatPayload = Data()
-    mdatPayload.reserveCapacity(estimatedSize)
-    for sample in samples { mdatPayload.append(sample.data) }
-    mdatPayload.append(audioMdatPayload)
-    let mdat = Self.mp4Box("mdat", mdatPayload)
-
-    var fragmentData = moof
-    fragmentData.append(mdat)
+    // Build the complete fragment in a single allocation: moof + mdat header + sample data.
+    // This avoids intermediate mdatPayload and mdat Data copies that previously tripled
+    // transient memory during fragment construction.
+    let mdatPayloadSize = samples.reduce(0) { $0 + $1.data.count } + audioMdatPayload.count
+    let mdatBoxSize = mdatPayloadSize + 8
+    var fragmentData = Data()
+    fragmentData.reserveCapacity(moof.count + mdatBoxSize)
+    fragmentData.append(moof)
+    // Write mdat box header inline
+    Self.putU32BE(&fragmentData, UInt32(mdatBoxSize))
+    fragmentData.append(contentsOf: "mdat".utf8)
+    for sample in samples { fragmentData.append(sample.data) }
+    fragmentData.append(audioMdatPayload)
 
     // Log first fragment diagnostics
     if !s.hasLoggedFirstFragment {
@@ -449,7 +460,7 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
       let baseDT = s.accumulatedDecodeTime
       let hasAudio = s.includeAudioTrack
       logger.info(
-        "First moof: seq=\(seqNum), samples=\(nv), baseDecodeTime=\(baseDT), totalTicks=\(totalTicks), audioFrames=\(na), audio=\(hasAudio), moof=\(moof.count)B, mdat=\(mdat.count)B"
+        "First moof: seq=\(seqNum), samples=\(nv), baseDecodeTime=\(baseDT), totalTicks=\(totalTicks), audioFrames=\(na), audio=\(hasAudio), moof=\(moof.count)B, mdat=\(mdatBoxSize)B"
       )
       s.hasLoggedFirstFragment = true
     }

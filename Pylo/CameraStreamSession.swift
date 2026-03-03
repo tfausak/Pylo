@@ -656,15 +656,17 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
       frameProperties: props,
       infoFlagsOut: &flags,
       outputHandler: { [weak self] status, _, sampleBuffer in
-        if status != noErr {
-          self?.logger.error("Encode output error: \(status)")
-          return
-        }
-        guard let sampleBuffer, let self else { return }
-        // CMSampleBuffer is immutable after creation and safe to send across threads.
-        nonisolated(unsafe) let buffer = sampleBuffer
-        self.rtpQueue.async {
-          self.processEncodedFrame(buffer)
+        autoreleasepool {
+          if status != noErr {
+            self?.logger.error("Encode output error: \(status)")
+            return
+          }
+          guard let sampleBuffer, let self else { return }
+          // CMSampleBuffer is immutable after creation and safe to send across threads.
+          nonisolated(unsafe) let buffer = sampleBuffer
+          self.rtpQueue.async {
+            self.processEncodedFrame(buffer)
+          }
         }
       }
     )

@@ -333,12 +333,18 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       frameProperties: props,
       infoFlagsOut: &flags,
       outputHandler: { [weak self] status, _, sampleBuffer in
-        if status != noErr {
-          self?.logger.error("Monitoring encode error: \(status)")
-          return
+        // Wrap in autoreleasepool: VT calls this handler on an unspecified
+        // thread that may not drain its autorelease pool. CF→Swift bridging
+        // inside appendVideoSample creates autoreleased objects that would
+        // otherwise accumulate at 30fps.
+        autoreleasepool {
+          if status != noErr {
+            self?.logger.error("Monitoring encode error: \(status)")
+            return
+          }
+          guard let sampleBuffer else { return }
+          self?.fragmentWriter?.appendVideoSample(sampleBuffer)
         }
-        guard let sampleBuffer else { return }
-        self?.fragmentWriter?.appendVideoSample(sampleBuffer)
       }
     )
   }
