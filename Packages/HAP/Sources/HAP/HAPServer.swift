@@ -18,7 +18,7 @@ public nonisolated final class HAPServer: @unchecked Sendable {
   private let listener: NWListener
   private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "Server")
   private let queue = DispatchQueue(label: "me.fausak.taylor.Pylo.server")
-  private static let queueKey = DispatchSpecificKey<Bool>()
+  private let queueKey = DispatchSpecificKey<Bool>()
 
   /// Active connections keyed by a unique ID.
   private var connections: [String: HAPConnection] = [:]
@@ -40,14 +40,14 @@ public nonisolated final class HAPServer: @unchecked Sendable {
   private var _dataStream: HAPDataStream?
   public var dataStream: HAPDataStream? {
     get {
-      if DispatchQueue.getSpecific(key: Self.queueKey) != nil {
+      if DispatchQueue.getSpecific(key: queueKey) != nil {
         return _dataStream
       } else {
         return queue.sync { _dataStream }
       }
     }
     set {
-      if DispatchQueue.getSpecific(key: Self.queueKey) != nil {
+      if DispatchQueue.getSpecific(key: queueKey) != nil {
         _dataStream = newValue
       } else {
         queue.sync { _dataStream = newValue }
@@ -67,7 +67,7 @@ public nonisolated final class HAPServer: @unchecked Sendable {
     self.pairingStore = pairingStore
     self.deviceIdentity = deviceIdentity
 
-    queue.setSpecific(key: Self.queueKey, value: true)
+    queue.setSpecific(key: queueKey, value: true)
 
     // Register bridge and all sub-accessories
     self.accessories[bridge.aid] = bridge
@@ -136,7 +136,7 @@ public nonisolated final class HAPServer: @unchecked Sendable {
       }
       return nil
     }
-    if DispatchQueue.getSpecific(key: Self.queueKey) != nil {
+    if DispatchQueue.getSpecific(key: queueKey) != nil {
       return block()
     } else {
       return queue.sync(execute: block)
@@ -147,7 +147,7 @@ public nonisolated final class HAPServer: @unchecked Sendable {
   /// Called after HDS keys have been derived so the raw DH secret
   /// does not remain in memory for the session's lifetime.
   public func clearVerifiedSharedSecrets() {
-    if DispatchQueue.getSpecific(key: Self.queueKey) != nil {
+    if DispatchQueue.getSpecific(key: queueKey) != nil {
       for conn in connections.values {
         conn.setPairVerifySharedSecret(nil)
       }
@@ -174,7 +174,7 @@ public nonisolated final class HAPServer: @unchecked Sendable {
       return conns
     }
     let snapshot: [HAPConnection]
-    if DispatchQueue.getSpecific(key: Self.queueKey) != nil {
+    if DispatchQueue.getSpecific(key: queueKey) != nil {
       snapshot = snapshotBlock()
     } else {
       snapshot = queue.sync(execute: snapshotBlock)
