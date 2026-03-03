@@ -42,6 +42,8 @@ extension CameraStreamSession {
     guard let formatDesc = CMSampleBufferGetFormatDescription(sampleBuffer) else { return }
     let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc)?.pointee
 
+    // Copy PCM from the CMBlockBuffer — small (typically ≤2KB per audio callback)
+    // and the pointer is only valid for this call.
     let rawData = Data(bytes: ptr, count: totalLength)
 
     // Convert to Float32 at 16kHz if needed (the mic may deliver Int16 at 44.1/48kHz)
@@ -326,19 +328,18 @@ extension CameraStreamSession {
   /// Called by GCD read source when data is available on the audio socket.
   nonisolated func readAudioSocket() {
     guard audioSocketFD >= 0 else { return }
-    var buf = [UInt8](repeating: 0, count: 2048)
     while true {
-      let n = recv(audioSocketFD, &buf, buf.count, 0)
+      let n = recv(audioSocketFD, &audioRecvBuffer, audioRecvBuffer.count, 0)
       if n <= 0 { break }  // EAGAIN (no more data) or error
       // Distinguish RTP from RTCP per RFC 5761 §4: check payload type bits
       // (byte[1] bits 0-6, masking off the marker bit) against 72-76.
       guard n >= 12 else { continue }
-      let pt = buf[1] & 0x7F
+      let pt = audioRecvBuffer[1] & 0x7F
       if pt >= 72 && pt <= 76 {
         // SRTCP packet from controller (receiver report, etc.) — skip
         continue
       }
-      let data = Data(buf[0..<n])
+      let data = Data(audioRecvBuffer[0..<n])
       handleIncomingAudioPacket(data)
     }
   }
