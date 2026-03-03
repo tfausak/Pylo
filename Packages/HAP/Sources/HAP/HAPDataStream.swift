@@ -208,44 +208,18 @@ public nonisolated final class HAPDataStream: @unchecked Sendable {
       "HDS keys derived: controllerSalt=\(controllerKeySalt.count)B, accessorySalt=\(accessoryKeySalt.count)B"
     )
 
-    // Typically the hub connects AFTER this HAP write completes, so the
-    // connection doesn't exist yet and keys are applied in newConnectionHandler.
-    // If the connection arrived first (reversed order), apply keys now.
-    let (oldConn, waitingConn, hdsQueue) = stateLock.withLock {
-      s -> (HDSConnection?, HDSConnection?, DispatchQueue?) in
-      let existing = s.connection
-      let hasKeys = existing != nil && s.pendingReadKey == nil
-      if hasKeys {
-        // Connection arrived before keys — take it out to start on the HDS queue below.
-        s.connection = nil
-      } else if existing != nil {
-        // Already-encrypted connection from a previous session — cancel it.
-        s.connection = nil
-      }
+    // Cancel any existing connection — a new setupTransport means a new HAP
+    // session with different keys, so the old connection can't be reused.
+    // The hub will open a fresh TCP connection that picks up the new keys
+    // in newConnectionHandler.
+    let oldConn = stateLock.withLock { s -> HDSConnection? in
+      let old = s.connection
+      s.connection = nil
       s.pendingReadKey = readKey
       s.pendingWriteKey = writeKey
-      return (hasKeys ? nil : existing, hasKeys ? existing : nil, s.queue)
+      return old
     }
     oldConn?.cancel()
-
-    if let conn = waitingConn, let hdsQueue {
-      // setupTransport runs on the HAP queue, but HDSConnection requires
-      // setupEncryption+start on the HDS serial queue.
-      let writer = stateLock.withLock { $0.fragmentWriter }
-      hdsQueue.async { [weak self] in
-        conn.fragmentWriter = writer
-        conn.setupEncryption(readKey: readKey, writeKey: writeKey)
-        conn.start()
-        self?.stateLock.withLock { s in
-          // Only store if no newer connection arrived in the meantime.
-          if s.connection == nil {
-            s.connection = conn
-          }
-          s.pendingReadKey = nil
-          s.pendingWriteKey = nil
-        }
-      }
-    }
 
     // Build response TLV (flat format matching HAP-NodeJS)
     let listenPort = port ?? 0
