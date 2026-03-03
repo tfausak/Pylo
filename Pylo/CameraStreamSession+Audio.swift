@@ -449,6 +449,10 @@ extension CameraStreamSession {
               ioData.pointee.mBuffers.mDataByteSize = cb.pointee.srcSize
               ioData.pointee.mBuffers.mNumberChannels = 1
 
+              // outDesc.pointee receives a pointer into cbData.packetDesc.
+              // This is safe: cbData lives on the stack inside the outer
+              // withUnsafeMutablePointer closure, and AudioConverter calls
+              // this callback synchronously within FillComplexBuffer.
               if let outDesc = outDataPacketDescription {
                 let descOffset = MemoryLayout<AudioDecoderInput>.offset(of: \.packetDesc)!
                 outDesc.pointee = userData.advanced(by: descOffset)
