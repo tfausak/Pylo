@@ -348,9 +348,12 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     dispatchPrecondition(condition: .notOnQueue(rtpQueue))
     logger.info("Stopping stream")
 
-    // Video cleanup
+    // Cancel all timers before draining queues so no timer fires in the
+    // window between drain and cancellation.
     rtcpTimer?.cancel()
     rtcpTimer = nil
+    audioRTCPTimer?.cancel()
+    audioRTCPTimer = nil
 
     // stopRunning() is synchronous — it blocks until the session fully
     // stops delivering frames. Calling it directly (rather than async)
@@ -376,8 +379,6 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     rtpQueue.sync {}
 
     // Audio mic cleanup
-    audioRTCPTimer?.cancel()
-    audioRTCPTimer = nil
     audioOutput = nil
 
     // Safe to dispose here: encodeAndSendAudioFrame uses audioConverter synchronously
