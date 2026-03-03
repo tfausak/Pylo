@@ -57,6 +57,10 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   /// Serial queue for capture output delegate callbacks and encoding.
   private let captureQueue: DispatchQueue
 
+  /// Keyframe interval counter — only accessed on captureQueue, no lock needed.
+  /// Reset in start()/stop() before captureQueue delivers frames.
+  private var encodeFrameCount: Int = 0
+
   init() {
     let sQueue = DispatchQueue(label: "me.fausak.taylor.Pylo.monitorSession")
     sQueue.setSpecific(key: sessionQueueKey, value: true)
@@ -70,7 +74,6 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   struct State {
     var captureSession: AVCaptureSession?
     var compressionSession: VTCompressionSession?
-    var encodeFrameCount: Int = 0
     var audioConverter: AudioConverterRef?
     var pcmAccumulator = Data()
   }
@@ -233,7 +236,6 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       guard _state.captureSession != nil else { return true }
       _state.captureSession = session
       _state.compressionSession = cs
-      _state.encodeFrameCount = 0
       return false
     }
     if cancelled {
@@ -244,6 +246,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     lock.withLock {
       self.videoCaptureDelegate = delegate
     }
+    encodeFrameCount = 0
     fragmentWriter?.includeAudioTrack = audioReady
 
     sessionQueue.async {
@@ -260,7 +263,6 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
         let ac = _state.audioConverter
         _state.captureSession = nil
         _state.compressionSession = nil
-        _state.encodeFrameCount = 0
         _state.audioConverter = nil
         _state.pcmAccumulator = Data()
         return (s, cs, ac)
@@ -301,10 +303,8 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   private func encodeFrame(_ pixelBuffer: CVPixelBuffer, pts: CMTime) {
     guard let cs = compressionSession else { return }
 
-    let frameCount = lock.withLock {
-      _state.encodeFrameCount += 1
-      return _state.encodeFrameCount
-    }
+    encodeFrameCount += 1
+    let frameCount = encodeFrameCount
 
     // Force keyframe every 120 frames (4s at 30fps) to ensure predictable fragment
     // boundaries. Using only MaxKeyFrameInterval/Duration is insufficient because the
