@@ -679,6 +679,8 @@ func hapSetupURI(
 }
 
 /// Generate a crisp QR code `UIImage` from a string using CoreImage.
+/// Called from a detached Task (off MainActor). UIImage(cgImage:) is safe
+/// to construct from any thread — only UIView/layer operations require main.
 private let _qrContext = CIContext()
 func generateQRCode(from string: String) -> UIImage? {
   let context = _qrContext
