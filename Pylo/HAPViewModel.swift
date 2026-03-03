@@ -33,8 +33,10 @@ struct AccessoryConfig: Equatable {
 @Observable @MainActor
 final class HAPViewModel {
 
-  init() {
-    restorePreferences()
+  init(skipRestore: Bool = false) {
+    if !skipRestore {
+      restorePreferences()
+    }
   }
 
   var isRunning = false

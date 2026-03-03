@@ -92,6 +92,8 @@ extension HAPCameraAccessory {
 
     // Allocate UDP ports -- video uses N (RTP) and N+1 (RTCP),
     // audio uses N+2 (RTP) and N+3 (RTCP). Reserve room for all four ports.
+    // Collision probability is ~1/10000; bind failure is handled in startStreaming()
+    // (returns false → session cleared → controller retries setup).
     let videoPort: UInt16 = UInt16.random(in: 50000...59994)
     let audioPort: UInt16 = videoPort + 2
 

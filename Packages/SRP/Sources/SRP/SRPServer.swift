@@ -132,7 +132,8 @@ public nonisolated final class SRPServer {
   }
 
   /// Test-only initializer with fixed salt and private key for deterministic verification.
-  public init?(username: String, password: String, fixedSalt: Data, fixedPrivateKey: Data) {
+  /// Package access — callers outside the SRP package should use the public init.
+  package init?(username: String, password: String, fixedSalt: Data, fixedPrivateKey: Data) {
     self.username = username
     self.password = password
     self.hashI = Data(SHA512.hash(data: Data(username.utf8)))

@@ -326,6 +326,9 @@ public nonisolated final class HAPConnection: @unchecked Sendable {
 
   /// Routes a request and returns the response, or nil if the response
   /// will be sent asynchronously (e.g. snapshot capture).
+  /// HAP defines only 6 endpoints (3 methods), so string matching is clear
+  /// and exhaustive here. An HTTPMethod enum would add indirection without
+  /// improving safety since the `default` case already handles unknowns.
   private func routeRequest(_ request: HTTPRequest) -> HTTPResponse? {
     guard let server else {
       return HTTPResponse(status: 500, body: nil, contentType: "application/hap+json")

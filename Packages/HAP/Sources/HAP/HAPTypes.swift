@@ -7,7 +7,7 @@ import os
 // After pair-verify succeeds, this handles encrypting/decrypting HAP frames
 // using ChaCha20-Poly1305 with incrementing nonce counters.
 
-public nonisolated final class EncryptionContext {
+public nonisolated final class EncryptionContext: @unchecked Sendable {
 
   private let readKey: SymmetricKey  // Controller-to-Accessory
   private let writeKey: SymmetricKey  // Accessory-to-Controller

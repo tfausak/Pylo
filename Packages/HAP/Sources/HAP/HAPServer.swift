@@ -7,6 +7,13 @@ import os
 // Listens on TCP, advertises via Bonjour as _hap._tcp, and dispatches
 // incoming HTTP requests to the appropriate handler.
 //
+// Concurrency: The HAP package uses @unchecked Sendable with dispatch queue
+// isolation (not actors) throughout. This is intentional: Network.framework
+// requires dispatch queues for NWConnection/NWListener, and the HAP protocol's
+// sequential request/response model maps naturally to serial queue discipline.
+// Each class documents its queue affinity and uses dispatchPrecondition in
+// debug builds to enforce it.
+//
 // NOTE: This is an unauthorized implementation of the HomeKit Accessory
 // Protocol (HAP). Apple's MFi Program requires licensing for HAP accessories.
 // This app may be rejected from the App Store under Guidelines 5.2.1
@@ -319,6 +326,11 @@ public nonisolated final class HAPServer: @unchecked Sendable {
 
   /// Terminate sessions after a short delay to let the current response flush.
   /// Used by pairing removal (HAP §5.11) to ensure M2 is delivered before teardown.
+  ///
+  /// A completion-based approach (using NWConnection.send's completion handler)
+  /// would be more precise, but requires restructuring the response pipeline to
+  /// thread post-response actions through routeRequest → sendResponse. The 100ms
+  /// delay is reliable on local networks where HAP operates.
   public func terminateSessionsAfterResponse(forController controllerID: String) {
     queue.asyncAfter(deadline: .now() + 0.1) { [weak self] in
       guard let self else { return }

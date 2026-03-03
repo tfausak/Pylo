@@ -15,7 +15,7 @@ extension HAPViewModel {
     screenSaverDelay: TimeInterval = 60,
     keepScreenAwake: Bool = false
   ) -> HAPViewModel {
-    let vm = HAPViewModel()
+    let vm = HAPViewModel(skipRestore: true)
     vm.isRestoring = true
     vm.isRunning = running
     vm.hasPairings = paired
