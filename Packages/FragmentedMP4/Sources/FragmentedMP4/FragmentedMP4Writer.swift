@@ -400,9 +400,10 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     var audioTraf = Data()
     var audioMdatPayload = Data()
     if na > 0 {
-      let videoMdatSize = sizes.reduce(UInt32(0), +)
+      // Use Int to avoid UInt32 overflow (silent wrap in release builds).
+      let videoMdatSize = sizes.reduce(0) { $0 + Int($1) }
       // past moof + mdat header + video data
-      let audioDataOffset = UInt32(moofSize + 8) + videoMdatSize
+      let audioDataOffset = UInt32(moofSize + 8 + videoMdatSize)
 
       // tfhd flags 0x020028: default-base-is-moof + default-sample-duration + default-sample-flags
       var aTfhdP = Data()
