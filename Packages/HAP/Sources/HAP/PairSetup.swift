@@ -143,22 +143,27 @@ public nonisolated enum PairSetupHandler {
   /// The setup code displayed to the user (format: XXX-XX-XXX).
   /// Generated randomly on first launch and persisted via keyStore.
   /// Cached after first access so subsequent reads are free.
-  /// The entire load-or-generate path is held under the lock to prevent
-  /// TOCTOU races between concurrent callers.
   private static let _setupCode = OSAllocatedUnfairLock<String?>(initialState: nil)
   public static var setupCode: String {
-    _setupCode.withLock { cached in
+    // Fast path: return cached value without touching keyStore.
+    if let code = _setupCode.withLock({ $0 }) { return code }
+    // Slow path: read keyStore outside _setupCode lock to avoid
+    // nesting _setupCode → _keyStore (potential deadlock if the
+    // acquisition order were ever inverted).
+    precondition(
+      keyStore != nil, "PairSetupHandler.keyStore must be set before accessing setupCode")
+    let ks = keyStore!
+    return _setupCode.withLock { cached in
+      // Re-check under lock in case another thread raced us.
       if let code = cached { return code }
-      precondition(
-        keyStore != nil, "PairSetupHandler.keyStore must be set before accessing setupCode")
       let code: String
-      if let data = keyStore.load(key: "setup-code"),
+      if let data = ks.load(key: "setup-code"),
         let stored = String(data: data, encoding: .utf8)
       {
         code = stored
       } else {
         code = generateSetupCode()
-        keyStore.save(key: "setup-code", data: Data(code.utf8))
+        ks.save(key: "setup-code", data: Data(code.utf8))
       }
       cached = code
       return code
@@ -169,19 +174,21 @@ public nonisolated enum PairSetupHandler {
   /// Generated once and persisted via keyStore.
   private static let _setupID = OSAllocatedUnfairLock<String?>(initialState: nil)
   public static var setupID: String {
-    _setupID.withLock { cached in
+    if let id = _setupID.withLock({ $0 }) { return id }
+    precondition(
+      keyStore != nil, "PairSetupHandler.keyStore must be set before accessing setupID")
+    let ks = keyStore!
+    return _setupID.withLock { cached in
       if let id = cached { return id }
-      precondition(
-        keyStore != nil, "PairSetupHandler.keyStore must be set before accessing setupID")
       let id: String
-      if let data = keyStore.load(key: "setup-id"),
+      if let data = ks.load(key: "setup-id"),
         let stored = String(data: data, encoding: .utf8)
       {
         id = stored
       } else {
         let chars = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ")
         id = String((0..<4).map { _ in chars[Int.random(in: chars.indices)] })
-        keyStore.save(key: "setup-id", data: Data(id.utf8))
+        ks.save(key: "setup-id", data: Data(id.utf8))
       }
       cached = id
       return id
