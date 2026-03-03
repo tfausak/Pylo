@@ -23,6 +23,9 @@ public nonisolated final class HAPDataStream: @unchecked Sendable {
     var fragmentWriter: FragmentedMP4Writer?
     var pendingReadKey: SymmetricKey?
     var pendingWriteKey: SymmetricKey?
+    /// The HDS serial dispatch queue. Set in startListener, used to dispatch
+    /// connection setup from setupTransport (which runs on the HAP queue).
+    var queue: DispatchQueue?
   }
   private let stateLock = OSAllocatedUnfairLock(initialState: State())
 
@@ -119,7 +122,10 @@ public nonisolated final class HAPDataStream: @unchecked Sendable {
     }
 
     listener.start(queue: queue)
-    stateLock.withLock { $0.listener = listener }
+    stateLock.withLock { s in
+      s.listener = listener
+      s.queue = queue
+    }
   }
 
   /// Handle the SetupDataStreamTransport write from the hub.
@@ -205,11 +211,12 @@ public nonisolated final class HAPDataStream: @unchecked Sendable {
     // Typically the hub connects AFTER this HAP write completes, so the
     // connection doesn't exist yet and keys are applied in newConnectionHandler.
     // If the connection arrived first (reversed order), apply keys now.
-    let (oldConn, waitingConn) = stateLock.withLock { s -> (HDSConnection?, HDSConnection?) in
+    let (oldConn, waitingConn, hdsQueue) = stateLock.withLock {
+      s -> (HDSConnection?, HDSConnection?, DispatchQueue?) in
       let existing = s.connection
       let hasKeys = existing != nil && s.pendingReadKey == nil
       if hasKeys {
-        // Connection arrived before keys — take it out to start below.
+        // Connection arrived before keys — take it out to start on the HDS queue below.
         s.connection = nil
       } else if existing != nil {
         // Already-encrypted connection from a previous session — cancel it.
@@ -217,23 +224,26 @@ public nonisolated final class HAPDataStream: @unchecked Sendable {
       }
       s.pendingReadKey = readKey
       s.pendingWriteKey = writeKey
-      return (hasKeys ? nil : existing, hasKeys ? existing : nil)
+      return (hasKeys ? nil : existing, hasKeys ? existing : nil, s.queue)
     }
     oldConn?.cancel()
 
-    if let conn = waitingConn {
-      conn.fragmentWriter = stateLock.withLock { $0.fragmentWriter }
-      conn.setupEncryption(readKey: readKey, writeKey: writeKey)
-      conn.start()
-      stateLock.withLock { s in
-        // Only store if no newer connection arrived between the first
-        // lock release and this re-acquisition — newConnectionHandler
-        // could have raced and stored a fresh connection.
-        if s.connection == nil {
-          s.connection = conn
+    if let conn = waitingConn, let hdsQueue {
+      // setupTransport runs on the HAP queue, but HDSConnection requires
+      // setupEncryption+start on the HDS serial queue.
+      let writer = stateLock.withLock { $0.fragmentWriter }
+      hdsQueue.async { [weak self] in
+        conn.fragmentWriter = writer
+        conn.setupEncryption(readKey: readKey, writeKey: writeKey)
+        conn.start()
+        self?.stateLock.withLock { s in
+          // Only store if no newer connection arrived in the meantime.
+          if s.connection == nil {
+            s.connection = conn
+          }
+          s.pendingReadKey = nil
+          s.pendingWriteKey = nil
         }
-        s.pendingReadKey = nil
-        s.pendingWriteKey = nil
       }
     }
 
