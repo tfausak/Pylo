@@ -258,10 +258,14 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     lock.withLock {
       self.videoCaptureDelegate = delegate
     }
-    encodeFrameCount = 0
-    captureFrameCount = 0
     fragmentWriter?.includeAudioTrack = audioReady
 
+    // Reset frame counters on captureQueue before starting the session
+    // to ensure encodeFrameCount starts at 0 (keyframe on first frame).
+    captureQueue.async { [self] in
+      encodeFrameCount = 0
+      captureFrameCount = 0
+    }
     sessionQueue.async {
       session.startRunning()
     }
