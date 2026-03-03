@@ -82,6 +82,11 @@ public nonisolated enum PairSetupHandler {
 
   /// Global flag: a pair-setup exchange is in progress on some connection.
   /// HAP spec §5.6.1: additional M1 requests while another is in progress must return .busy.
+  ///
+  /// This is static (process-wide) rather than per-HAPServer. In this app only one
+  /// HAPServer exists per process, so global scope is acceptable. All cleanup paths
+  /// (M3/M5 guard failures, auth failures, M5 success, HAPServer.removeConnection,
+  /// and terminateSessions) reset this flag to prevent it from getting stuck.
   private static let _pairSetupInProgress = OSAllocatedUnfairLock(initialState: false)
   static var isPairSetupInProgress: Bool {
     get { _pairSetupInProgress.withLock { $0 } }
