@@ -88,10 +88,11 @@ public nonisolated final class HDSConnection: @unchecked Sendable {
       }
 
       guard let data, data.count == 4 else {
-        if isComplete {
-          self.logger.info("HDS connection closed by hub")
-          self.cancel()
-        }
+        // Always cancel on nil/short data — without this, a partial close
+        // (!isComplete but no data) would leave the connection in limbo
+        // with no further receives scheduled and no cleanup.
+        self.logger.info("HDS connection closed by hub")
+        self.cancel()
         return
       }
 
