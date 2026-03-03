@@ -259,8 +259,8 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   init(
     aid: Int,
     name: String = "Pylo Camera",
-    model: String = "HAP-PoC",
-    manufacturer: String = "DIY",
+    model: String = "iPhone Camera",
+    manufacturer: String = "Pylo",
     serialNumber: String = "000000",
     firmwareRevision: String = "0.1.0"
   ) {

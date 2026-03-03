@@ -196,6 +196,7 @@ final class HAPViewModel {
     // Stage 1: Capture config values on MainActor before leaving isolation.
     let config = StartConfig(
       serial: UIDevice.current.identifierForVendor?.uuidString ?? "000000",
+      deviceModel: UIDevice.current.model,  // "iPhone", "iPad", etc.
       flashlightEnabled: flashlightEnabled,
       selectedStreamCameraID: selectedStreamCamera?.id,
       motionEnabled: motionEnabled,
@@ -406,6 +407,7 @@ final class HAPViewModel {
 /// Configuration captured from @MainActor properties for off-main-thread server creation.
 private struct StartConfig: Sendable {
   let serial: String
+  let deviceModel: String  // "iPhone", "iPad", etc.
   let flashlightEnabled: Bool
   let selectedStreamCameraID: String?
   let motionEnabled: Bool
@@ -433,28 +435,30 @@ private struct ServerSetup: @unchecked Sendable {
 /// PairingStore (file I/O), DeviceIdentity (Keychain), and NWListener
 /// creation are the heaviest operations moved off MainActor.
 private nonisolated func createServerSetup(config: StartConfig) throws -> ServerSetup {
+  let device = config.deviceModel  // "iPhone", "iPad", etc.
+
   let bridge = HAPBridgeInfo(
-    name: "Pylo Bridge", model: "HAP-PoC", manufacturer: "DIY",
+    name: "Pylo Bridge", model: "\(device) Bridge", manufacturer: "Pylo",
     serialNumber: config.serial, firmwareRevision: "0.1.0"
   )
 
   let lightbulb = HAPAccessory(
-    aid: 2, name: "Pylo Flashlight", model: "HAP-PoC", manufacturer: "DIY",
+    aid: 2, name: "Pylo Flashlight", model: "\(device) Light", manufacturer: "Pylo",
     serialNumber: config.serial + "-light", firmwareRevision: "0.1.0"
   )
 
   let camera = HAPCameraAccessory(
-    aid: 3, name: "Pylo Camera", model: "HAP-PoC", manufacturer: "DIY",
+    aid: 3, name: "Pylo Camera", model: "\(device) Camera", manufacturer: "Pylo",
     serialNumber: config.serial + "-cam", firmwareRevision: "0.1.0"
   )
 
   let lightSensor = HAPLightSensorAccessory(
-    aid: 4, name: "Pylo Light Sensor", model: "HAP-PoC", manufacturer: "DIY",
+    aid: 4, name: "Pylo Light Sensor", model: "\(device) Light Sensor", manufacturer: "Pylo",
     serialNumber: config.serial + "-light-sensor", firmwareRevision: "0.1.0"
   )
 
   let motionSensor = HAPMotionSensorAccessory(
-    aid: 5, name: "Pylo Motion Sensor", model: "HAP-PoC", manufacturer: "DIY",
+    aid: 5, name: "Pylo Motion Sensor", model: "\(device) Motion Sensor", manufacturer: "Pylo",
     serialNumber: config.serial + "-motion", firmwareRevision: "0.1.0"
   )
 

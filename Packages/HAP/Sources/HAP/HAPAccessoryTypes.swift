@@ -230,7 +230,7 @@ public nonisolated final class HAPBridgeInfo: HAPAccessoryProtocol, @unchecked S
   public init(
     name: String = "Pylo Bridge",
     model: String = "iPhone Bridge",
-    manufacturer: String = "DIY",
+    manufacturer: String = "Pylo",
     serialNumber: String = "000000",
     firmwareRevision: String = "0.1.0"
   ) {
@@ -318,8 +318,8 @@ public nonisolated final class HAPMotionSensorAccessory: HAPAccessoryProtocol, @
   public init(
     aid: Int,
     name: String = "Pylo Motion Sensor",
-    model: String = "HAP-PoC",
-    manufacturer: String = "DIY",
+    model: String = "iPhone Motion Sensor",
+    manufacturer: String = "Pylo",
     serialNumber: String = "000001",
     firmwareRevision: String = "0.1.0"
   ) {
@@ -427,8 +427,8 @@ public nonisolated final class HAPLightSensorAccessory: HAPAccessoryProtocol, @u
   public init(
     aid: Int,
     name: String = "Pylo Light Sensor",
-    model: String = "HAP-PoC",
-    manufacturer: String = "DIY",
+    model: String = "iPhone Light Sensor",
+    manufacturer: String = "Pylo",
     serialNumber: String = "000001",
     firmwareRevision: String = "0.1.0"
   ) {

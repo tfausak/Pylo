@@ -63,7 +63,7 @@ nonisolated final class HAPAccessory: HAPAccessoryProtocol, @unchecked Sendable 
     aid: Int,
     name: String = "Pylo Flashlight",
     model: String = "iPhone Light",
-    manufacturer: String = "HAP PoC",
+    manufacturer: String = "Pylo",
     serialNumber: String = "000001",
     firmwareRevision: String = "1.0.0"
   ) {
