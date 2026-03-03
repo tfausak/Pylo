@@ -250,6 +250,13 @@ public nonisolated enum PairSetupHandler {
   private static func handleM1(tlv: [TLV8.Tag: Data], connection: HAPConnection, server: HAPServer)
     -> HTTPResponse
   {
+    // Validate method is 0x00 (pair setup without MFi). HAP §5.6.1 requires
+    // this field; reject with .unknown if missing or not the expected value.
+    if let methodData = tlv[.method], methodData.first != 0x00 {
+      logger.warning("Unsupported pair-setup method: \(methodData.first.map(String.init) ?? "nil")")
+      return errorResponse(state: 0x02, error: .unknown)
+    }
+
     // Reject if this connection already has a session.
     if connection.pairSetupState != nil {
       logger.warning("Pair-setup M1 received while session already in progress on this connection")
