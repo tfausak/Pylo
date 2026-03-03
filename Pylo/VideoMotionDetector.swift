@@ -50,6 +50,10 @@ nonisolated final class VideoMotionDetector {
 
   private let state = OSAllocatedUnfairLock(initialState: State())
 
+  /// Debug-only flag to detect concurrent calls to processPixelBuffer.
+  /// Scratch buffers are reused across calls and must not be accessed concurrently.
+  private let _processing = OSAllocatedUnfairLock(initialState: false)
+
   init() {}
 
   /// Process a pixel buffer for motion detection.
@@ -66,6 +70,17 @@ nonisolated final class VideoMotionDetector {
       return false
     }
     guard shouldProcess else { return }
+
+    // Assert no concurrent entry — scratch buffers are not thread-safe.
+    assert(
+      _processing.withLock { processing in
+        guard !processing else { return false }
+        processing = true
+        return true
+      },
+      "VideoMotionDetector.processPixelBuffer called concurrently — scratch buffers are not thread-safe"
+    )
+    defer { _processing.withLock { $0 = false } }
 
     CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
     let grayscale = downsampleToGrayscale(pixelBuffer)
