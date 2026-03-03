@@ -1552,6 +1552,50 @@ struct HDSCodecInvalidUTF8Tests {
   }
 }
 
+// MARK: - HDSCodec Truncation Tests
+
+@Suite("HDSCodec Truncation")
+struct HDSCodecTruncationTests {
+
+  @Test("Truncated length-prefixed array returns nil")
+  func truncatedLengthArray() {
+    // 0xD2 = array of 2, but only 1 valid element follows (0x09 = int 1)
+    let data = Data([0xD2, 0x09])
+    #expect(HDSCodec.decode(data) == nil)
+  }
+
+  @Test("Truncated length-prefixed dict returns nil")
+  func truncatedLengthDict() {
+    // 0xE1 = dict of 1, key "a" (0x41, 0x61) but no value follows
+    let data = Data([0xE1, 0x41, 0x61])
+    #expect(HDSCodec.decode(data) == nil)
+  }
+
+  @Test("Truncated terminated array returns nil")
+  func truncatedTerminatedArray() {
+    // 0xDF = terminated array, one valid element, then truncated (no 0x03 terminator)
+    // and an invalid tag that decodeValue returns nil for
+    let data = Data([0xDF, 0x09, 0x00])
+    #expect(HDSCodec.decode(data) == nil)
+  }
+
+  @Test("Truncated terminated dict returns nil")
+  func truncatedTerminatedDict() {
+    // 0xEF = terminated dict, key "a", value 1, then key "b" with no value
+    let data = Data([0xEF, 0x41, 0x61, 0x09, 0x41, 0x62])
+    #expect(HDSCodec.decode(data) == nil)
+  }
+
+  @Test("Valid terminated array with terminator decodes correctly")
+  func validTerminatedArray() {
+    // 0xDF = terminated array, element 0x09 (int 1), terminator 0x03
+    let data = Data([0xDF, 0x09, 0x03])
+    let result = HDSCodec.decode(data) as? [Any]
+    #expect(result?.count == 1)
+    #expect(result?[0] as? Int == 1)
+  }
+}
+
 // MARK: - Pair Setup Session Phase Tests
 
 @Suite("PairSetupSession Phase")

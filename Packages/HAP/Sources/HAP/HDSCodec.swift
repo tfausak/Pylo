@@ -375,7 +375,7 @@ public nonisolated enum HDSCodec {
       let count = Int(tag - 0xD0)
       var arr: [Any] = []
       for _ in 0..<count {
-        guard let v = decodeValue(data, offset: &offset, tracked: &tracked) else { break }
+        guard let v = decodeValue(data, offset: &offset, tracked: &tracked) else { return nil }
         arr.append(v)
       }
       tracked.append(arr)
@@ -388,7 +388,7 @@ public nonisolated enum HDSCodec {
           offset += 1
           break
         }
-        guard let v = decodeValue(data, offset: &offset, tracked: &tracked) else { break }
+        guard let v = decodeValue(data, offset: &offset, tracked: &tracked) else { return nil }
         arr.append(v)
       }
       tracked.append(arr)
@@ -399,8 +399,8 @@ public nonisolated enum HDSCodec {
       var dict: [String: Any] = [:]
       for _ in 0..<count {
         guard let key = decodeValue(data, offset: &offset, tracked: &tracked) as? String
-        else { break }
-        guard let value = decodeValue(data, offset: &offset, tracked: &tracked) else { break }
+        else { return nil }
+        guard let value = decodeValue(data, offset: &offset, tracked: &tracked) else { return nil }
         dict[key] = value
       }
       tracked.append(dict)
@@ -414,8 +414,8 @@ public nonisolated enum HDSCodec {
           break
         }
         guard let key = decodeValue(data, offset: &offset, tracked: &tracked) as? String
-        else { break }
-        guard let value = decodeValue(data, offset: &offset, tracked: &tracked) else { break }
+        else { return nil }
+        guard let value = decodeValue(data, offset: &offset, tracked: &tracked) else { return nil }
         dict[key] = value
       }
       tracked.append(dict)
