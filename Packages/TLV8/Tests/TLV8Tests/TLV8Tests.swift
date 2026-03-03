@@ -395,6 +395,16 @@ struct TLV8SeparatorTests {
     #expect(records.count >= 2)
   }
 
+  @Test("Multiple leading/trailing separators are fully stripped")
+  func multipleLeadingTrailingSeparators() {
+    var raw = Data([0xFF, 0x00, 0xFF, 0x00])  // two leading separators
+    raw.append(TLV8.encode([(.identifier, Data("A".utf8))]))
+    raw.append(Data([0xFF, 0x00, 0xFF, 0x00]))  // two trailing separators
+    let records = TLV8.decodeRecords(raw)
+    #expect(records.count == 1)
+    #expect(records[0][.identifier] == Data("A".utf8))
+  }
+
   @Test("Non-empty separator value is discarded during encode")
   func nonEmptySeparatorEncodesAsEmpty() {
     let encoded = TLV8.encode([(.separator, Data([0xAA, 0xBB]))])

@@ -119,10 +119,10 @@ public nonisolated enum TLV8 {
       }
     }
     // Remove empty leading/trailing records from leading/trailing separators
-    if records.first?.isEmpty == true {
+    while records.first?.isEmpty == true {
       records.removeFirst()
     }
-    if records.last?.isEmpty == true {
+    while records.last?.isEmpty == true {
       records.removeLast()
     }
     return records
