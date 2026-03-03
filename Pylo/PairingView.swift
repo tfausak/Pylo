@@ -30,21 +30,6 @@ struct PairingView: View {
         .multilineTextAlignment(.center)
 
       Spacer()
-
-      HStack(spacing: 4) {
-        Circle()
-          .fill(.green)
-          .frame(width: 8, height: 8)
-          .accessibilityHidden(true)
-        Text("Running")
-          .font(.caption)
-          .foregroundStyle(.secondary)
-      }
-
-      Text(viewModel.statusMessage)
-        .font(.caption2)
-        .foregroundStyle(.tertiary)
-        .multilineTextAlignment(.center)
     }
     .padding()
     .task(id: viewModel.setupCode) {
@@ -58,8 +43,5 @@ struct PairingView: View {
 }
 
 #Preview("Pairing") {
-  NavigationStack {
-    PairingView(viewModel: .preview(running: true))
-      .navigationTitle("Pylo")
-  }
+  PairingView(viewModel: .preview(running: true))
 }
