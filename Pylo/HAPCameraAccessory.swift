@@ -609,8 +609,15 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
       initialState: Int(UIDeviceOrientation.portrait.rawValue)
     )
 
-    private static let token: NSObjectProtocol =
-      NotificationCenter.default.addObserver(
+    private static let token: NSObjectProtocol = {
+      // Seed with the actual orientation so the cache is correct even if
+      // no orientation-change notification has fired yet (e.g. app launched
+      // in landscape).
+      let initial = UIDevice.current.orientation
+      if initial != .unknown {
+        state.withLock { $0 = initial.rawValue }
+      }
+      return NotificationCenter.default.addObserver(
         forName: UIDevice.orientationDidChangeNotification,
         object: nil,
         queue: .main
@@ -618,6 +625,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
         let raw = MainActor.assumeIsolated { UIDevice.current.orientation.rawValue }
         state.withLock { $0 = raw }
       }
+    }()
 
     /// Current device orientation, safe to read from any thread.
     /// Lazily registers a notification observer on first access.
