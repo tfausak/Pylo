@@ -21,8 +21,11 @@ nonisolated func convertToFloat32At16kHz(
   floatSamples.reserveCapacity(monoSamples)
 
   if isFloat && sourceASBD.mBitsPerChannel == 32 {
+    // AudioToolbox wrote this buffer as Float32 samples; use assumingMemoryBound
+    // rather than bindMemory to avoid rebinding memory that Data still references
+    // as UInt8 (which is technically undefined behavior per Swift's aliasing rules).
     data.withUnsafeBytes { ptr in
-      let floatPtr = ptr.bindMemory(to: Float.self)
+      let floatPtr = ptr.assumingMemoryBound(to: Float.self)
       if sourceChannels == 1 {
         floatSamples = Array(floatPtr)
       } else {
@@ -37,7 +40,7 @@ nonisolated func convertToFloat32At16kHz(
     }
   } else if is16Bit {
     data.withUnsafeBytes { ptr in
-      let int16Ptr = ptr.bindMemory(to: Int16.self)
+      let int16Ptr = ptr.assumingMemoryBound(to: Int16.self)
       for i in stride(from: 0, to: int16Ptr.count, by: sourceChannels) {
         var sum: Float = 0
         for ch in 0..<sourceChannels where i + ch < int16Ptr.count {
