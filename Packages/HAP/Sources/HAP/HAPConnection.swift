@@ -280,12 +280,21 @@ public nonisolated final class HAPConnection: @unchecked Sendable {
           return
         }
 
+        // Track whether an async handler (e.g. snapshot) took over response
+        // delivery. If so, we must not call receiveNextRequest() — the async
+        // handler will resume the receive loop after sending its response.
+        var asyncResponsePending = false
         loop: while true {
           switch HTTPRequest.parseAndConsume(&self.decryptedBuffer) {
           case .request(let request):
             self.logger.info("\(request.method) \(request.path)")
             if let response = self.routeRequest(request) {
               self.sendResponse(response)
+            } else {
+              // Async handler owns the response; stop processing until it
+              // calls receiveNextRequest() after sending.
+              asyncResponsePending = true
+              break loop
             }
           case .needsMoreData:
             break loop
@@ -301,7 +310,7 @@ public nonisolated final class HAPConnection: @unchecked Sendable {
         // Detect clean remote shutdown (same as outer callback and receivePlaintextHTTP)
         if isComplete {
           self.cancel()
-        } else {
+        } else if !asyncResponsePending {
           self.receiveNextRequest()
         }
       }
@@ -553,8 +562,10 @@ public nonisolated final class HAPConnection: @unchecked Sendable {
     let snapshotCamera = camera
     DispatchQueue.global(qos: .userInitiated).async { [weak self] in
       let jpeg = snapshotCamera.captureSnapshot(width: width, height: height)
-      // Dispatch back to the server queue so sendResponse (which uses
-      // the encryption context) doesn't race with other I/O.
+      // Dispatch back to the connection queue so sendResponse (which uses
+      // the encryption context) doesn't race with other I/O. Resume the
+      // receive loop after sending — the encrypted frame handler deferred
+      // receiveNextRequest() while this async response was pending.
       self?.queue.async {
         if let jpeg {
           self?.sendResponse(HTTPResponse(status: 200, body: jpeg, contentType: "image/jpeg"))
@@ -563,6 +574,7 @@ public nonisolated final class HAPConnection: @unchecked Sendable {
           self?.sendResponse(
             HTTPResponse(status: 500, body: nil, contentType: "application/hap+json"))
         }
+        self?.receiveNextRequest()
       }
     }
   }
