@@ -195,7 +195,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
         mState.withLock { $0.audioCaptureDelegate = audioDelegate }
 
         // Create AAC-ELD encoder
-        if let converter = Self.createAudioEncoder(logger: logger) {
+        if let converter = createAACELDEncoder() {
           mState.withLock {
             $0.audioConverter = converter
             $0.pcmAccumulator = Data()

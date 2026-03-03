@@ -12,45 +12,10 @@ extension CameraStreamSession {
   // MARK: - Audio Encoder (PCM → AAC-ELD)
 
   nonisolated func setupAudioEncoder() {
-    // Input: Linear PCM Float32, 16kHz, mono
-    var inputDesc = AudioStreamBasicDescription(
-      mSampleRate: 16000,
-      mFormatID: kAudioFormatLinearPCM,
-      mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked,
-      mBytesPerPacket: 4,
-      mFramesPerPacket: 1,
-      mBytesPerFrame: 4,
-      mChannelsPerFrame: 1,
-      mBitsPerChannel: 32,
-      mReserved: 0
-    )
-
-    // Output: AAC-ELD, 16kHz, mono
-    var outputDesc = AudioStreamBasicDescription(
-      mSampleRate: 16000,
-      mFormatID: kAudioFormatMPEG4AAC_ELD,
-      mFormatFlags: 0,
-      mBytesPerPacket: 0,
-      mFramesPerPacket: 480,
-      mBytesPerFrame: 0,
-      mChannelsPerFrame: 1,
-      mBitsPerChannel: 0,
-      mReserved: 0
-    )
-
-    var converter: AudioConverterRef?
-    let status = AudioConverterNew(&inputDesc, &outputDesc, &converter)
-    guard status == noErr, let converter else {
-      logger.error("AudioConverter (encoder) create failed: \(status)")
+    guard let converter = createAACELDEncoder() else {
+      logger.error("Failed to create AAC-ELD encoder for streaming")
       return
     }
-
-    // Set bitrate to 24kbps (good quality for voice)
-    var bitrate: UInt32 = 24000
-    AudioConverterSetProperty(
-      converter, kAudioConverterEncodeBitRate,
-      UInt32(MemoryLayout<UInt32>.size), &bitrate)
-
     self.audioConverter = converter
     logger.info("AAC-ELD encoder created (16kHz mono → AAC-ELD)")
   }

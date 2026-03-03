@@ -126,44 +126,4 @@ extension MonitoringCaptureSession {
     fragmentWriter?.appendAudioSample(aacData)
   }
 
-  /// Create an AAC-ELD encoder (PCM Float32 16kHz mono → AAC-ELD 24kbps).
-  nonisolated static func createAudioEncoder(logger: Logger) -> AudioConverterRef? {
-    var inputDesc = AudioStreamBasicDescription(
-      mSampleRate: 16000,
-      mFormatID: kAudioFormatLinearPCM,
-      mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked,
-      mBytesPerPacket: 4,
-      mFramesPerPacket: 1,
-      mBytesPerFrame: 4,
-      mChannelsPerFrame: 1,
-      mBitsPerChannel: 32,
-      mReserved: 0
-    )
-
-    var outputDesc = AudioStreamBasicDescription(
-      mSampleRate: 16000,
-      mFormatID: kAudioFormatMPEG4AAC_ELD,
-      mFormatFlags: 0,
-      mBytesPerPacket: 0,
-      mFramesPerPacket: 480,
-      mBytesPerFrame: 0,
-      mChannelsPerFrame: 1,
-      mBitsPerChannel: 0,
-      mReserved: 0
-    )
-
-    var converter: AudioConverterRef?
-    let status = AudioConverterNew(&inputDesc, &outputDesc, &converter)
-    guard status == noErr, let converter else {
-      logger.error("AudioConverter (monitoring encoder) create failed: \(status)")
-      return nil
-    }
-
-    var bitrate: UInt32 = 24000
-    AudioConverterSetProperty(
-      converter, kAudioConverterEncodeBitRate,
-      UInt32(MemoryLayout<UInt32>.size), &bitrate)
-
-    return converter
-  }
 }

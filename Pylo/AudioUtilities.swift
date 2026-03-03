@@ -74,6 +74,47 @@ nonisolated func convertToFloat32At16kHz(
   return floatSamples.withUnsafeBytes { Data($0) }
 }
 
+// MARK: - AAC-ELD Encoder Factory
+
+/// Create an AAC-ELD encoder (PCM Float32 16kHz mono → AAC-ELD 24kbps).
+/// Used by both CameraStreamSession and MonitoringCaptureSession.
+nonisolated func createAACELDEncoder() -> AudioConverterRef? {
+  var inputDesc = AudioStreamBasicDescription(
+    mSampleRate: 16000,
+    mFormatID: kAudioFormatLinearPCM,
+    mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked,
+    mBytesPerPacket: 4,
+    mFramesPerPacket: 1,
+    mBytesPerFrame: 4,
+    mChannelsPerFrame: 1,
+    mBitsPerChannel: 32,
+    mReserved: 0
+  )
+
+  var outputDesc = AudioStreamBasicDescription(
+    mSampleRate: 16000,
+    mFormatID: kAudioFormatMPEG4AAC_ELD,
+    mFormatFlags: 0,
+    mBytesPerPacket: 0,
+    mFramesPerPacket: 480,
+    mBytesPerFrame: 0,
+    mChannelsPerFrame: 1,
+    mBitsPerChannel: 0,
+    mReserved: 0
+  )
+
+  var converter: AudioConverterRef?
+  let status = AudioConverterNew(&inputDesc, &outputDesc, &converter)
+  guard status == noErr, let converter else { return nil }
+
+  var bitrate: UInt32 = 24000
+  AudioConverterSetProperty(
+    converter, kAudioConverterEncodeBitRate,
+    UInt32(MemoryLayout<UInt32>.size), &bitrate)
+
+  return converter
+}
+
 // MARK: - Audio Converter Callback Data
 
 /// Helper for passing PCM data through the AudioConverter encoder C callback.
