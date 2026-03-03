@@ -47,6 +47,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   // RTP state
   private var sequenceNumber: UInt16 = 0
   private var rtpTimestamp: UInt32 = 0
+  private var lastSentRTPTimestamp: UInt32 = 0  // for RTCP SR (timestamp of last sent frame)
   private var encodeFrameCount: Int = 0  // captureQueue only
   private var rtpFrameCount: Int = 0  // rtpQueue only
   private var packetsSent: Int = 0
@@ -703,6 +704,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     }
 
     // Advance RTP timestamp (90kHz clock)
+    lastSentRTPTimestamp = rtpTimestamp
     rtpTimestamp &+= UInt32(90000 / targetFPS)
   }
 
@@ -840,7 +842,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     guard let ctx = srtpContext else { return }
 
     let sr = Self.buildRTCPSenderReport(
-      ssrc: videoSSRC, rtpTimestamp: rtpTimestamp,
+      ssrc: videoSSRC, rtpTimestamp: lastSentRTPTimestamp,
       packetsSent: packetsSent, octetsSent: octetsSent)
     guard let srtcpPacket = ctx.protectRTCP(sr) else { return }
     sendVideoUDP(srtcpPacket)
