@@ -226,7 +226,12 @@ public nonisolated final class HAPDataStream: @unchecked Sendable {
       conn.setupEncryption(readKey: readKey, writeKey: writeKey)
       conn.start()
       stateLock.withLock { s in
-        s.connection = conn
+        // Only store if no newer connection arrived between the first
+        // lock release and this re-acquisition — newConnectionHandler
+        // could have raced and stored a fresh connection.
+        if s.connection == nil {
+          s.connection = conn
+        }
         s.pendingReadKey = nil
         s.pendingWriteKey = nil
       }
