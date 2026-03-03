@@ -90,6 +90,7 @@ public nonisolated final class HDSConnection: @unchecked Sendable {
       guard let data, data.count == 4 else {
         if isComplete {
           self.logger.info("HDS connection closed by hub")
+          self.cancel()
         }
         return
       }
@@ -112,7 +113,7 @@ public nonisolated final class HDSConnection: @unchecked Sendable {
 
       self.connection.receive(
         minimumIncompleteLength: totalRead, maximumLength: totalRead
-      ) { [weak self] payload, _, _, error in
+      ) { [weak self] payload, _, isPayloadComplete, error in
         guard let self else { return }
 
         if let error {
@@ -120,7 +121,10 @@ public nonisolated final class HDSConnection: @unchecked Sendable {
           return
         }
 
-        guard let payload, payload.count == totalRead else { return }
+        guard let payload, payload.count == totalRead else {
+          if isPayloadComplete { self.cancel() }
+          return
+        }
 
         guard let decrypted = self.decryptFrame(type: frameType, header: data, payload: payload)
         else {
