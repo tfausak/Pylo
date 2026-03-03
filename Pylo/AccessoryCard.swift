@@ -30,7 +30,7 @@ struct AccessoryCard<Content: View>: View {
           .padding()
       }
     }
-    .background(.quaternary, in: .rect(cornerRadius: 12))
+    .background(.quinary, in: .rect(cornerRadius: 12))
     .animation(.default, value: isOn)
   }
 }
