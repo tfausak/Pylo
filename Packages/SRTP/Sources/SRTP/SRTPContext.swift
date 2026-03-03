@@ -237,11 +237,8 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
   public func protectRTCP(_ rtcpPacket: Data) -> Data? {
     guard rtcpPacket.count >= 8 else { return nil }
 
-    let header = Data(rtcpPacket[rtcpPacket.startIndex..<rtcpPacket.startIndex + 8])
-    let payload = Data(rtcpPacket[rtcpPacket.startIndex + 8..<rtcpPacket.endIndex])
-
-    // Extract SSRC from header (bytes 4-7)
-    let ssrc = Self.readU32BE(header, at: 4)
+    // Extract SSRC from header (bytes 4-7) — read directly, no copy needed
+    let ssrc = Self.readU32BE(rtcpPacket, at: 4)
 
     let index = state.withLock { s -> UInt32 in
       let idx = s.srtcpIndex
@@ -252,12 +249,19 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
     // SRTCP index is 32-bit — fits in the lower 32 bits of the 48-bit field
     let iv = Self.buildIV(ssrc: ssrc, packetIndex: UInt64(index), salt: srtcpSalt)
 
-    guard let encryptedPayload = aesCTREncrypt(key: srtcpKey, iv: iv, data: payload) else {
+    // Pass payload slice directly — aesCTREncrypt handles Data slices
+    guard
+      let encryptedPayload = aesCTREncrypt(
+        key: srtcpKey, iv: iv,
+        data: rtcpPacket[rtcpPacket.startIndex + 8..<rtcpPacket.endIndex])
+    else {
       return nil
     }
 
     // Assemble: header + encrypted payload + E||index + auth tag
-    var srtcpPacket = Data(header)
+    var srtcpPacket = Data()
+    srtcpPacket.reserveCapacity(rtcpPacket.count + 14)  // +4 E||index +10 auth tag
+    srtcpPacket.append(rtcpPacket[rtcpPacket.startIndex..<rtcpPacket.startIndex + 8])
     srtcpPacket.append(encryptedPayload)
 
     // E flag (bit 31) = 1 (encrypted) + 31-bit SRTCP index
