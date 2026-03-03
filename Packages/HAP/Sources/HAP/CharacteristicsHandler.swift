@@ -77,7 +77,21 @@ public nonisolated enum CharacteristicsHandler {
     let pid = (json["pid"] as? NSNumber)?.uint64Value
     if !connection.validateTimedWrite(pid: pid) {
       logger.warning("Timed write validation failed (expired or PID mismatch)")
-      return errorResponse(status: -70410)
+      // Return a proper 207 with per-characteristic -70410 errors (HAP §6.7.2.4).
+      // Previously this passed -70410 as the HTTP status code, producing a
+      // malformed "HTTP/1.1 -70410" response that controllers would reject.
+      let errorResults = characteristics.map { c -> [String: Any] in
+        [
+          "aid": c["aid"] as? Int ?? 0,
+          "iid": c["iid"] as? Int ?? 0,
+          "status": -70410,
+        ]
+      }
+      let body: [String: Any] = ["characteristics": errorResults]
+      guard let data = try? JSONSerialization.data(withJSONObject: body) else {
+        return errorResponse(status: 500)
+      }
+      return HTTPResponse(status: 207, body: data, contentType: "application/hap+json")
     }
 
     // Log PUT summary for diagnostics
