@@ -63,11 +63,12 @@ public nonisolated final class EncryptionContext {
       let chunkEnd = min(offset + 1024, plaintext.endIndex)
       let chunk = plaintext[offset..<chunkEnd]
 
-      let nonce = counters.withLock { state -> ChaChaPoly.Nonce in
-        let n = Self.makeNonce(counter: state.write)
+      let counterValue = counters.withLock { state -> UInt64 in
+        let n = state.write
         state.write += 1
         return n
       }
+      let nonce = Self.makeNonce(counter: counterValue)
 
       let lengthBytes: [UInt8] = [UInt8(chunk.count & 0xFF), UInt8((chunk.count >> 8) & 0xFF)]
 
