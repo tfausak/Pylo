@@ -83,9 +83,9 @@ nonisolated final class HAPAccessory: HAPAccessoryProtocol, @unchecked Sendable 
 
   // MARK: - Lightbulb HAP Service/Characteristic UUIDs (shortened form)
 
-  static let uuidLightbulb = "43"
-  static let uuidOn = "25"
-  static let uuidBrightness = "8"
+  static let uuidLightbulb = HKServiceUUID.lightbulb
+  static let uuidOn = HKCharacteristicUUID.on
+  static let uuidBrightness = HKCharacteristicUUID.brightness
 
   // MARK: - Read Characteristic
 

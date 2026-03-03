@@ -62,6 +62,7 @@ struct PyloApp: App {
       // data is needed continuously for camera stream rotation.
       UIDevice.current.beginGeneratingDeviceOrientationNotifications()
     #endif
+    verifyHomeKitUUIDs()
   }
 
   var body: some Scene {

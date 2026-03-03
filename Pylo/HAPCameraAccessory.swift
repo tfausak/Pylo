@@ -315,28 +315,28 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   static let iidSetupDataStreamTransport = 62
   static let iidDataStreamVersion = 63
 
-  // MARK: - HAP UUIDs
+  // MARK: - HAP UUIDs (from HomeKit framework constants)
 
-  static let uuidCameraRTPStreamManagement = "110"
-  static let uuidSupportedVideoStreamConfig = "114"
-  static let uuidSupportedAudioStreamConfig = "115"
-  static let uuidSupportedRTPConfig = "116"
-  static let uuidSelectedRTPStreamConfig = "117"
-  static let uuidSetupEndpoints = "118"
-  static let uuidStreamingStatus = "120"
-  static let uuidMicrophone = "112"
-  static let uuidSpeaker = "113"
-  static let uuidMute = "11A"
-  static let uuidVolume = "119"
-  static let uuidActive = "B0"
+  static let uuidCameraRTPStreamManagement = HKServiceUUID.cameraRTPStreamManagement
+  static let uuidSupportedVideoStreamConfig = HKCharacteristicUUID.supportedVideoStreamConfig
+  static let uuidSupportedAudioStreamConfig = HKCharacteristicUUID.supportedAudioStreamConfig
+  static let uuidSupportedRTPConfig = HKCharacteristicUUID.supportedRTPConfig
+  static let uuidSelectedRTPStreamConfig = HKCharacteristicUUID.selectedRTPStreamConfig
+  static let uuidSetupEndpoints = HKCharacteristicUUID.setupEndpoints
+  static let uuidStreamingStatus = HKCharacteristicUUID.streamingStatus
+  static let uuidMicrophone = HKServiceUUID.microphone
+  static let uuidSpeaker = HKServiceUUID.speaker
+  static let uuidMute = HKCharacteristicUUID.mute
+  static let uuidVolume = HKCharacteristicUUID.volume
+  static let uuidActive = HKCharacteristicUUID.active
 
-  // Camera Operating Mode UUIDs
+  // Camera Operating Mode UUIDs (HKSV — no public HomeKit constants)
   static let uuidCameraOperatingMode = "21A"
   static let uuidHomeKitCameraActive = "21B"
   static let uuidEventSnapshotsActive = "223"
   static let uuidPeriodicSnapshotsActive = "225"
 
-  // Camera Event Recording Management UUIDs
+  // Camera Event Recording Management UUIDs (HKSV — no public HomeKit constants)
   static let uuidCameraEventRecordingManagement = "204"
   static let uuidSupportedCameraRecordingConfig = "205"
   static let uuidSupportedVideoRecordingConfig = "206"
@@ -345,14 +345,14 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   static let uuidRecordingAudioActive = "226"
 
   // Motion Sensor UUIDs
-  static let uuidMotionSensor = "85"
-  static let uuidMotionDetected = "22"
+  static let uuidMotionSensor = HKServiceUUID.motionSensor
+  static let uuidMotionDetected = HKCharacteristicUUID.motionDetected
 
-  // DataStream Transport Management UUIDs
+  // DataStream Transport Management UUIDs (no public HomeKit constants)
   static let uuidDataStreamTransportManagement = "129"
   static let uuidSupportedDataStreamTransportConfig = "130"
   static let uuidSetupDataStreamTransport = "131"
-  static let uuidVersion = "37"
+  static let uuidVersion = HKCharacteristicUUID.version
 
   // MARK: - Read Characteristic
 

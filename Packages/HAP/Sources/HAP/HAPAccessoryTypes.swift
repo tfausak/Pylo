@@ -90,14 +90,18 @@ public nonisolated protocol HAPAccessoryProtocol: AnyObject {
 
 /// HAP uses Apple-defined UUIDs of the form 000000XX-0000-1000-8000-0026BB765291.
 /// The JSON representation uses just the short hex string.
+///
+/// These values match the HomeKit framework constants (HMServiceTypeAccessoryInformation,
+/// HMCharacteristicTypeIdentify, etc.) but are hardcoded here because the HAP package
+/// cannot import HomeKit. The app target verifies them via HomeKitUUIDs.swift.
 public nonisolated enum HAPUUID {
-  public static let accessoryInformation = "3E"
-  public static let identify = "14"
-  public static let manufacturer = "20"
-  public static let model = "21"
-  public static let name = "23"
-  public static let serialNumber = "30"
-  public static let firmwareRevision = "52"
+  public static let accessoryInformation = "3E"  // HMServiceTypeAccessoryInformation
+  public static let identify = "14"  // HMCharacteristicTypeIdentify
+  public static let manufacturer = "20"  // HMCharacteristicTypeManufacturer
+  public static let model = "21"  // HMCharacteristicTypeModel
+  public static let name = "23"  // HMCharacteristicTypeName
+  public static let serialNumber = "30"  // HMCharacteristicTypeSerialNumber
+  public static let firmwareRevision = "52"  // HMCharacteristicTypeFirmwareVersion
 }
 
 // MARK: - Shared Accessory Information IIDs
@@ -125,11 +129,12 @@ public nonisolated enum BatteryIID {
 }
 
 /// HAP short-form UUIDs for the Battery Service and its characteristics.
+/// Values match HomeKit constants (HMServiceTypeBattery, HMCharacteristicTypeBatteryLevel, etc.).
 public nonisolated enum BatteryUUID {
-  public static let service = "96"
-  public static let level = "68"
-  public static let chargingState = "8F"
-  public static let lowBattery = "79"
+  public static let service = "96"  // HMServiceTypeBattery
+  public static let level = "68"  // HMCharacteristicTypeBatteryLevel
+  public static let chargingState = "8F"  // HMCharacteristicTypeChargingState
+  public static let lowBattery = "79"  // HMCharacteristicTypeStatusLowBattery
 }
 
 extension HAPAccessoryProtocol {
@@ -312,8 +317,8 @@ public nonisolated final class HAPMotionSensorAccessory: HAPAccessoryProtocol, @
   public static let iidMotionSensorService = 8
   public static let iidMotionDetected = 9
 
-  private static let uuidMotionSensor = "85"
-  private static let uuidMotionDetected = "22"
+  private static let uuidMotionSensor = "85"  // HMServiceTypeMotionSensor
+  private static let uuidMotionDetected = "22"  // HMCharacteristicTypeMotionDetected
 
   public init(
     aid: Int,
@@ -421,8 +426,8 @@ public nonisolated final class HAPLightSensorAccessory: HAPAccessoryProtocol, @u
   public static let iidLightSensorService = 8
   public static let iidCurrentAmbientLightLevel = 9
 
-  private static let uuidLightSensor = "84"
-  private static let uuidCurrentAmbientLightLevel = "6B"
+  private static let uuidLightSensor = "84"  // HMServiceTypeLightSensor
+  private static let uuidCurrentAmbientLightLevel = "6B"  // HMCharacteristicTypeCurrentLightLevel
 
   public init(
     aid: Int,
