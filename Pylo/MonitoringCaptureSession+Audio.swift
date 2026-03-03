@@ -22,7 +22,10 @@ extension MonitoringCaptureSession {
     guard let formatDesc = CMSampleBufferGetFormatDescription(sampleBuffer) else { return }
     let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc)?.pointee
 
-    let rawData = Data(bytes: ptr, count: totalLength)
+    // Zero-copy wrapper around the CMBlockBuffer memory. The pointer is valid
+    // for this callback's duration and convertToFloat32At16kHz reads synchronously.
+    let rawData = Data(
+      bytesNoCopy: UnsafeMutableRawPointer(ptr), count: totalLength, deallocator: .none)
 
     let pcmFloat32: Data
     if let asbd, asbd.mFormatID == kAudioFormatLinearPCM {
@@ -33,28 +36,38 @@ extension MonitoringCaptureSession {
     }
 
     // Accumulate PCM and extract complete AAC-ELD frames under a single lock.
+    // Extract a single contiguous block rather than per-frame Data copies, then
+    // iterate via pointer math to avoid per-frame heap allocations.
     let frameSizeBytes = aacFrameSamples * 4  // 480 samples * 4 bytes/sample (Float32)
-    let frames: [Data] = mState.withLock { state in
+    let encodableData: Data = mState.withLock { state in
       state.pcmAccumulator.append(pcmFloat32)
-      var result: [Data] = []
-      var offset = state.pcmAccumulator.startIndex
-      while offset + frameSizeBytes <= state.pcmAccumulator.endIndex {
-        result.append(Data(state.pcmAccumulator[offset..<offset + frameSizeBytes]))
-        offset += frameSizeBytes
+      let frameCount = state.pcmAccumulator.count / frameSizeBytes
+      let consumeBytes = frameCount * frameSizeBytes
+      guard consumeBytes > 0 else { return Data() }
+      if state.pcmAccumulator.count == consumeBytes {
+        // All data consumed — swap avoids copying
+        var result = Data()
+        swap(&result, &state.pcmAccumulator)
+        return result
       }
-      if offset > state.pcmAccumulator.startIndex {
-        state.pcmAccumulator.removeFirst(offset - state.pcmAccumulator.startIndex)
-      }
+      let result = Data(state.pcmAccumulator.prefix(consumeBytes))
+      state.pcmAccumulator.removeFirst(consumeBytes)
       return result
     }
-    for frameData in frames {
-      encodeAndAppendAudioFrame(frameData, converter: converter)
+    guard !encodableData.isEmpty else { return }
+    encodableData.withUnsafeBytes { buf in
+      var offset = 0
+      while offset + frameSizeBytes <= buf.count {
+        let framePtr = UnsafeRawBufferPointer(rebasing: buf[offset..<offset + frameSizeBytes])
+        encodeAndAppendAudioFrame(framePtr, converter: converter)
+        offset += frameSizeBytes
+      }
     }
   }
 
-  private nonisolated func encodeAndAppendAudioFrame(_ pcmData: Data, converter: AudioConverterRef)
-  {
-
+  private nonisolated func encodeAndAppendAudioFrame(
+    _ pcmBuffer: UnsafeRawBufferPointer, converter: AudioConverterRef
+  ) {
     let outputBufferSize = 1024
     let aacData: Data? = withUnsafeTemporaryAllocation(
       byteCount: outputBufferSize, alignment: 1
@@ -72,43 +85,41 @@ extension MonitoringCaptureSession {
 
       var outputPacketDesc = AudioStreamPacketDescription()
 
-      let status: OSStatus = pcmData.withUnsafeBytes { pcmBuf -> OSStatus in
-        guard let pcmBase = pcmBuf.baseAddress else { return -1 }
+      guard let pcmBase = pcmBuffer.baseAddress else { return nil }
 
-        var cbData = AudioEncoderInput(
-          srcData: pcmBase,
-          srcSize: UInt32(pcmData.count),
-          consumed: false
-        )
+      var cbData = AudioEncoderInput(
+        srcData: pcmBase,
+        srcSize: UInt32(pcmBuffer.count),
+        consumed: false
+      )
 
-        return withUnsafeMutablePointer(to: &cbData) { cbPtr in
-          AudioConverterFillComplexBuffer(
-            converter,
-            { (_, ioNumberDataPackets, ioData, _, inUserData) -> OSStatus in
-              guard let userData = inUserData else {
-                ioNumberDataPackets.pointee = 0
-                return noErr
-              }
-              let cb = userData.assumingMemoryBound(to: AudioEncoderInput.self)
-
-              if cb.pointee.consumed {
-                ioNumberDataPackets.pointee = 0
-                return noErr
-              }
-              cb.pointee.consumed = true
-
-              ioNumberDataPackets.pointee = UInt32(cb.pointee.srcSize / 4)
-              ioData.pointee.mBuffers.mData = UnsafeMutableRawPointer(mutating: cb.pointee.srcData)
-              ioData.pointee.mBuffers.mDataByteSize = cb.pointee.srcSize
-              ioData.pointee.mBuffers.mNumberChannels = 1
+      let status: OSStatus = withUnsafeMutablePointer(to: &cbData) { cbPtr in
+        AudioConverterFillComplexBuffer(
+          converter,
+          { (_, ioNumberDataPackets, ioData, _, inUserData) -> OSStatus in
+            guard let userData = inUserData else {
+              ioNumberDataPackets.pointee = 0
               return noErr
-            },
-            cbPtr,
-            &packetSize,
-            &outputBufferList,
-            &outputPacketDesc
-          )
-        }
+            }
+            let cb = userData.assumingMemoryBound(to: AudioEncoderInput.self)
+
+            if cb.pointee.consumed {
+              ioNumberDataPackets.pointee = 0
+              return noErr
+            }
+            cb.pointee.consumed = true
+
+            ioNumberDataPackets.pointee = UInt32(cb.pointee.srcSize / 4)
+            ioData.pointee.mBuffers.mData = UnsafeMutableRawPointer(mutating: cb.pointee.srcData)
+            ioData.pointee.mBuffers.mDataByteSize = cb.pointee.srcSize
+            ioData.pointee.mBuffers.mNumberChannels = 1
+            return noErr
+          },
+          cbPtr,
+          &packetSize,
+          &outputBufferList,
+          &outputPacketDesc
+        )
       }
 
       guard status == noErr else {
