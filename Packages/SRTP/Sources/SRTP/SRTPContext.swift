@@ -132,13 +132,14 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
       return (s.rolloverCounter, UInt64(s.rolloverCounter) << 16 | UInt64(seq))
     }
 
-    let iv = Self.buildIV(ssrc: ssrc, packetIndex: packetIndex, salt: sessionSalt)
-
-    // Encrypt payload with AES-128-CTR (pass slice directly)
+    // Encrypt payload with AES-128-CTR (IV on the stack — no heap allocation)
     let payload = rtpPacket[headerEnd...]
-    guard let encryptedPayload = aesCTREncrypt(key: sessionKey, iv: iv, data: payload) else {
-      return nil
+    let encryptedPayload: Data? = withUnsafeTemporaryAllocation(byteCount: 16, alignment: 1) {
+      ivBuffer in
+      Self.buildIV(ssrc: ssrc, packetIndex: packetIndex, salt: sessionSalt, into: ivBuffer)
+      return aesCTREncrypt(key: sessionKey, iv: UnsafeRawBufferPointer(ivBuffer), data: payload)
     }
+    guard let encryptedPayload else { return nil }
 
     // Assemble: original header + encrypted payload (pre-allocate full size)
     var srtpPacket = Data()
@@ -214,12 +215,16 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
     }
 
     let packetIndex = UInt64(candidateROC) << 16 | UInt64(seq)
-    let iv = Self.buildIV(ssrc: ssrc, packetIndex: packetIndex, salt: sessionSalt)
 
-    // AES-CTR decrypt — pass encrypted payload slice directly (no copy)
+    // AES-CTR decrypt — IV on the stack, pass encrypted payload slice directly (no copy)
     let encryptedPayload = srtpPacket[srtpPacket.startIndex + 12..<tagStart]
-    guard let decryptedPayload = aesCTREncrypt(key: sessionKey, iv: iv, data: encryptedPayload)
-    else {
+    let decryptedPayload: Data? = withUnsafeTemporaryAllocation(byteCount: 16, alignment: 1) {
+      ivBuffer in
+      Self.buildIV(ssrc: ssrc, packetIndex: packetIndex, salt: sessionSalt, into: ivBuffer)
+      return aesCTREncrypt(
+        key: sessionKey, iv: UnsafeRawBufferPointer(ivBuffer), data: encryptedPayload)
+    }
+    guard let decryptedPayload else {
       return nil
     }
 
@@ -247,14 +252,15 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
     }
 
     // SRTCP index is 32-bit — fits in the lower 32 bits of the 48-bit field
-    let iv = Self.buildIV(ssrc: ssrc, packetIndex: UInt64(index), salt: srtcpSalt)
-
-    // Pass payload slice directly — aesCTREncrypt handles Data slices
-    guard
-      let encryptedPayload = aesCTREncrypt(
-        key: srtcpKey, iv: iv,
+    // IV on the stack — pass payload slice directly, aesCTREncrypt handles Data slices
+    let encryptedPayload: Data? = withUnsafeTemporaryAllocation(byteCount: 16, alignment: 1) {
+      ivBuffer in
+      Self.buildIV(ssrc: ssrc, packetIndex: UInt64(index), salt: srtcpSalt, into: ivBuffer)
+      return aesCTREncrypt(
+        key: srtcpKey, iv: UnsafeRawBufferPointer(ivBuffer),
         data: rtcpPacket[rtcpPacket.startIndex + 8..<rtcpPacket.endIndex])
-    else {
+    }
+    guard let encryptedPayload else {
       return nil
     }
 
@@ -277,10 +283,15 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
 
   // MARK: - IV Construction
 
-  /// Build the 16-byte IV for AES-ICM (RFC 3711 §4.1.1).
+  /// Build the 16-byte IV for AES-ICM (RFC 3711 §4.1.1) into a caller-provided buffer.
   /// IV = (salt * 2^16) XOR (SSRC * 2^64) XOR (packetIndex * 2^16)
-  private static func buildIV(ssrc: UInt32, packetIndex: UInt64, salt: Data) -> Data {
-    var iv = Data(count: 16)
+  /// `buffer` must be at least 16 bytes.
+  private static func buildIV(
+    ssrc: UInt32, packetIndex: UInt64, salt: Data, into buffer: UnsafeMutableRawBufferPointer
+  ) {
+    let iv = buffer.baseAddress!.assumingMemoryBound(to: UInt8.self)
+    // Zero all 16 bytes
+    iv.update(repeating: 0, count: 16)
     iv[4] = UInt8((ssrc >> 24) & 0xFF)
     iv[5] = UInt8((ssrc >> 16) & 0xFF)
     iv[6] = UInt8((ssrc >> 8) & 0xFF)
@@ -294,7 +305,6 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
     for i in 0..<min(14, salt.count) {
       iv[i] ^= salt[salt.startIndex + i]
     }
-    return iv
   }
 
   // MARK: - Key Derivation (AES-CM PRF)
@@ -360,24 +370,22 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
   // not support CTR mode in CommonCrypto (documented as "not implemented for
   // stream ciphers").  The per-packet create/release overhead is small (~1µs)
   // relative to the encryption itself.
-  private func aesCTREncrypt(key: Data, iv: Data, data: Data) -> Data? {
+  private func aesCTREncrypt(key: Data, iv: UnsafeRawBufferPointer, data: Data) -> Data? {
     guard !data.isEmpty else { return data }
 
     var cryptorRef: CCCryptorRef?
     let createStatus = key.withUnsafeBytes { keyPtr in
-      iv.withUnsafeBytes { ivPtr in
-        CCCryptorCreateWithMode(
-          CCOperation(kCCEncrypt),
-          CCMode(kCCModeCTR),
-          CCAlgorithm(kCCAlgorithmAES),
-          CCPadding(ccNoPadding),
-          ivPtr.baseAddress,
-          keyPtr.baseAddress, key.count,
-          nil, 0, 0,
-          CCModeOptions(kCCModeOptionCTR_BE),
-          &cryptorRef
-        )
-      }
+      CCCryptorCreateWithMode(
+        CCOperation(kCCEncrypt),
+        CCMode(kCCModeCTR),
+        CCAlgorithm(kCCAlgorithmAES),
+        CCPadding(ccNoPadding),
+        iv.baseAddress,
+        keyPtr.baseAddress, key.count,
+        nil, 0, 0,
+        CCModeOptions(kCCModeOptionCTR_BE),
+        &cryptorRef
+      )
     }
 
     guard createStatus == kCCSuccess, let cryptor = cryptorRef else {
