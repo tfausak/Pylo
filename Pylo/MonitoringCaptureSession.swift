@@ -57,15 +57,11 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   /// Serial queue for capture output delegate callbacks and encoding.
   private let captureQueue: DispatchQueue
 
-  /// Serial queue for VT compression output handler.
-  private let encodeQueue: DispatchQueue
-
   init() {
     let sQueue = DispatchQueue(label: "me.fausak.taylor.Pylo.monitorSession")
     sQueue.setSpecific(key: sessionQueueKey, value: true)
     self.sessionQueue = sQueue
     self.captureQueue = DispatchQueue(label: "me.fausak.taylor.Pylo.monitorCapture")
-    self.encodeQueue = DispatchQueue(label: "me.fausak.taylor.Pylo.monitorEncode")
   }
 
   /// AAC-ELD frame size in samples (480 for 16kHz).
@@ -287,8 +283,6 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     if let cs = oldCS {
       VTCompressionSessionCompleteFrames(cs, untilPresentationTimeStamp: .positiveInfinity)
       VTCompressionSessionInvalidate(cs)
-      // Drain encode output handler blocks.
-      encodeQueue.sync {}
     }
 
     if let ac = oldAudioConverter {
