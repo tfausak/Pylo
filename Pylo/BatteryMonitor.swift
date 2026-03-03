@@ -53,18 +53,22 @@ import os
   func currentState() -> BatteryState {
     let state = BatteryState()
     let rawLevel = UIDevice.current.batteryLevel  // 0.0–1.0, or -1 if unknown
-    state.level = max(0, min(100, Int(rawLevel * 100)))
+    let level = max(0, min(100, Int(rawLevel * 100)))
 
+    let charging: Int
     switch UIDevice.current.batteryState {
     case .charging, .full:
-      state.chargingState = 1  // Charging
+      charging = 1  // Charging
     case .unplugged:
-      state.chargingState = 0  // Not Charging
+      charging = 0  // Not Charging
     default:
-      state.chargingState = 2  // Not Chargeable
+      charging = 2  // Not Chargeable
     }
 
-    state.statusLowBattery = state.level <= lowThreshold ? 1 : 0
+    state.update(
+      level: level,
+      chargingState: charging,
+      statusLowBattery: level <= lowThreshold ? 1 : 0)
     return state
   }
 

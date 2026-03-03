@@ -16,6 +16,10 @@ public nonisolated final class BatteryState: @unchecked Sendable {
   public init() {}
 
   /// Battery level as a percentage (0-100).
+  ///
+  /// Individual setters are each atomic but do not compose — a concurrent reader
+  /// may observe a partially-updated state. Prefer `update(level:chargingState:
+  /// statusLowBattery:)` when writing to a shared instance.
   public var level: Int {
     get { lock.withLock { $0.level } }
     set { lock.withLock { $0.level = newValue } }
