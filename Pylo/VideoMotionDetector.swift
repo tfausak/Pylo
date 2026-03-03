@@ -147,21 +147,18 @@ nonisolated final class VideoMotionDetector {
     switch format {
     case kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
       kCVPixelFormatType_420YpCbCr8BiPlanarFullRange:
-      // NV12 — the Y plane is already planar 8-bit grayscale; use vImage to scale
+      // NV12 — the Y plane is already planar 8-bit grayscale; stride-sample
+      // nearest-neighbor (no interpolation needed for motion detection)
       guard let yBase = CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, 0) else { return false }
       let yRowBytes = CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, 0)
-      var src = vImage_Buffer(
-        data: UnsafeMutableRawPointer(mutating: yBase),
-        height: vImagePixelCount(srcHeight),
-        width: vImagePixelCount(srcWidth),
-        rowBytes: yRowBytes)
+      let yPtr = yBase.assumingMemoryBound(to: UInt8.self)
       scratchGray.withUnsafeMutableBufferPointer { dst in
-        var dstBuf = vImage_Buffer(
-          data: UnsafeMutableRawPointer(dst.baseAddress!),
-          height: vImagePixelCount(th),
-          width: vImagePixelCount(tw),
-          rowBytes: tw)
-        vImageScale_Planar8(&src, &dstBuf, nil, vImage_Flags(kvImageNoFlags))
+        for ty in 0..<th {
+          let srcRowStart = (ty * srcHeight / th) * yRowBytes
+          for tx in 0..<tw {
+            dst[ty * tw + tx] = yPtr[srcRowStart + (tx * srcWidth / tw)]
+          }
+        }
       }
       return true
 
