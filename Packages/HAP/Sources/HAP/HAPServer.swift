@@ -88,7 +88,7 @@ public nonisolated final class HAPServer: @unchecked Sendable {
     {
       var hash: UInt32 = 5381
       for byte in str.utf8 { hash = hash &* 33 &+ UInt32(byte) }
-      let n = Int(hash & 0x7FFF_FFFF)
+      let n = Int(hash)  // UInt32 always fits in Int on 64-bit
       self.configurationNumber = n == 0 ? 1 : n  // ensure ≥ 1 (HAP spec §6.6.1)
     }
   }
