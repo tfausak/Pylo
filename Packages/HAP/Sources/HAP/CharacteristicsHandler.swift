@@ -4,6 +4,12 @@ import os
 
 // MARK: - Characteristics Handler
 // Handles GET /characteristics?id=1.9,1.10 and PUT /characteristics
+//
+// Uses [String: Any] dictionaries for JSON construction rather than Codable
+// structs. HAP characteristics have heterogeneous value types (Bool, Int,
+// Float, String, Data) in the same array, making Codable awkward. The untyped
+// approach is pragmatic here since serialization is infrequent (once per
+// request) and JSONSerialization is well-optimized.
 
 public nonisolated enum CharacteristicsHandler {
 

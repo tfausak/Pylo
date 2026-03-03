@@ -302,6 +302,9 @@ public nonisolated enum HDSCodec {
       tracked.append(str)
       return str
 
+    // 4-byte LE length fields could theoretically specify up to ~4GB, but the
+    // data reaching this decoder is bounded by HDSConnection.receiveFrame()'s
+    // 512KB frame cap. The bounds check below prevents out-of-bounds access.
     case 0x63:  // String with 4-byte LE length
       guard offset + 4 <= data.count else { return nil }
       let len = Int(

@@ -134,6 +134,11 @@ public nonisolated enum PairSetupHandler {
   /// Key store for persisting setup code and setup ID.
   /// Must be set by the app before the server starts.
   /// Protected by a lock to avoid data races from nonisolated(unsafe).
+  ///
+  /// Design note: keyStore, setupCode, and setupID are static because only
+  /// one HAPServer exists per process. Instance injection would require
+  /// threading a configuration object through the server and all handlers,
+  /// adding complexity with no practical benefit for a single-server app.
   private static let _keyStore = OSAllocatedUnfairLock<KeyStore?>(initialState: nil)
   public static var keyStore: KeyStore! {
     get { _keyStore.withLock { $0 } }
