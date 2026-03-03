@@ -1272,6 +1272,16 @@ struct HDSCodecTests {
     #expect(decoded?["f"] as? Bool == false)
   }
 
+  @Test("Bool and Int 0/1 encode distinctly")
+  func boolIntDistinct() {
+    let input: [String: Any] = ["flag": true, "count": 1]
+    let encoded = HDSCodec.encode(input)
+    let decoded = HDSCodec.decode(encoded) as? [String: Any]
+    // Bool true encodes as tag 0x01, Int 1 encodes as tag 0x09 (inline 0x08 + 1)
+    #expect(decoded?["flag"] as? Bool == true)
+    #expect(decoded?["count"] as? Int == 1)
+  }
+
   @Test("Data values")
   func dataValues() {
     let blob = Data(repeating: 0xAB, count: 64)

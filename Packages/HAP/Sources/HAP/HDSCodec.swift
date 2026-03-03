@@ -37,6 +37,9 @@ public nonisolated enum HDSCodec {
   private static func encodeValue(_ value: Any, into data: inout Data) {
     switch value {
     case let v as Bool:
+      // Bool must precede Int: NSNumber bridging means __NSCFBoolean matches
+      // both `as Bool` and `as Int`, so order matters. Swift tries cases
+      // top-to-bottom and __NSCFBoolean matches `as Bool` first.
       data.append(v ? 0x01 : 0x02)  // TRUE=0x01, FALSE=0x02
 
     case let v as Int:
