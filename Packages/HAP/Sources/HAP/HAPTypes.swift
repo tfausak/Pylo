@@ -69,9 +69,7 @@ public nonisolated final class EncryptionContext {
         return n
       }
 
-      var lengthBytes = Data(count: 2)
-      lengthBytes[0] = UInt8(chunk.count & 0xFF)
-      lengthBytes[1] = UInt8((chunk.count >> 8) & 0xFF)
+      let lengthBytes: [UInt8] = [UInt8(chunk.count & 0xFF), UInt8((chunk.count >> 8) & 0xFF)]
 
       do {
         let sealed = try ChaChaPoly.seal(
@@ -80,7 +78,7 @@ public nonisolated final class EncryptionContext {
           nonce: nonce,
           authenticating: lengthBytes
         )
-        result.append(lengthBytes)
+        result.append(contentsOf: lengthBytes)
         result.append(sealed.ciphertext)
         result.append(sealed.tag)
       } catch {
