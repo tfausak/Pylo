@@ -89,11 +89,18 @@ public nonisolated final class PairingStore: @unchecked Sendable {
     let normalized = Pairing(
       identifier: key, publicKey: pairing.publicKey, isAdmin: pairing.isAdmin)
     // Mutate atomically under lock, then persist outside the lock.
-    let snapshot = lock.withLock { state -> [String: Pairing] in
+    let (snapshot, previous) = lock.withLock { state -> ([String: Pairing], Pairing?) in
+      let prev = state[key]
       state[key] = normalized
-      return state
+      return (state, prev)
     }
-    save(snapshot)
+    guard save(snapshot) else {
+      // Rollback on disk failure.
+      lock.withLock { state in
+        if let previous { state[key] = previous } else { state.removeValue(forKey: key) }
+      }
+      return
+    }
     Self.logger.info("Added pairing: \(key) admin=\(pairing.isAdmin)")
     onChange?()
   }
@@ -125,12 +132,16 @@ public nonisolated final class PairingStore: @unchecked Sendable {
 
   public func removePairing(identifier: String) {
     let key = Self.normalizeID(identifier)
-    let snapshot: [String: Pairing]? = lock.withLock { state -> [String: Pairing]? in
-      guard state.removeValue(forKey: key) != nil else { return nil }
-      return state
+    let result: (snapshot: [String: Pairing], removed: Pairing)? = lock.withLock { state in
+      guard let removed = state.removeValue(forKey: key) else { return nil }
+      return (state, removed)
     }
-    guard let snapshot else { return }
-    save(snapshot)
+    guard let result else { return }
+    guard save(result.snapshot) else {
+      // Rollback on disk failure.
+      lock.withLock { $0[key] = result.removed }
+      return
+    }
     onChange?()
   }
 
