@@ -275,8 +275,17 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
   }
 
   /// Stop the writer and flush any pending samples as a final fragment.
-  /// Continuity counters (accumulatedDecodeTime, moofSequenceNumber) are preserved
-  /// so prebuffered fragments in the ring buffer form a valid continuous fMP4 stream.
+  ///
+  /// Continuity counters (`accumulatedDecodeTime`, `accumulatedAudioDecodeTime`) are
+  /// preserved so prebuffered fragments in the ring buffer form a valid continuous fMP4
+  /// stream when the writer restarts. The ring buffer itself is NOT cleared — old
+  /// fragments are naturally evicted as new ones arrive after restart.
+  ///
+  /// `videoFormatDescription` and `initSegment` ARE cleared so a fresh init segment
+  /// is built on the next `appendVideoSample`, reflecting any changes to resolution or
+  /// `includeAudioTrack`. This is safe because the accumulated decode times are
+  /// monotonically increasing counters that remain valid across init segment boundaries
+  /// — the hub identifies fragments by moof sequence number, not by init segment affinity.
   public func stop() {
     let handler = onFragmentReady
     let flushed: MP4Fragment? = state.withLock { s in
