@@ -46,7 +46,16 @@ public nonisolated final class HAPDataStream: @unchecked Sendable {
   public init() {}
 
   /// Start the HDS TCP listener on a random port.
+  /// Cancels any existing listener before creating a new one.
   public func startListener() throws {
+    // Cancel any existing listener to avoid leaking TCP ports and queues
+    let oldListener = stateLock.withLock { s -> NWListener? in
+      let old = s.listener
+      s.listener = nil
+      return old
+    }
+    oldListener?.cancel()
+
     let params = NWParameters.tcp
     let listener = try NWListener(using: params)
 
