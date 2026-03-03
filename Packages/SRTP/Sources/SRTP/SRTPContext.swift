@@ -344,8 +344,9 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
         }
       }
       if status != kCCSuccess || outLength == 0 {
-        // Fallback: should never happen
-        break
+        // AES-ECB of a 16-byte block with a 16-byte key should never fail.
+        // A failure here indicates a system-level error (broken CommonCrypto).
+        preconditionFailure("AES-ECB key derivation failed (CCCrypt status: \(status))")
       }
       result.append(block.prefix(min(outLength, 16)))
       counter += 1
