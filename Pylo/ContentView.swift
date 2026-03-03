@@ -8,35 +8,39 @@ struct ContentView: View {
 
   var body: some View {
     ZStack {
-      VStack(spacing: 0) {
-        header
-          .padding(.horizontal)
-          .padding(.top, 8)
-
-        if viewModel.hasPairings {
-          pairedBody
-        } else {
-          PairingView(viewModel: viewModel)
-        }
-      }
-      .safeAreaInset(edge: .bottom) {
-        if viewModel.needsRestart {
-          Button {
-            viewModel.restart()
-          } label: {
-            Text("Restart to Apply")
-              .font(.subheadline.weight(.medium))
-              .frame(maxWidth: .infinity)
-              .padding(12)
-              .background(.orange, in: .rect(cornerRadius: 12))
-              .foregroundStyle(.white)
+      NavigationStack {
+        Group {
+          if viewModel.hasPairings {
+            pairedBody
+          } else {
+            PairingView(viewModel: viewModel)
           }
-          .padding(.horizontal)
-          .padding(.bottom, 4)
-          .transition(.move(edge: .bottom).combined(with: .opacity))
         }
+        .navigationTitle("Pylo")
+        .toolbar {
+          ToolbarItem(placement: .topBarTrailing) {
+            statusIndicator
+          }
+        }
+        .safeAreaInset(edge: .bottom) {
+          if viewModel.needsRestart {
+            Button {
+              viewModel.restart()
+            } label: {
+              Text("Restart to Apply")
+                .font(.subheadline.weight(.medium))
+                .frame(maxWidth: .infinity)
+                .padding(12)
+                .background(.orange, in: .rect(cornerRadius: 12))
+                .foregroundStyle(.white)
+            }
+            .padding(.horizontal)
+            .padding(.bottom, 4)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+          }
+        }
+        .animation(.default, value: viewModel.needsRestart)
       }
-      .animation(.default, value: viewModel.needsRestart)
       .confirmationDialog(
         "Unpair",
         isPresented: $showUnpairConfirmation,
@@ -78,17 +82,7 @@ struct ContentView: View {
     }
   }
 
-  // MARK: - Header
-
-  private var header: some View {
-    HStack {
-      Text("Pylo")
-        .font(.largeTitle)
-        .fontWeight(.bold)
-      Spacer()
-      statusIndicator
-    }
-  }
+  // MARK: - Status Indicator
 
   @ViewBuilder
   private var statusIndicator: some View {
