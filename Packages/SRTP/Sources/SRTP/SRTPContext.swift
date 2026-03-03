@@ -160,12 +160,11 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
     // SRTP = RTP header (12+) || encrypted payload || auth tag (10 bytes)
     guard srtpPacket.count >= 22 else { return nil }  // 12 header + 0 payload + 10 tag
 
-    let tagStart = srtpPacket.count - 10
-    let receivedTag = Data(srtpPacket[srtpPacket.startIndex + tagStart..<srtpPacket.endIndex])
-    let authenticated = Data(srtpPacket[srtpPacket.startIndex..<srtpPacket.startIndex + tagStart])
+    let tagStart = srtpPacket.startIndex + srtpPacket.count - 10
 
-    // Extract sequence number from header
-    let seq = Self.readU16BE(authenticated, at: 2)
+    // Work directly on input slices — no copies before auth passes
+    let seq = Self.readU16BE(srtpPacket, at: 2)
+    let ssrc = Self.readU32BE(srtpPacket, at: 8)
 
     // Compute candidate ROC without mutating state (RFC 3711 §3.3:
     // state must only be updated after authentication succeeds).
@@ -185,11 +184,12 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
       return (roc, seq, true)
     }
 
-    // Verify HMAC-SHA1-80 before committing any state changes
-    var authInput = authenticated
-    withUnsafeBytes(of: candidateROC.bigEndian) { authInput.append(contentsOf: $0) }
-    let expectedTag = Data(hmacSHA1(key: sessionAuthKey, data: authInput).prefix(10))
-    guard constantTimeCompare(receivedTag, expectedTag) else {
+    // Verify HMAC-SHA1-80 using incremental HMAC (no intermediate copy)
+    let authenticatedSlice = srtpPacket[srtpPacket.startIndex..<tagStart]
+    let expectedTag = hmacSHA1Incremental(
+      key: sessionAuthKey, srtpPacket: authenticatedSlice, roc: candidateROC)
+    let receivedTag = srtpPacket[tagStart..<srtpPacket.endIndex]
+    guard constantTimeCompare(receivedTag, expectedTag.prefix(10)) else {
       logger.debug("SRTP unprotect: auth tag mismatch")
       return nil
     }
@@ -207,23 +207,20 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
       if !wasInitialized { s.incomingInitialized = true }
     }
 
-    // Extract SSRC and build IV (same as protect)
-    let header = Data(authenticated[authenticated.startIndex..<authenticated.startIndex + 12])
-    let encryptedPayload = Data(
-      authenticated[authenticated.startIndex + 12..<authenticated.endIndex])
-
-    let ssrc = Self.readU32BE(header, at: 8)
-
     let packetIndex = UInt64(candidateROC) << 16 | UInt64(seq)
     let iv = Self.buildIV(ssrc: ssrc, packetIndex: packetIndex, salt: sessionSalt)
 
-    // AES-CTR decrypt (symmetric — same as encrypt)
+    // AES-CTR decrypt — pass encrypted payload slice directly (no copy)
+    let encryptedPayload = srtpPacket[srtpPacket.startIndex + 12..<tagStart]
     guard let decryptedPayload = aesCTREncrypt(key: sessionKey, iv: iv, data: encryptedPayload)
     else {
       return nil
     }
 
-    var rtpPacket = Data(header)
+    // Build output: header + decrypted payload (single allocation)
+    var rtpPacket = Data()
+    rtpPacket.reserveCapacity(12 + decryptedPayload.count)
+    rtpPacket.append(srtpPacket[srtpPacket.startIndex..<srtpPacket.startIndex + 12])
     rtpPacket.append(decryptedPayload)
     return rtpPacket
   }
