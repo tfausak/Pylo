@@ -109,6 +109,11 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
 
   /// Encrypt and authenticate an RTP packet in place, returning the SRTP packet.
   /// Returns nil if encryption fails (caller should skip sending).
+  ///
+  /// Allocates internally for the encrypted payload, output assembly, and HMAC
+  /// digest (~3 heap allocations per call). An in-place encryption API would
+  /// eliminate copies but add significant complexity for modest savings at
+  /// current packet rates.
   public func protect(_ rtpPacket: Data) -> Data? {
     guard rtpPacket.count >= 12 else { return nil }
 
@@ -157,6 +162,12 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
 
   /// Decrypt and verify an incoming SRTP packet, returning the plain RTP packet.
   /// Returns nil if authentication fails.
+  ///
+  /// Note: An anti-replay sliding window (RFC 3711 §3.3.2) is intentionally
+  /// omitted. HomeKit operates over a local network with an encrypted HAP
+  /// session (ChaCha20-Poly1305) underneath SRTP, making replay attacks
+  /// impractical. Adding a replay window would add complexity with negligible
+  /// security benefit in this context.
   public func unprotect(_ srtpPacket: Data) -> Data? {
     // SRTP = RTP header (12+) || encrypted payload || auth tag (10 bytes)
     guard srtpPacket.count >= 22 else { return nil }  // 12 header + 0 payload + 10 tag
