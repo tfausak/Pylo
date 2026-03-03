@@ -290,8 +290,11 @@ struct ContentView: View {
       return
     }
     dimTask = Task {
-      try? await Task.sleep(for: .seconds(viewModel.screenSaverDelay))
-      guard !Task.isCancelled else { return }
+      // Task.sleep throws CancellationError when the task is cancelled,
+      // cleanly preventing the stale isScreenDimmed write.
+      guard (try? await Task.sleep(for: .seconds(viewModel.screenSaverDelay))) != nil else {
+        return
+      }
       isScreenDimmed = true
     }
   }
