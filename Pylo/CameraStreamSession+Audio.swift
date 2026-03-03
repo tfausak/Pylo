@@ -105,7 +105,6 @@ extension CameraStreamSession {
     }
   }
 
-
   /// Encode a single AAC-ELD frame (480 samples) and send as an RTP packet.
   private nonisolated func encodeAndSendAudioFrame(_ pcmData: Data) {
     guard let converter = audioConverter else { return }

@@ -53,7 +53,8 @@ extension MonitoringCaptureSession {
     }
   }
 
-  private nonisolated func encodeAndAppendAudioFrame(_ pcmData: Data, converter: AudioConverterRef) {
+  private nonisolated func encodeAndAppendAudioFrame(_ pcmData: Data, converter: AudioConverterRef)
+  {
 
     let outputBufferSize = 1024
     let aacData: Data? = withUnsafeTemporaryAllocation(
@@ -126,7 +127,6 @@ extension MonitoringCaptureSession {
     fragmentWriter?.appendAudioSample(aacData)
   }
 
-
   /// Create an AAC-ELD encoder (PCM Float32 16kHz mono → AAC-ELD 24kbps).
   nonisolated static func createAudioEncoder(logger: Logger) -> AudioConverterRef? {
     var inputDesc = AudioStreamBasicDescription(
@@ -168,4 +168,3 @@ extension MonitoringCaptureSession {
     return converter
   }
 }
-

@@ -7,6 +7,6 @@ swift format --version
 echo "--- Running swift-format lint ---"
 swift format lint --strict --recursive "$CI_PRIMARY_REPOSITORY_PATH/Pylo"
 swift format lint --strict --recursive "$CI_PRIMARY_REPOSITORY_PATH/PyloTests"
-swift format lint --strict --recursive "$CI_PRIMARY_REPOSITORY_PATH/PyloUITests"
+swift format lint --strict --recursive "$CI_PRIMARY_REPOSITORY_PATH/Packages"
 
 echo "--- All checks passed ---"

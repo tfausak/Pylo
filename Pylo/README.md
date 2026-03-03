@@ -4,7 +4,9 @@ Turn an old iPhone into a HomeKit bridge exposing its hardware as native accesso
 
 - **Flashlight** — controllable lightbulb with brightness
 - **Camera** — live H.264 video streaming with HomeKit Secure Video (HKSV) recording
+- **Light Sensor** — ambient light level estimation from camera auto-exposure
 - **Motion Sensor** — accelerometer-based and camera-based motion detection
+- **Battery** — battery level and charging state as a HAP service on each accessory
 
 ## How It Works
 
@@ -15,13 +17,18 @@ Pylo implements the HomeKit Accessory Protocol (HAP) over IP directly on the dev
 ```
 Pylo/                          App target
   PyloApp.swift                @main entry point
+  ContentView.swift            Main SwiftUI view
+  PairingView.swift            Pairing QR code / setup code UI
+  AccessoryCard.swift          Reusable accessory card component
   HAPViewModel.swift           Central coordinator (server lifecycle, accessory wiring)
   HAPCameraAccessory.swift     Camera accessory (+ StreamConfig, Streaming, Snapshot, JSON extensions)
   CameraStreamSession.swift    Live streaming pipeline (+ Audio, RTCP extensions)
   MonitoringCaptureSession.swift  HKSV idle pre-buffering (+ Audio extension)
   HAPAccessory.swift           Lightbulb accessory
+  AmbientLightDetector.swift   Ambient light estimation from camera exposure
   VideoMotionDetector.swift    Camera-based motion detection
   MotionMonitor.swift          Accelerometer motion detection
+  BatteryMonitor.swift         Battery level/charging state monitoring
 
 Packages/
   HAP/                         HomeKit Accessory Protocol (server, pairing, encryption)

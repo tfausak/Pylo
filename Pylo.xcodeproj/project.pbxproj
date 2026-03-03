@@ -374,6 +374,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Pylo/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSCameraUsageDescription = "The camera is used for HomeKit video streaming, snapshots, ambient light sensing, and flashlight control.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Used to advertise as a HomeKit accessory.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -411,6 +412,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Pylo/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSCameraUsageDescription = "The camera is used for HomeKit video streaming, snapshots, ambient light sensing, and flashlight control.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Used to advertise as a HomeKit accessory.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;

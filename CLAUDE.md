@@ -44,8 +44,11 @@ Accessories (aid 1-5: bridge, lightbulb, camera, light sensor, motion sensor)
 | File | Role |
 |------|------|
 | `PyloApp.swift` | `@main` entry point, `VideoQuality`/`MotionSensitivity` enums |
+| `ContentView.swift` | Main SwiftUI view |
+| `PairingView.swift` | Pairing QR code / setup code UI |
+| `AccessoryCard.swift` | Reusable accessory card UI component |
 | `HAPViewModel.swift` | Central coordinator: server lifecycle, accessory wiring, QR code helpers |
-| `HAPAccessory.swift` | Lightbulb accessory (torch control) |
+| `HAPAccessory.swift` | Lightbulb accessory (torch control, battery service) |
 | `HAPCameraAccessory.swift` | Camera accessory: class, properties, characteristic read/write, IIDs/UUIDs |
 | `  +StreamConfig.swift` | TLV8 config builders (supported/selected video/audio/recording configs) |
 | `  +Streaming.swift` | Setup endpoints, RTP stream config, start/stop streaming, local IP |
@@ -57,6 +60,10 @@ Accessories (aid 1-5: bridge, lightbulb, camera, light sensor, motion sensor)
 | `MonitoringCaptureSession.swift` | Background video capture for HKSV pre-buffering |
 | `  +Audio.swift` | Audio encoding pipeline for monitoring (AAC-ELD, PCM conversion) |
 | `HAPTypes.swift` | Keychain helpers (`KeychainKeyStore`) |
+| `HomeKitUUIDs.swift` | HAP short-form UUID mapping, verified against HomeKit constants |
+| `AudioUtilities.swift` | Shared PCM-to-Float32 audio conversion |
+| `AmbientLightDetector.swift` | Ambient light estimation from camera auto-exposure metadata |
+| `BatteryMonitor.swift` | Battery level/charging state monitoring via UIDevice |
 | `MotionMonitor.swift` | Accelerometer threshold detection |
 | `VideoMotionDetector.swift` | Camera-based motion detection for HKSV |
 
@@ -65,9 +72,13 @@ Accessories (aid 1-5: bridge, lightbulb, camera, light sensor, motion sensor)
 | Package | Key Files | Role |
 |---------|-----------|------|
 | `HAP` | `HAPServer.swift`, `HAPConnection.swift` | TCP listener, Bonjour, per-client HTTP parsing, encryption |
+| `HAP` | `HAPAccessoryTypes.swift`, `HAPTypes.swift` | Accessory types (bridge, lightbulb, sensors), core protocol definitions |
 | `HAP` | `PairSetup.swift`, `PairVerify.swift` | SRP-6a pair-setup, Curve25519 pair-verify state machines |
-| `HAP` | `PairingStore.swift`, `DeviceIdentity.swift` | Pairing persistence, Ed25519 identity |
+| `HAP` | `PairingStore.swift`, `DeviceIdentity.swift`, `KeyStore.swift` | Pairing persistence, Ed25519 identity, keychain protocol |
 | `HAP` | `CharacteristicsHandler.swift`, `PairingsHandler.swift` | GET/PUT /characteristics, pairing management |
+| `HAP` | `HTTPRequest.swift`, `HTTPResponse.swift` | HTTP/1.1 request parser, response builder |
+| `HAP` | `CharacteristicID.swift` | Characteristic identifier for subscription tracking |
+| `HAP` | `BatteryState.swift`, `HAPSnapshotProvider.swift` | Battery characteristic values, camera snapshot protocol |
 | `HAP` | `HAPDataStream.swift` | HomeKit Data Stream TCP listener and transport setup |
 | `HAP` | `HDSConnection.swift` | HDS connection: ChaCha20 encryption, message framing, dataSend |
 | `HAP` | `HDSMessage.swift` | HDS message encode/decode (event, request, response) |
