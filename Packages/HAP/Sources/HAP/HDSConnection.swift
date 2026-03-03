@@ -24,6 +24,9 @@ public nonisolated final class HDSConnection: @unchecked Sendable {
 
   /// The fragment writer to serve video from.
   /// Set from the HDS queue (newConnectionHandler) before start() is called.
+  /// Weak because HAPDataStream owns the writer's lifetime — if the writer is
+  /// cleared (e.g., when stopping recording), live delivery callbacks naturally
+  /// stop via the weak capture in setupLiveFragmentDelivery.
   public weak var fragmentWriter: FragmentedMP4Writer?
 
   /// Active dataSend stream ID (assigned by the hub in dataSend/open).
