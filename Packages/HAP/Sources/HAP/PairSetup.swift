@@ -299,6 +299,12 @@ public nonisolated enum PairSetupHandler {
       let clientPublicKey = tlv[.publicKey],
       let clientProof = tlv[.proof]
     else {
+      // If this connection owns the pair-setup slot (has a session), release it
+      // so future pairing attempts aren't permanently blocked.
+      if connection.pairSetupState != nil {
+        connection.setPairSetupState(nil)
+        isPairSetupInProgress = false
+      }
       return errorResponse(state: 0x04, error: .authentication)
     }
 
@@ -346,6 +352,10 @@ public nonisolated enum PairSetupHandler {
       let sessionKey = session.sessionKey,
       let encryptedData = tlv[.encryptedData]
     else {
+      if connection.pairSetupState != nil {
+        connection.setPairSetupState(nil)
+        isPairSetupInProgress = false
+      }
       return errorResponse(state: 0x06, error: .authentication)
     }
 
