@@ -53,7 +53,9 @@ nonisolated func convertToFloat32At16kHz(
     return Data()
   }
 
-  // Resample to 16kHz if needed
+  // Resample to 16kHz if needed. Allocates a temporary [Float] per call;
+  // acceptable because audio buffers are small (~480 samples) and this runs
+  // at audio callback rate (~30-50Hz), not video frame rate.
   if abs(sourceSampleRate - 16000) > 1 {
     let ratio = 16000.0 / sourceSampleRate
     let outputCount = Int((Double(floatSamples.count) * ratio).rounded())
