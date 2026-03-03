@@ -191,31 +191,36 @@ extension CameraStreamSession {
 
   private nonisolated func sendAudioRTPPacket(payload: Data) {
     dispatchPrecondition(condition: .onQueue(rtpQueue))
+    // Reuse rtpBuffer — audio and video sends are serialized on rtpQueue.
+    rtpBuffer.count = 0
+    rtpBuffer.reserveCapacity(12 + payload.count)
+
     // Build 12-byte RTP header
-    var header = Data(count: 12)
-    header[0] = 0x80  // V=2
-    header[1] = 0x80 | (audioPayloadType & 0x7F)  // M=1 (every AAC frame is a complete AU)
-    header[2] = UInt8(audioRTPSeq >> 8)
-    header[3] = UInt8(audioRTPSeq & 0xFF)
-    header[4] = UInt8((audioRTPTimestamp >> 24) & 0xFF)
-    header[5] = UInt8((audioRTPTimestamp >> 16) & 0xFF)
-    header[6] = UInt8((audioRTPTimestamp >> 8) & 0xFF)
-    header[7] = UInt8(audioRTPTimestamp & 0xFF)
-    header[8] = UInt8((audioSSRC >> 24) & 0xFF)
-    header[9] = UInt8((audioSSRC >> 16) & 0xFF)
-    header[10] = UInt8((audioSSRC >> 8) & 0xFF)
-    header[11] = UInt8(audioSSRC & 0xFF)
+    rtpBuffer.append(0x80)  // V=2
+    rtpBuffer.append(0x80 | (audioPayloadType & 0x7F))  // M=1 (every AAC frame is a complete AU)
+    rtpBuffer.append(UInt8(audioRTPSeq >> 8))
+    rtpBuffer.append(UInt8(audioRTPSeq & 0xFF))
+    rtpBuffer.append(UInt8((audioRTPTimestamp >> 24) & 0xFF))
+    rtpBuffer.append(UInt8((audioRTPTimestamp >> 16) & 0xFF))
+    rtpBuffer.append(UInt8((audioRTPTimestamp >> 8) & 0xFF))
+    rtpBuffer.append(UInt8(audioRTPTimestamp & 0xFF))
+    rtpBuffer.append(UInt8((audioSSRC >> 24) & 0xFF))
+    rtpBuffer.append(UInt8((audioSSRC >> 16) & 0xFF))
+    rtpBuffer.append(UInt8((audioSSRC >> 8) & 0xFF))
+    rtpBuffer.append(UInt8(audioSSRC & 0xFF))
 
     audioRTPSeq &+= 1
     audioRTPTimestamp &+= UInt32(aacFrameSamples)  // 480 samples at 16kHz clock
 
-    var rtpPacket = header
-    rtpPacket.append(payload)
+    rtpBuffer.append(payload)
 
     // SRTP protect with audio context
+    let packet: Data
     if let ctx = audioSRTPContext {
-      guard let protected = ctx.protect(rtpPacket) else { return }
-      rtpPacket = protected
+      guard let protected = ctx.protect(rtpBuffer) else { return }
+      packet = protected
+    } else {
+      packet = rtpBuffer
     }
 
     audioPacketsSent += 1
@@ -228,7 +233,7 @@ extension CameraStreamSession {
       $0.packetsSent = pkts
       $0.octetsSent = octets
     }
-    sendAudioUDP(rtpPacket)
+    sendAudioUDP(packet)
   }
 
   // MARK: - Audio RTCP Sender Report

@@ -61,6 +61,10 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   // SRTP state
   private var srtpContext: SRTPContext?
 
+  // Reusable RTP packet buffer — avoids per-packet heap allocation.
+  // Accessed exclusively on rtpQueue (serial), so no synchronization needed.
+  var rtpBuffer = Data()  // rtpQueue
+
   // RTCP timer
   private var rtcpTimer: DispatchSourceTimer?
 
@@ -791,36 +795,41 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
 
   private func sendRTPPacket(payload: Data, marker: Bool) {
     dispatchPrecondition(condition: .onQueue(rtpQueue))
+    // Reuse rtpBuffer — reset count to reclaim backing storage without deallocating.
+    rtpBuffer.count = 0
+    rtpBuffer.reserveCapacity(12 + payload.count)
+
     // RTP header (12 bytes) per RFC 3550
-    var header = Data(count: 12)
-    header[0] = 0x80  // V=2, P=0, X=0, CC=0
-    header[1] = (marker ? 0x80 : 0x00) | (rtpPayloadType & 0x7F)  // M bit + dynamic PT
-    header[2] = UInt8(sequenceNumber >> 8)
-    header[3] = UInt8(sequenceNumber & 0xFF)
-    header[4] = UInt8((rtpTimestamp >> 24) & 0xFF)
-    header[5] = UInt8((rtpTimestamp >> 16) & 0xFF)
-    header[6] = UInt8((rtpTimestamp >> 8) & 0xFF)
-    header[7] = UInt8(rtpTimestamp & 0xFF)
-    header[8] = UInt8((videoSSRC >> 24) & 0xFF)
-    header[9] = UInt8((videoSSRC >> 16) & 0xFF)
-    header[10] = UInt8((videoSSRC >> 8) & 0xFF)
-    header[11] = UInt8(videoSSRC & 0xFF)
+    rtpBuffer.append(0x80)  // V=2, P=0, X=0, CC=0
+    rtpBuffer.append((marker ? 0x80 : 0x00) | (rtpPayloadType & 0x7F))  // M bit + dynamic PT
+    rtpBuffer.append(UInt8(sequenceNumber >> 8))
+    rtpBuffer.append(UInt8(sequenceNumber & 0xFF))
+    rtpBuffer.append(UInt8((rtpTimestamp >> 24) & 0xFF))
+    rtpBuffer.append(UInt8((rtpTimestamp >> 16) & 0xFF))
+    rtpBuffer.append(UInt8((rtpTimestamp >> 8) & 0xFF))
+    rtpBuffer.append(UInt8(rtpTimestamp & 0xFF))
+    rtpBuffer.append(UInt8((videoSSRC >> 24) & 0xFF))
+    rtpBuffer.append(UInt8((videoSSRC >> 16) & 0xFF))
+    rtpBuffer.append(UInt8((videoSSRC >> 8) & 0xFF))
+    rtpBuffer.append(UInt8(videoSSRC & 0xFF))
 
     sequenceNumber &+= 1
 
-    var rtpPacket = header
-    rtpPacket.append(payload)
+    rtpBuffer.append(payload)
 
-    // Encrypt with SRTP
+    // Encrypt with SRTP (protect() allocates internally — see SRTPContext.swift)
+    let packet: Data
     if let ctx = srtpContext {
-      guard let protected = ctx.protect(rtpPacket) else { return }
-      rtpPacket = protected
+      guard let protected = ctx.protect(rtpBuffer) else { return }
+      packet = protected
+    } else {
+      packet = rtpBuffer
     }
 
     // Send via BSD UDP socket
     packetsSent += 1
     octetsSent += payload.count
-    sendVideoUDP(rtpPacket)
+    sendVideoUDP(packet)
   }
 
   /// Send data via the BSD video socket to the controller's video port.
