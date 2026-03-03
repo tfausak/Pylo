@@ -141,50 +141,45 @@ nonisolated final class VideoMotionDetector {
     let srcWidth = CVPixelBufferGetWidth(pixelBuffer)
     let srcHeight = CVPixelBufferGetHeight(pixelBuffer)
     let format = CVPixelBufferGetPixelFormatType(pixelBuffer)
+    let tw = Self.thumbWidth
+    let th = Self.thumbHeight
 
-    // Handle both common video pixel formats
     switch format {
     case kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
       kCVPixelFormatType_420YpCbCr8BiPlanarFullRange:
-      // NV12/NV21 — the Y plane is already grayscale
+      // NV12 — the Y plane is already planar 8-bit grayscale; use vImage to scale
       guard let yBase = CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, 0) else { return false }
       let yRowBytes = CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, 0)
-      downsample(
-        base: yBase, width: srcWidth, height: srcHeight, rowBytes: yRowBytes, bytesPerPixel: 1,
-        channelOffset: 0, into: &scratchGray)
+      var src = vImage_Buffer(
+        data: UnsafeMutableRawPointer(mutating: yBase),
+        height: vImagePixelCount(srcHeight),
+        width: vImagePixelCount(srcWidth),
+        rowBytes: yRowBytes)
+      scratchGray.withUnsafeMutableBufferPointer { dst in
+        var dstBuf = vImage_Buffer(
+          data: UnsafeMutableRawPointer(dst.baseAddress!),
+          height: vImagePixelCount(th),
+          width: vImagePixelCount(tw),
+          rowBytes: tw)
+        vImageScale_Planar8(&src, &dstBuf, nil, vImage_Flags(kvImageNoFlags))
+      }
       return true
 
     case kCVPixelFormatType_32BGRA:
+      // BGRA fallback: nearest-neighbor sampling the green channel (offset 1)
       guard let base = CVPixelBufferGetBaseAddress(pixelBuffer) else { return false }
       let rowBytes = CVPixelBufferGetBytesPerRow(pixelBuffer)
-      // BGRA: approximate grayscale by sampling the green channel (offset 1)
-      downsample(
-        base: base, width: srcWidth, height: srcHeight, rowBytes: rowBytes, bytesPerPixel: 4,
-        channelOffset: 1, into: &scratchGray)
+      for ty in 0..<th {
+        let srcRow = base + (ty * srcHeight / th) * rowBytes
+        for tx in 0..<tw {
+          scratchGray[ty * tw + tx] = srcRow.load(
+            fromByteOffset: (tx * srcWidth / tw) * 4 + 1, as: UInt8.self)
+        }
+      }
       return true
 
     default:
       return false
-    }
-  }
-
-  /// Simple nearest-neighbor downsample to thumbWidth x thumbHeight.
-  /// Writes into the provided buffer which must be at least thumbWidth * thumbHeight.
-  private func downsample(
-    base: UnsafeRawPointer, width: Int, height: Int, rowBytes: Int,
-    bytesPerPixel: Int, channelOffset: Int, into result: inout [UInt8]
-  ) {
-    let tw = Self.thumbWidth
-    let th = Self.thumbHeight
-
-    for ty in 0..<th {
-      let sy = ty * height / th
-      let srcRow = base + sy * rowBytes
-      for tx in 0..<tw {
-        let sx = tx * width / tw
-        result[ty * tw + tx] = srcRow.load(
-          fromByteOffset: sx * bytesPerPixel + channelOffset, as: UInt8.self)
-      }
     }
   }
 
