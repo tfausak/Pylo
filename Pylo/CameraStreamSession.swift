@@ -374,6 +374,9 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     audioRTCPTimer = nil
     audioOutput = nil
 
+    // Safe to dispose here: encodeAndSendAudioFrame uses audioConverter synchronously
+    // on captureQueue (already drained above), and only dispatches the encoded result
+    // to rtpQueue (also drained above). No in-flight code references this converter.
     if let enc = audioConverter {
       AudioConverterDispose(enc)
     }
