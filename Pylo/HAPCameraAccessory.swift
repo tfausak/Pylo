@@ -638,7 +638,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
       // Seed with the actual orientation so the cache is correct even if
       // no orientation-change notification has fired yet (e.g. app launched
       // in landscape).
-      let initial = UIDevice.current.orientation
+      let initial = MainActor.assumeIsolated { UIDevice.current.orientation }
       if initial != .unknown {
         state.withLock { $0 = initial.rawValue }
       }

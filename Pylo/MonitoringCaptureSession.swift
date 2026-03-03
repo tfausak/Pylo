@@ -76,7 +76,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   /// AAC-ELD frame size in samples (480 for 16kHz).
   let aacFrameSamples = 480
 
-  struct State {
+  struct State: @unchecked Sendable {
     var captureSession: AVCaptureSession?
     var compressionSession: VTCompressionSession?
     var audioConverter: AudioConverterRef?
@@ -94,8 +94,8 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   }
 
   private var compressionSession: VTCompressionSession? {
-    get { mState.withLock { $0.compressionSession } }
-    set { mState.withLock { $0.compressionSession = newValue } }
+    get { mState.withLockUnchecked { $0.compressionSession } }
+    set { mState.withLockUnchecked { $0.compressionSession = newValue } }
   }
 
   // MARK: - Lifecycle
@@ -196,7 +196,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
 
         // Create AAC-ELD encoder
         if let converter = createAACELDEncoder() {
-          mState.withLock {
+          mState.withLockUnchecked {
             $0.audioConverter = converter
             $0.pcmAccumulator = Data()
           }
@@ -237,7 +237,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     }
 
     // Commit state atomically. If stop() was called concurrently, bail.
-    let cancelled: Bool = mState.withLock { (state: inout State) -> Bool in
+    let cancelled: Bool = mState.withLockUnchecked { (state: inout State) -> Bool in
       guard state.captureSession != nil else { return true }
       state.captureSession = session
       state.compressionSession = cs
@@ -267,7 +267,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
 
   func stop() {
     let (oldSession, oldCS, oldAudioConverter):
-      (AVCaptureSession?, VTCompressionSession?, AudioConverterRef?) = mState.withLock {
+      (AVCaptureSession?, VTCompressionSession?, AudioConverterRef?) = mState.withLockUnchecked {
         let s = $0.captureSession
         let cs = $0.compressionSession
         let ac = $0.audioConverter

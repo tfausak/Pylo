@@ -9,7 +9,7 @@ import os
 extension MonitoringCaptureSession {
 
   nonisolated func handleAudioSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
-    guard let converter = mState.withLock({ $0.audioConverter }) else { return }
+    guard let converter = mState.withLockUnchecked({ $0.audioConverter }) else { return }
 
     guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { return }
     var totalLength = 0
