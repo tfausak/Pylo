@@ -204,8 +204,10 @@ public nonisolated enum PairVerifyHandler {
       connection.setPendingEncryptionContext(
         EncryptionContext(readKey: readKey, writeKey: writeKey))
 
-      // Record which controller authenticated this session (for admin checks)
-      connection.setVerifiedControllerID(controllerID)
+      // Record which controller authenticated this session (for admin checks).
+      // Normalize to uppercase to match PairingStore's case-insensitive keying,
+      // so session termination on pairing removal (HAP §5.11) can match by ==.
+      connection.setVerifiedControllerID(controllerID.uppercased())
 
       // Store the shared secret for HDS key derivation
       connection.setPairVerifySharedSecret(sharedSecret)

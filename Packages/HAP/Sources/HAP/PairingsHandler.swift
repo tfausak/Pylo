@@ -114,7 +114,8 @@ public nonisolated enum PairingsHandler {
     // HAP spec §5.11: terminate sessions for the removed controller.
     // Use a short delay to ensure the M2 response bytes are flushed
     // to the TCP stack before the connection is torn down.
-    server.terminateSessionsAfterResponse(forController: id)
+    // Normalize to uppercase to match verifiedControllerID (set in PairVerify).
+    server.terminateSessionsAfterResponse(forController: id.uppercased())
 
     // If no pairings remain, update advertisement
     if !server.pairingStore.isPaired {
