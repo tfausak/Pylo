@@ -68,19 +68,27 @@ nonisolated final class VideoMotionDetector {
     defer { _processing.withLock { $0 = false } }
 
     CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
-    let grayscale = downsampleToGrayscale(pixelBuffer)
+    let ok = downsampleToGrayscale(pixelBuffer)
     CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly)
-    guard let grayscale else { return }
+    guard ok else { return }
 
+    // Swap scratchGray with previousFrame — after the first two calls, the two
+    // arrays alternate between scratchGray and state.previousFrame with no
+    // heap allocations.
     let previous = state.withLock { s -> [UInt8]? in
       let prev = s.previousFrame
-      s.previousFrame = grayscale
+      s.previousFrame = scratchGray
       return prev
     }
 
     guard let previous else { return }
 
-    let changeRatio = computeChangeRatio(previous: previous, current: grayscale)
+    // scratchGray still references the current frame (shared with state.previousFrame).
+    let changeRatio = computeChangeRatio(previous: previous, current: scratchGray)
+
+    // Reclaim the old buffer for the next call. After this, scratchGray is
+    // uniquely owned and can be written into in-place on the next call.
+    scratchGray = previous
 
     if changeRatio > threshold {
       let shouldNotify = state.withLock { state in
@@ -127,8 +135,9 @@ nonisolated final class VideoMotionDetector {
 
   // MARK: - Frame Processing
 
-  /// Downsample a pixel buffer to a small grayscale image.
-  private func downsampleToGrayscale(_ pixelBuffer: CVPixelBuffer) -> [UInt8]? {
+  /// Downsample a pixel buffer to a small grayscale image, writing into `scratchGray`.
+  /// Returns false if the pixel format is unsupported.
+  private func downsampleToGrayscale(_ pixelBuffer: CVPixelBuffer) -> Bool {
     let srcWidth = CVPixelBufferGetWidth(pixelBuffer)
     let srcHeight = CVPixelBufferGetHeight(pixelBuffer)
     let format = CVPixelBufferGetPixelFormatType(pixelBuffer)
@@ -138,33 +147,35 @@ nonisolated final class VideoMotionDetector {
     case kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
       kCVPixelFormatType_420YpCbCr8BiPlanarFullRange:
       // NV12/NV21 — the Y plane is already grayscale
-      guard let yBase = CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, 0) else { return nil }
+      guard let yBase = CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, 0) else { return false }
       let yRowBytes = CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, 0)
-      return downsample(
+      downsample(
         base: yBase, width: srcWidth, height: srcHeight, rowBytes: yRowBytes, bytesPerPixel: 1,
-        channelOffset: 0)
+        channelOffset: 0, into: &scratchGray)
+      return true
 
     case kCVPixelFormatType_32BGRA:
-      guard let base = CVPixelBufferGetBaseAddress(pixelBuffer) else { return nil }
+      guard let base = CVPixelBufferGetBaseAddress(pixelBuffer) else { return false }
       let rowBytes = CVPixelBufferGetBytesPerRow(pixelBuffer)
       // BGRA: approximate grayscale by sampling the green channel (offset 1)
-      return downsample(
+      downsample(
         base: base, width: srcWidth, height: srcHeight, rowBytes: rowBytes, bytesPerPixel: 4,
-        channelOffset: 1)
+        channelOffset: 1, into: &scratchGray)
+      return true
 
     default:
-      return nil
+      return false
     }
   }
 
   /// Simple nearest-neighbor downsample to thumbWidth x thumbHeight.
+  /// Writes into the provided buffer which must be at least thumbWidth * thumbHeight.
   private func downsample(
     base: UnsafeRawPointer, width: Int, height: Int, rowBytes: Int,
-    bytesPerPixel: Int, channelOffset: Int
-  ) -> [UInt8] {
+    bytesPerPixel: Int, channelOffset: Int, into result: inout [UInt8]
+  ) {
     let tw = Self.thumbWidth
     let th = Self.thumbHeight
-    var result = [UInt8](repeating: 0, count: tw * th)
 
     for ty in 0..<th {
       let sy = ty * height / th
@@ -175,13 +186,12 @@ nonisolated final class VideoMotionDetector {
           fromByteOffset: sx * bytesPerPixel + channelOffset, as: UInt8.self)
       }
     }
-
-    return result
   }
 
-  // Reusable scratch buffers for computeChangeRatio — avoids 3 × 75KB
-  // heap allocations per processed frame.
+  // Reusable scratch buffers — avoids heap allocations per processed frame.
+  // Accessed only from processPixelBuffer which has a concurrency guard.
   private static let scratchCount = thumbWidth * thumbHeight
+  private var scratchGray = [UInt8](repeating: 0, count: scratchCount)
   private var scratchPrev = [Float](repeating: 0, count: scratchCount)
   private var scratchCurr = [Float](repeating: 0, count: scratchCount)
   private var scratchDiff = [Float](repeating: 0, count: scratchCount)
