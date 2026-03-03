@@ -279,10 +279,15 @@ extension HAPCameraAccessory {
     logger.info(
       "Bitrate: negotiated=\(bitrate)kbps, minimum=\(self.minimumBitrate)kbps, effective=\(effectiveBitrate)kbps, rotation=\(rotation.angle)\u{00B0}"
     )
-    session.startStreaming(
+    let started = session.startStreaming(
       width: width, height: height, fps: fps, bitrate: effectiveBitrate, payloadType: payloadType,
       audioPayloadType: audioPayloadType, camera: camera, rotationAngle: rotation.angle,
       swapDimensions: rotation.swapDimensions)
+    if !started {
+      logger.error("Stream session failed to start — clearing session")
+      streamSession = nil
+      onMonitoringCaptureNeeded?(true)
+    }
     onStateChange?(
       aid, Self.iidStreamingStatus, .string(streamingStatusTLV().base64EncodedString()))
   }

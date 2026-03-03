@@ -206,11 +206,13 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     }
   }
 
+  /// Start streaming. Returns `true` on success, `false` if socket setup failed.
+  @discardableResult
   func startStreaming(
     width: Int, height: Int, fps: Int, bitrate: Int, payloadType: UInt8,
     audioPayloadType: UInt8 = 110, camera: AVCaptureDevice, rotationAngle: Int = 90,
     swapDimensions: Bool = true
-  ) {
+  ) -> Bool {
     logger.info(
       "Starting stream: \(width)x\(height)@\(fps)fps, \(bitrate)kbps, PT=\(payloadType) → \(self.controllerAddress):\(self.controllerVideoPort)"
     )
@@ -248,7 +250,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     let videoFD = socket(AF_INET, SOCK_DGRAM, 0)
     guard videoFD >= 0 else {
       logger.error("Failed to create video UDP socket: errno \(errno)")
-      return
+      return false
     }
 
     var videoBindAddr = sockaddr_in()
@@ -265,7 +267,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     guard videoBindResult == 0 else {
       logger.error("Failed to bind video socket to port \(self.localVideoPort): errno \(errno)")
       close(videoFD)
-      return
+      return false
     }
 
     let videoFlags = fcntl(videoFD, F_GETFL)
@@ -295,7 +297,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     guard fd >= 0 else {
       logger.error("Failed to create audio UDP socket: errno \(errno)")
       stopStreaming()
-      return
+      return false
     }
 
     // Bind to our advertised local audio port
@@ -314,7 +316,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
       logger.error("Failed to bind audio socket to port \(self.localAudioPort): errno \(errno)")
       close(fd)
       stopStreaming()
-      return
+      return false
     }
 
     // Set non-blocking
@@ -349,6 +351,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     self.startAudioRTCPTimer()
     self.setupAudioDecoder()
     self.setupAudioPlayback()
+    return true
   }
 
   func stopStreaming() {
