@@ -81,15 +81,15 @@ public nonisolated final class HAPServer: @unchecked Sendable {
     self.listener = try NWListener(using: params)
 
     // Compute c# from the accessory database structure so it auto-updates
-    // when services/characteristics change (HAP spec §6.6.1, range 1...4294967295).
+    // when services/characteristics change (HAP spec §6.6.1, range 1...2^32-1).
+    // The hash is UInt32 which always fits as a positive Int on 64-bit platforms.
     let allJSON = self.accessories.keys.sorted().compactMap { self.accessories[$0]?.toJSON() }
     if let data = try? JSONSerialization.data(withJSONObject: allJSON),
       let str = String(data: data, encoding: .utf8)
     {
       var hash: UInt32 = 5381
       for byte in str.utf8 { hash = hash &* 33 &+ UInt32(byte) }
-      let n = Int(hash)  // UInt32 always fits in Int on 64-bit
-      self.configurationNumber = n == 0 ? 1 : n  // ensure ≥ 1 (HAP spec §6.6.1)
+      self.configurationNumber = hash == 0 ? 1 : Int(hash)
     }
   }
 
