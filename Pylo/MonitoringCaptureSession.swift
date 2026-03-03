@@ -83,8 +83,8 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     var pcmAccumulator = Data()
     // Strong references to delegates to prevent premature deallocation.
     // Stored as AnyObject to avoid exposing file-private delegate types.
-    var videoCaptureDelegate: AnyObject?
-    var audioCaptureDelegate: AnyObject?
+    var videoCaptureDelegate: VideoCaptureDelegate?
+    var audioCaptureDelegate: AudioCaptureDelegate?
   }
   let mState = OSAllocatedUnfairLock(initialState: State())
 
@@ -409,47 +409,5 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     #else
       return 0
     #endif
-  }
-}
-
-// MARK: - Video Capture Delegate
-
-/// Reusable delegate that forwards pixel buffers to a closure.
-/// Defined here privately to avoid depending on CameraStreamSession's internal type.
-private nonisolated final class VideoCaptureDelegate: NSObject,
-  AVCaptureVideoDataOutputSampleBufferDelegate
-{
-  let handler: (CVPixelBuffer, CMTime) -> Void
-
-  init(handler: @escaping (CVPixelBuffer, CMTime) -> Void) {
-    self.handler = handler
-  }
-
-  func captureOutput(
-    _ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
-    from connection: AVCaptureConnection
-  ) {
-    guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-    let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-    handler(pixelBuffer, pts)
-  }
-}
-
-// MARK: - Audio Capture Delegate
-
-private nonisolated final class AudioCaptureDelegate: NSObject,
-  AVCaptureAudioDataOutputSampleBufferDelegate
-{
-  let handler: (CMSampleBuffer) -> Void
-
-  init(handler: @escaping (CMSampleBuffer) -> Void) {
-    self.handler = handler
-  }
-
-  func captureOutput(
-    _ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
-    from connection: AVCaptureConnection
-  ) {
-    handler(sampleBuffer)
   }
 }
