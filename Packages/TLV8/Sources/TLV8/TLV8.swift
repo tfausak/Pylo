@@ -72,11 +72,12 @@ public nonisolated enum TLV8 {
       let value = data[offset..<offset + length]
       offset += length
 
-      // Coalesce consecutive fragments with the same type (but never separators)
-      if let last = results.last, last.0 == type, type != Tag.separator.rawValue {
-        var combined = last.1
-        combined.append(contentsOf: value)
-        results[results.count - 1] = (type, combined)
+      // Coalesce consecutive fragments with the same type (but never separators).
+      // Append in place to avoid O(n²) copies across fragments.
+      if !results.isEmpty, results[results.count - 1].0 == type,
+        type != Tag.separator.rawValue
+      {
+        results[results.count - 1].1.append(contentsOf: value)
       } else {
         results.append((type, Data(value)))
       }
