@@ -49,6 +49,9 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   private var rtpTimestamp: UInt32 = 0
   private var lastSentRTPTimestamp: UInt32 = 0  // for RTCP SR (timestamp of last sent frame)
   private var encodeFrameCount: Int = 0  // captureQueue only
+  private var captureFrameCount: Int = 0  // captureQueue only
+  private let motionFrameInterval = 15
+  private let luxFrameInterval = 60
   private var rtpFrameCount: Int = 0  // rtpQueue only
   private var packetsSent: Int = 0
   private var octetsSent: Int = 0
@@ -74,7 +77,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   var audioPacketsSent: Int = 0  // rtpQueue
   var audioOctetsSent: Int = 0  // rtpQueue
   var audioRTCPTimer: DispatchSourceTimer?  // rtpQueue
-  /// Optional video motion detector — runs on every captured frame when set.
+  /// Optional video motion detector — called every `motionFrameInterval` frames.
   /// Protected by a lock: written from the server queue, read from captureQueue.
   private let _videoMotionDetector = OSAllocatedUnfairLock<VideoMotionDetector?>(initialState: nil)
   var videoMotionDetector: VideoMotionDetector? {
@@ -82,7 +85,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     set { _videoMotionDetector.withLock { $0 = newValue } }
   }
 
-  /// Optional ambient light detector — samples device exposure on every frame (internally throttled).
+  /// Optional ambient light detector — called every `luxFrameInterval` frames.
   private let _ambientLightDetector = OSAllocatedUnfairLock<AmbientLightDetector?>(
     initialState: nil)
   var ambientLightDetector: AmbientLightDetector? {
@@ -483,9 +486,15 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     ]
     output.alwaysDiscardsLateVideoFrames = true
     let delegate = VideoCaptureDelegate { [weak self] pixelBuffer, pts in
-      self?.videoMotionDetector?.processPixelBuffer(pixelBuffer)
-      self?.ambientLightDetector?.sample()
-      self?.encodeFrame(pixelBuffer, pts: pts)
+      guard let self else { return }
+      self.captureFrameCount += 1
+      if self.captureFrameCount % self.motionFrameInterval == 0 {
+        self.videoMotionDetector?.processPixelBuffer(pixelBuffer)
+      }
+      if self.captureFrameCount % self.luxFrameInterval == 0 {
+        self.ambientLightDetector?.sample()
+      }
+      self.encodeFrame(pixelBuffer, pts: pts)
     }
     output.setSampleBufferDelegate(delegate, queue: captureQueue)
     if session.canAddOutput(output) { session.addOutput(output) }

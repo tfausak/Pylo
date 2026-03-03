@@ -5,7 +5,7 @@ import os
 ///
 /// Designed to piggyback on existing capture sessions — reads `AVCaptureDevice.iso`
 /// and `.exposureDuration` rather than running a separate capture pipeline.
-/// Internally throttled to sample once every ~2 seconds.
+/// Caller is responsible for throttling (e.g., calling every Nth frame).
 nonisolated final class AmbientLightDetector {
 
   private let _onLuxChange = OSAllocatedUnfairLock<((Float) -> Void)?>(initialState: nil)
@@ -22,29 +22,19 @@ nonisolated final class AmbientLightDetector {
 
   private struct State {
     var currentLux: Float = 0
-    var lastSampleTime: UInt64 = 0
   }
   private let state = OSAllocatedUnfairLock(initialState: State())
 
   private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "AmbientLight")
 
-  /// Minimum interval between samples in continuous clock ticks (~2 seconds).
-  private let sampleIntervalNanos: UInt64 = 2_000_000_000
-
   var currentLux: Float {
     state.withLock { $0.currentLux }
   }
 
-  /// Called from capture delegate callbacks. Internally throttles to avoid
-  /// excessive computation — only reads device exposure properties once per ~2s.
+  /// Called from capture delegate callbacks.
+  /// Caller is responsible for throttling (e.g., calling every Nth frame).
   func sample() {
-    let now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
-    let shouldSample = state.withLock { s in
-      if now - s.lastSampleTime < sampleIntervalNanos { return false }
-      s.lastSampleTime = now
-      return true
-    }
-    guard shouldSample, let device = device else { return }
+    guard let device = device else { return }
 
     let iso = device.iso
     let duration = Float(CMTimeGetSeconds(device.exposureDuration))
@@ -73,7 +63,6 @@ nonisolated final class AmbientLightDetector {
     _device.withLock { $0 = nil }
     state.withLock { s in
       s.currentLux = 0
-      s.lastSampleTime = 0
     }
   }
 }

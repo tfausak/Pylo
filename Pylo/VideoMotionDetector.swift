@@ -31,20 +31,12 @@ nonisolated final class VideoMotionDetector {
   private static let thumbWidth = 160
   private static let thumbHeight = 120
 
-  /// Process every Nth frame (1 = every frame, 15 = every 15th frame at ~2fps).
-  var frameSkip: Int {
-    get { state.withLock { $0.frameSkip } }
-    set { state.withLock { $0.frameSkip = max(1, newValue) } }
-  }
-
   // Thread-safe mutable state
   private struct State {
     var isMotionDetected = false
     var lastMotionDate = Date.distantPast
     var threshold: Float = 0.05
     var cooldown: TimeInterval = 3.0
-    var frameSkip: Int = 15
-    var frameCounter: Int = 0
     var previousFrame: [UInt8]?
   }
 
@@ -59,18 +51,8 @@ nonisolated final class VideoMotionDetector {
   /// Process a pixel buffer for motion detection.
   /// Safe to call from any queue — all mutable state is lock-protected.
   /// Must not be called concurrently; scratch buffers are reused across calls.
+  /// Caller is responsible for throttling (e.g., calling every Nth frame).
   func processPixelBuffer(_ pixelBuffer: CVPixelBuffer) {
-    // Skip frames to reduce CPU — only process every Nth frame.
-    let shouldProcess = state.withLock { s -> Bool in
-      s.frameCounter += 1
-      if s.frameCounter >= s.frameSkip {
-        s.frameCounter = 0
-        return true
-      }
-      return false
-    }
-    guard shouldProcess else { return }
-
     // Assert no concurrent entry — scratch buffers are not thread-safe.
     assert(
       _processing.withLock { processing in
@@ -137,7 +119,6 @@ nonisolated final class VideoMotionDetector {
       state.previousFrame = nil
       state.isMotionDetected = false
       state.lastMotionDate = .distantPast
-      state.frameCounter = 0
     }
   }
 

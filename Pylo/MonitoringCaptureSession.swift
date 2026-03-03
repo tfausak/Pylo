@@ -13,7 +13,7 @@ import os
 /// RTP/SRTP/UDP/audio networking.
 nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
 
-  /// Optional video motion detector — runs on every captured frame.
+  /// Optional video motion detector — called every `motionFrameInterval` frames.
   /// Protected: written from server queue, read from captureQueue.
   private let _videoMotionDetector = OSAllocatedUnfairLock<VideoMotionDetector?>(initialState: nil)
   var videoMotionDetector: VideoMotionDetector? {
@@ -21,7 +21,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     set { _videoMotionDetector.withLock { $0 = newValue } }
   }
 
-  /// Optional ambient light detector — samples device exposure on every frame (internally throttled).
+  /// Optional ambient light detector — called every `luxFrameInterval` frames.
   /// Protected: written from server queue, read from captureQueue.
   private let _ambientLightDetector = OSAllocatedUnfairLock<AmbientLightDetector?>(
     initialState: nil)
@@ -60,6 +60,12 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   /// Keyframe interval counter — only accessed on captureQueue, no lock needed.
   /// Reset in start()/stop() before captureQueue delivers frames.
   private var encodeFrameCount: Int = 0
+
+  /// Frame counter for throttling motion/lux detection — captureQueue only.
+  /// Motion fires every 15 frames (~2fps at 30fps), lux every 60 (~0.5fps).
+  private var captureFrameCount: Int = 0
+  private let motionFrameInterval = 15
+  private let luxFrameInterval = 60
 
   init() {
     let sQueue = DispatchQueue(label: "me.fausak.taylor.Pylo.monitorSession")
@@ -166,9 +172,15 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     ]
     output.alwaysDiscardsLateVideoFrames = true
     let delegate = VideoCaptureDelegate { [weak self] pixelBuffer, pts in
-      self?.videoMotionDetector?.processPixelBuffer(pixelBuffer)
-      self?.ambientLightDetector?.sample()
-      self?.encodeFrame(pixelBuffer, pts: pts)
+      guard let self else { return }
+      self.captureFrameCount += 1
+      if self.captureFrameCount % self.motionFrameInterval == 0 {
+        self.videoMotionDetector?.processPixelBuffer(pixelBuffer)
+      }
+      if self.captureFrameCount % self.luxFrameInterval == 0 {
+        self.ambientLightDetector?.sample()
+      }
+      self.encodeFrame(pixelBuffer, pts: pts)
     }
     output.setSampleBufferDelegate(delegate, queue: captureQueue)
     if session.canAddOutput(output) { session.addOutput(output) }
@@ -247,6 +259,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       self.videoCaptureDelegate = delegate
     }
     encodeFrameCount = 0
+    captureFrameCount = 0
     fragmentWriter?.includeAudioTrack = audioReady
 
     sessionQueue.async {
