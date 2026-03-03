@@ -14,10 +14,17 @@ nonisolated final class MotionMonitor: @unchecked Sendable {
   }
 
   /// Whether the device has an accelerometer.
-  var isAvailable: Bool { motionManager.isAccelerometerAvailable }
+  /// Cached at init so it can be safely read from any queue (CMMotionManager is not thread-safe).
+  /// Safe: CMMotionManager init + isAccelerometerAvailable is a single-threaded read at init time,
+  /// before the instance is shared across queues.
+  let isAvailable: Bool
 
   private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "Motion")
   private let motionManager = CMMotionManager()
+
+  init() {
+    isAvailable = motionManager.isAccelerometerAvailable
+  }
 
   /// Acceleration delta from gravity (in g) required to trigger motion detected.
   var threshold: Double {
