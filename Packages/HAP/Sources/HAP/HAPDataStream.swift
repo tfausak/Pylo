@@ -202,19 +202,35 @@ public nonisolated final class HAPDataStream: @unchecked Sendable {
       "HDS keys derived: controllerSalt=\(controllerKeySalt.count)B, accessorySalt=\(accessoryKeySalt.count)B"
     )
 
-    let oldConn = stateLock.withLock { s -> HDSConnection? in
-      // Cancel any existing encrypted connection.
-      let old = s.connection
-      s.connection = nil
-
-      // Store keys -- typically the hub connects AFTER this HAP write completes,
-      // so the connection doesn't exist yet.  Keys are applied in
-      // newConnectionHandler when the TCP connection actually arrives.
+    // Typically the hub connects AFTER this HAP write completes, so the
+    // connection doesn't exist yet and keys are applied in newConnectionHandler.
+    // If the connection arrived first (reversed order), apply keys now.
+    let (oldConn, waitingConn) = stateLock.withLock { s -> (HDSConnection?, HDSConnection?) in
+      let existing = s.connection
+      let hasKeys = existing != nil && s.pendingReadKey == nil
+      if hasKeys {
+        // Connection arrived before keys — take it out to start below.
+        s.connection = nil
+      } else if existing != nil {
+        // Already-encrypted connection from a previous session — cancel it.
+        s.connection = nil
+      }
       s.pendingReadKey = readKey
       s.pendingWriteKey = writeKey
-      return old
+      return (hasKeys ? nil : existing, hasKeys ? existing : nil)
     }
     oldConn?.cancel()
+
+    if let conn = waitingConn {
+      conn.fragmentWriter = stateLock.withLock { $0.fragmentWriter }
+      conn.setupEncryption(readKey: readKey, writeKey: writeKey)
+      conn.start()
+      stateLock.withLock { s in
+        s.connection = conn
+        s.pendingReadKey = nil
+        s.pendingWriteKey = nil
+      }
+    }
 
     // Build response TLV (flat format matching HAP-NodeJS)
     let listenPort = port ?? 0
