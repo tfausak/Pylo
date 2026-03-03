@@ -87,6 +87,11 @@ public nonisolated final class HAPConnection: @unchecked Sendable {
     eventSubscriptions.remove(charID)
   }
 
+  public func clearEventSubscriptions() {
+    dispatchPrecondition(condition: .onQueue(queue))
+    eventSubscriptions.removeAll()
+  }
+
   public func start() {
     connection.stateUpdateHandler = { [weak self] state in
       guard let self else { return }

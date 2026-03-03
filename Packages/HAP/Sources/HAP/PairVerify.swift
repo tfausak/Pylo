@@ -204,6 +204,11 @@ public nonisolated enum PairVerifyHandler {
       connection.setPendingEncryptionContext(
         EncryptionContext(readKey: readKey, writeKey: writeKey))
 
+      // Clear event subscriptions from the previous session. Re-verification
+      // creates a new session with fresh keys; the controller must re-subscribe
+      // to any characteristics it wants events for (HAP §5.7, §6.8).
+      connection.clearEventSubscriptions()
+
       // Record which controller authenticated this session (for admin checks).
       // Normalize to uppercase to match PairingStore's case-insensitive keying,
       // so session termination on pairing removal (HAP §5.11) can match by ==.
