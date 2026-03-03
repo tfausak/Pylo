@@ -21,55 +21,93 @@ private func hapShortUUID(_ fullUUID: String) -> String {
 // MARK: - Service UUIDs
 
 nonisolated enum HKServiceUUID {
-  static let accessoryInformation = "3E"  // HMServiceTypeAccessoryInformation
-  static let lightbulb = "43"  // HMServiceTypeLightbulb
-  static let cameraRTPStreamManagement = "110"  // HMServiceTypeCameraRTPStreamManagement
-  static let microphone = "112"  // HMServiceTypeMicrophone
-  static let speaker = "113"  // HMServiceTypeSpeaker
-  static let motionSensor = "85"  // HMServiceTypeMotionSensor
-  static let lightSensor = "84"  // HMServiceTypeLightSensor
-  static let battery = "96"  // HMServiceTypeBattery
+  // HMServiceTypeAccessoryInformation
+  static let accessoryInformation = "3E"
+  // HMServiceTypeLightbulb
+  static let lightbulb = "43"
+  // HMServiceTypeCameraRTPStreamManagement
+  static let cameraRTPStreamManagement = "110"
+  // HMServiceTypeMicrophone
+  static let microphone = "112"
+  // HMServiceTypeSpeaker
+  static let speaker = "113"
+  // HMServiceTypeMotionSensor
+  static let motionSensor = "85"
+  // HMServiceTypeLightSensor
+  static let lightSensor = "84"
+  // HMServiceTypeBattery
+  static let battery = "96"
 }
 
 // MARK: - Characteristic UUIDs
 
 nonisolated enum HKCharacteristicUUID {
   // Accessory Information
-  static let identify = "14"  // HMCharacteristicTypeIdentify
-  static let manufacturer = "20"  // HMCharacteristicTypeManufacturer
-  static let model = "21"  // HMCharacteristicTypeModel
-  static let name = "23"  // HMCharacteristicTypeName
-  static let serialNumber = "30"  // HMCharacteristicTypeSerialNumber
-  static let firmwareRevision = "52"  // HMCharacteristicTypeFirmwareVersion
-  static let version = "37"  // HMCharacteristicTypeVersion
+
+  // HMCharacteristicTypeIdentify
+  static let identify = "14"
+  // HMCharacteristicTypeManufacturer
+  static let manufacturer = "20"
+  // HMCharacteristicTypeModel
+  static let model = "21"
+  // HMCharacteristicTypeName
+  static let name = "23"
+  // HMCharacteristicTypeSerialNumber
+  static let serialNumber = "30"
+  // HMCharacteristicTypeFirmwareVersion
+  static let firmwareRevision = "52"
+  // HMCharacteristicTypeVersion
+  static let version = "37"
 
   // Lightbulb
-  static let on = "25"  // HMCharacteristicTypePowerState
-  static let brightness = "8"  // HMCharacteristicTypeBrightness
+
+  // HMCharacteristicTypePowerState
+  static let on = "25"
+  // HMCharacteristicTypeBrightness
+  static let brightness = "8"
 
   // Camera RTP Stream
-  static let supportedVideoStreamConfig = "114"  // HMCharacteristicTypeSupportedVideoStreamConfiguration
-  static let supportedAudioStreamConfig = "115"  // HMCharacteristicTypeSupportedAudioStreamConfiguration
-  static let supportedRTPConfig = "116"  // HMCharacteristicTypeSupportedRTPConfiguration
-  static let selectedRTPStreamConfig = "117"  // HMCharacteristicTypeSelectedStreamConfiguration
-  static let setupEndpoints = "118"  // HMCharacteristicTypeSetupStreamEndpoint
-  static let streamingStatus = "120"  // HMCharacteristicTypeStreamingStatus
+
+  // HMCharacteristicTypeSupportedVideoStreamConfiguration
+  static let supportedVideoStreamConfig = "114"
+  // HMCharacteristicTypeSupportedAudioStreamConfiguration
+  static let supportedAudioStreamConfig = "115"
+  // HMCharacteristicTypeSupportedRTPConfiguration
+  static let supportedRTPConfig = "116"
+  // HMCharacteristicTypeSelectedStreamConfiguration
+  static let selectedRTPStreamConfig = "117"
+  // HMCharacteristicTypeSetupStreamEndpoint
+  static let setupEndpoints = "118"
+  // HMCharacteristicTypeStreamingStatus
+  static let streamingStatus = "120"
 
   // Audio
-  static let mute = "11A"  // HMCharacteristicTypeMute
-  static let volume = "119"  // HMCharacteristicTypeVolume
-  static let active = "B0"  // HMCharacteristicTypeActive
+
+  // HMCharacteristicTypeMute
+  static let mute = "11A"
+  // HMCharacteristicTypeVolume
+  static let volume = "119"
+  // HMCharacteristicTypeActive
+  static let active = "B0"
 
   // Motion Sensor
-  static let motionDetected = "22"  // HMCharacteristicTypeMotionDetected
+
+  // HMCharacteristicTypeMotionDetected
+  static let motionDetected = "22"
 
   // Light Sensor
-  static let currentAmbientLightLevel = "6B"  // HMCharacteristicTypeCurrentLightLevel
+
+  // HMCharacteristicTypeCurrentLightLevel
+  static let currentAmbientLightLevel = "6B"
 
   // Battery
-  static let batteryLevel = "68"  // HMCharacteristicTypeBatteryLevel
-  static let chargingState = "8F"  // HMCharacteristicTypeChargingState
-  static let statusLowBattery = "79"  // HMCharacteristicTypeStatusLowBattery
+
+  // HMCharacteristicTypeBatteryLevel
+  static let batteryLevel = "68"
+  // HMCharacteristicTypeChargingState
+  static let chargingState = "8F"
+  // HMCharacteristicTypeStatusLowBattery
+  static let statusLowBattery = "79"
 }
 
 // MARK: - Debug Verification
