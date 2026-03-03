@@ -458,6 +458,10 @@ public nonisolated final class HDSConnection: @unchecked Sendable {
   /// Split data into chunks and send as dataSend/data events.
   /// Uses manual byte construction to match positron's exact HDS encoding
   /// (fixed key ordering + DATA_LENGTH32LE for the data field).
+  ///
+  /// Each chunk requires two copies: one for message assembly (HDS framing
+  /// requires the complete message before encryption) and one for ChaCha20
+  /// encryption output. This is inherent to the protocol.
   private func sendDataChunks(_ data: Data, dataType: String, isLast: Bool) {
     guard let streamID = activeStreamID else { return }
     guard !data.isEmpty else {
