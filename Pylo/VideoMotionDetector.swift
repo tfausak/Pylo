@@ -53,8 +53,8 @@ nonisolated final class VideoMotionDetector {
   init() {}
 
   /// Process a pixel buffer for motion detection.
-  /// Safe to call from any queue — all mutable state is lock-protected and
-  /// vDSP scratch buffers are stack-local.
+  /// Safe to call from any queue — all mutable state is lock-protected.
+  /// Must not be called concurrently; scratch buffers are reused across calls.
   func processPixelBuffer(_ pixelBuffer: CVPixelBuffer) {
     // Skip frames to reduce CPU — only process every Nth frame.
     let shouldProcess = state.withLock { s -> Bool in
@@ -180,22 +180,25 @@ nonisolated final class VideoMotionDetector {
     return result
   }
 
+  // Reusable scratch buffers for computeChangeRatio — avoids 3 × 75KB
+  // heap allocations per processed frame.
+  private static let scratchCount = thumbWidth * thumbHeight
+  private var scratchPrev = [Float](repeating: 0, count: scratchCount)
+  private var scratchCurr = [Float](repeating: 0, count: scratchCount)
+  private var scratchDiff = [Float](repeating: 0, count: scratchCount)
+
   /// Compute the fraction of pixels that differ significantly between frames.
-  /// Uses local buffers — called only every `frameSkip` frames, so allocation is negligible.
+  /// Mutates scratch buffers in place — caller must ensure no concurrent access.
   private func computeChangeRatio(previous: [UInt8], current: [UInt8]) -> Float {
     let count = min(previous.count, current.count)
-    guard count > 0 else { return 0 }
+    guard count > 0, count <= Self.scratchCount else { return 0 }
 
-    var prevFloat = [Float](repeating: 0, count: count)
-    var currFloat = [Float](repeating: 0, count: count)
-    var diff = [Float](repeating: 0, count: count)
-
-    vDSP.convertElements(of: previous[0..<count], to: &prevFloat)
-    vDSP.convertElements(of: current[0..<count], to: &currFloat)
+    vDSP.convertElements(of: previous[0..<count], to: &scratchPrev)
+    vDSP.convertElements(of: current[0..<count], to: &scratchCurr)
 
     // Squared difference
-    vDSP.subtract(prevFloat, currFloat, result: &diff)
-    vDSP.square(diff, result: &diff)
+    vDSP.subtract(scratchPrev, scratchCurr, result: &scratchDiff)
+    vDSP.square(scratchDiff, result: &scratchDiff)
 
     // Count pixels where squared difference exceeds threshold (e.g., 25^2 = 625)
     // A pixel value change of 25 out of 255 is considered significant.
@@ -203,14 +206,14 @@ nonisolated final class VideoMotionDetector {
     // then count non-zero entries.
     let pixelThreshold: Float = 625.0
     var negThreshold = -pixelThreshold
-    vDSP_vsadd(diff, 1, &negThreshold, &diff, 1, vDSP_Length(count))
+    vDSP_vsadd(scratchDiff, 1, &negThreshold, &scratchDiff, 1, vDSP_Length(count))
     var lo: Float = 0
     var hi: Float = 1.0
     // Clip to [0, 1] — below-threshold → 0, above-threshold → 1
-    vDSP_vclip(diff, 1, &lo, &hi, &diff, 1, vDSP_Length(count))
+    vDSP_vclip(scratchDiff, 1, &lo, &hi, &scratchDiff, 1, vDSP_Length(count))
     // Sum the 0/1 vector to get the count of changed pixels
     var changedCount: Float = 0
-    vDSP_sve(diff, 1, &changedCount, vDSP_Length(count))
+    vDSP_sve(scratchDiff, 1, &changedCount, vDSP_Length(count))
 
     return changedCount / Float(count)
   }
