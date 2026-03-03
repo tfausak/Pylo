@@ -355,6 +355,7 @@ extension CameraStreamSession {
 
   /// Called by GCD read source when data is available on the audio socket.
   nonisolated func readAudioSocket() {
+    guard audioSocketFD >= 0 else { return }
     var buf = [UInt8](repeating: 0, count: 2048)
     while true {
       let n = recv(audioSocketFD, &buf, buf.count, 0)
