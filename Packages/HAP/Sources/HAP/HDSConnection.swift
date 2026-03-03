@@ -464,7 +464,7 @@ public nonisolated final class HDSConnection: @unchecked Sendable {
 
     while offset < data.count {
       let end = min(offset + maxChunk, data.count)
-      let chunk = Data(data[offset..<end])
+      let chunk = data[offset..<end]
       let isLastChunk = end >= data.count
 
       let message = buildRawDataSendEvent(
