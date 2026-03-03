@@ -5,6 +5,9 @@ import Foundation
 extension CameraStreamSession {
 
   /// Builds a 28-byte RTCP Sender Report (RFC 3550 §6.4.1).
+  /// Note: RFC 3550 §6.1 requires compound RTCP (SR + SDES with CNAME), but
+  /// HomeKit implementations tolerate SR-only packets, and SRTCP does not
+  /// require CNAME. Omitting SDES keeps the packet minimal.
   nonisolated static func buildRTCPSenderReport(
     ssrc: UInt32,
     rtpTimestamp: UInt32,
