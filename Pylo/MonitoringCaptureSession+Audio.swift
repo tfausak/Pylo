@@ -33,12 +33,10 @@ extension MonitoringCaptureSession {
       return
     }
 
-    // Accumulate PCM and encode when we have enough for an AAC-ELD frame
-    withState { $0.pcmAccumulator.append(pcmFloat32) }
+    // Accumulate PCM and extract complete AAC-ELD frames under a single lock.
     let frameSizeBytes = aacFrameSamples * 4  // 480 samples * 4 bytes/sample (Float32)
-
-    // Extract all complete frames under a single lock acquisition, then encode outside.
     let frames: [Data] = withState { state in
+      state.pcmAccumulator.append(pcmFloat32)
       var result: [Data] = []
       var offset = state.pcmAccumulator.startIndex
       while offset + frameSizeBytes <= state.pcmAccumulator.endIndex {
@@ -51,13 +49,11 @@ extension MonitoringCaptureSession {
       return result
     }
     for frameData in frames {
-      encodeAndAppendAudioFrame(frameData)
+      encodeAndAppendAudioFrame(frameData, converter: converter!)
     }
   }
 
-  private nonisolated func encodeAndAppendAudioFrame(_ pcmData: Data) {
-    let converter = withState { $0.audioConverter }
-    guard let converter else { return }
+  private nonisolated func encodeAndAppendAudioFrame(_ pcmData: Data, converter: AudioConverterRef) {
 
     let outputBufferSize = 1024
     let aacData: Data? = withUnsafeTemporaryAllocation(
