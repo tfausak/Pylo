@@ -42,6 +42,8 @@ public nonisolated enum PairVerifyHandler {
   // Controller sends its ephemeral Curve25519 public key.
   // Accessory generates its own ephemeral key, computes shared secret,
   // derives session key, signs, encrypts, and responds.
+  // Note: re-verification on an already-encrypted session is allowed by the
+  // HAP spec — it simply derives new transport keys, replacing the old ones.
 
   private static func handleM1(tlv: [TLV8.Tag: Data], connection: HAPConnection, server: HAPServer)
     -> HTTPResponse
