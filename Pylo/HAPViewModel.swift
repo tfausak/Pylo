@@ -181,9 +181,7 @@ final class HAPViewModel {
     hasPairings = UserDefaults.standard.bool(forKey: "hasPairings")
     isRestoring = false
 
-    if UserDefaults.standard.bool(forKey: "hasStartedBefore") {
-      start()
-    }
+    start()
   }
 
   @MainActor
@@ -349,7 +347,6 @@ final class HAPViewModel {
       self.isStarting = false
       self.statusMessage =
         "Advertising as '\(setup.bridge.name)'\nDevice ID: \(setup.server.deviceIdentity.deviceID)"
-      UserDefaults.standard.set(true, forKey: "hasStartedBefore")
 
       if config.motionEnabled {
         setup.motionMonitor.start()
