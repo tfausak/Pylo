@@ -209,6 +209,7 @@ public nonisolated final class HAPServer: @unchecked Sendable {
   }
 
   /// Look up an accessory by its aid.
+  /// Thread-safe: `accessories` is only written during `init` and is read-only thereafter.
   public func accessory(aid: Int) -> HAPAccessoryProtocol? {
     accessories[aid]
   }

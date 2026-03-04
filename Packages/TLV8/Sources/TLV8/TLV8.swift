@@ -139,8 +139,7 @@ public nonisolated enum TLV8 {
       if tag == .separator {
         // Separators must always be empty (FF 00). Discard any data payload.
         if !value.isEmpty {
-          Logger(subsystem: "me.fausak.taylor.Pylo", category: "TLV8")
-            .warning("Non-empty separator value (\(value.count)B) discarded — encoding as FF 00")
+          logger.warning("Non-empty separator value (\(value.count)B) discarded — encoding as FF 00")
         }
         result.append(Tag.separator.rawValue)
         result.append(0)
@@ -148,8 +147,7 @@ public nonisolated enum TLV8 {
       }
 
       if value.isEmpty {
-        Logger(subsystem: "me.fausak.taylor.Pylo", category: "TLV8")
-          .warning("Zero-length TLV value for non-separator tag \(tag.rawValue) — likely a bug")
+        logger.warning("Zero-length TLV value for non-separator tag \(tag.rawValue) — likely a bug")
         result.append(tag.rawValue)
         result.append(0)
         continue

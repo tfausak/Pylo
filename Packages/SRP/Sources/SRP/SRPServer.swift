@@ -207,8 +207,9 @@ public nonisolated final class SRPServer {
   /// Verifies the client's proof M1 and returns the server's proof M2.
   /// Returns nil if verification fails (wrong password).
   public func verifyClientProof(_ clientProof: Data) -> Data? {
-    // Validate proof length before constant-time comparison to avoid
-    // a timing-distinguishable early return on length mismatch.
+    // constantTimeEqual requires equal-length inputs. HAP always sends
+    // fixed-size (64-byte SHA-512) proofs, so a length mismatch indicates
+    // a protocol error, not a timing oracle.
     guard clientProof.count == SHA512.byteCount else { return nil }
 
     // Snapshot the mutable state under the lock.

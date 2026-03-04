@@ -76,10 +76,14 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   /// AAC-ELD frame size in samples (480 for 16kHz).
   let aacFrameSamples = 480
 
+  // @unchecked Sendable because VTCompressionSession and AudioConverterRef are
+  // non-Sendable CFTypeRefs. Accesses to these fields use withLockUnchecked
+  // (to bypass the Sendable return-type check), while Sendable fields like
+  // captureSession use the regular withLock.
   struct State: @unchecked Sendable {
     var captureSession: AVCaptureSession?
-    var compressionSession: VTCompressionSession?
-    var audioConverter: AudioConverterRef?
+    var compressionSession: VTCompressionSession?  // non-Sendable → withLockUnchecked
+    var audioConverter: AudioConverterRef?          // non-Sendable → withLockUnchecked
     var pcmAccumulator = Data()
     // Strong references to delegates to prevent premature deallocation.
     // Stored as AnyObject to avoid exposing file-private delegate types.
