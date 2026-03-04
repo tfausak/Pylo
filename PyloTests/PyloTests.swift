@@ -128,7 +128,8 @@ struct HAPAccessoryTests {
     #expect(json["aid"] as? Int == 7)
 
     let services = json["services"] as! [[String: Any]]
-    #expect(services.count == 2)
+    // Accessory Info + Lightbulb + Battery = 3 services
+    #expect(services.count == 3)
 
     // Accessory Information service
     #expect(services[0]["type"] as? String == "3E")
@@ -152,6 +153,9 @@ struct HAPAccessoryTests {
     #expect(brightChar["minValue"] as? Int == 0)
     #expect(brightChar["maxValue"] as? Int == 100)
     #expect(brightChar["unit"] as? String == "percentage")
+
+    // Battery service (always included for stable c# hashing)
+    #expect(services[2]["type"] as? String == BatteryUUID.service)
   }
 }
 
