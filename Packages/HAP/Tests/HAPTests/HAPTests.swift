@@ -1693,7 +1693,7 @@ struct AdminPairingManagementTests {
   func isPairedFalseAfterRemoveAll() {
     let store = PairingStore(testPairings: [
       "ADMIN": PairingStore.Pairing(
-        identifier: "ADMIN", publicKey: Data(repeating: 0xAA, count: 32), isAdmin: true),
+        identifier: "ADMIN", publicKey: Data(repeating: 0xAA, count: 32), isAdmin: true)
     ])
     #expect(store.isPaired)
     store.removeAll()
