@@ -1626,10 +1626,10 @@ struct PairSetupSessionPhaseTests {
   }
 }
 
-// MARK: - Last-Admin Removal Guard Tests
+// MARK: - Admin Pairing Management Tests
 
-@Suite("Last-Admin Removal Guard")
-struct LastAdminRemovalGuardTests {
+@Suite("Admin Pairing Management")
+struct AdminPairingManagementTests {
 
   @Test("adminCount returns count of admin pairings")
   func adminCountReflectsAdminPairings() {
@@ -1666,5 +1666,55 @@ struct LastAdminRemovalGuardTests {
     #expect(store.adminCount == 2)
     store.removePairing(identifier: "A1")
     #expect(store.adminCount == 1)
+  }
+
+  // HAP spec §5.11: removing the last admin must clear all pairings.
+  // PairingsHandler calls removeAll() when it detects last-admin removal;
+  // these tests verify the PairingStore primitives that support that flow.
+
+  @Test("removeAll clears all pairings including non-admin")
+  func removeAllClearsEverything() {
+    let store = PairingStore(testPairings: [
+      "ADMIN": PairingStore.Pairing(
+        identifier: "ADMIN", publicKey: Data(repeating: 0xAA, count: 32), isAdmin: true),
+      "HUB-1": PairingStore.Pairing(
+        identifier: "HUB-1", publicKey: Data(repeating: 0xBB, count: 32), isAdmin: false),
+      "HUB-2": PairingStore.Pairing(
+        identifier: "HUB-2", publicKey: Data(repeating: 0xCC, count: 32), isAdmin: false),
+    ])
+    #expect(store.isPaired)
+    store.removeAll()
+    #expect(!store.isPaired)
+    #expect(store.pairings.isEmpty)
+    #expect(store.adminCount == 0)
+  }
+
+  @Test("isPaired returns false after removeAll")
+  func isPairedFalseAfterRemoveAll() {
+    let store = PairingStore(testPairings: [
+      "ADMIN": PairingStore.Pairing(
+        identifier: "ADMIN", publicKey: Data(repeating: 0xAA, count: 32), isAdmin: true),
+    ])
+    #expect(store.isPaired)
+    store.removeAll()
+    #expect(!store.isPaired)
+  }
+
+  @Test("addPairingIfUnpaired succeeds after removeAll")
+  func canRepairAfterRemoveAll() {
+    let store = PairingStore(testPairings: [
+      "OLD-ADMIN": PairingStore.Pairing(
+        identifier: "OLD-ADMIN", publicKey: Data(repeating: 0xAA, count: 32), isAdmin: true),
+      "HUB": PairingStore.Pairing(
+        identifier: "HUB", publicKey: Data(repeating: 0xBB, count: 32), isAdmin: false),
+    ])
+    store.removeAll()
+
+    let newPairing = PairingStore.Pairing(
+      identifier: "NEW-ADMIN", publicKey: Data(repeating: 0xDD, count: 32), isAdmin: true)
+    let added = store.addPairingIfUnpaired(newPairing)
+    #expect(added)
+    #expect(store.pairings.count == 1)
+    #expect(store.getPairing(identifier: "NEW-ADMIN")?.isAdmin == true)
   }
 }

@@ -101,15 +101,22 @@ public nonisolated enum PairingsHandler {
       return errorResponse(error: .unknown)
     }
 
-    // HAP spec §5.11: do not allow removal of the last admin pairing.
+    // HAP spec §5.11: if removing the last admin, remove ALL pairings
+    // and return the accessory to unpaired state. Without this, removing
+    // an accessory from Home.app leaves stale hub pairings on the device,
+    // blocking re-pairing (isPaired stays true) while no controller can
+    // pair-verify (their identifiers don't match the stale entries).
+    let isLastAdmin: Bool
     if let target = server.pairingStore.getPairing(identifier: id),
       target.isAdmin, server.pairingStore.adminCount <= 1
     {
-      logger.warning("Rejected removal of last admin pairing: \(id)")
-      return errorResponse(error: .authentication)
+      isLastAdmin = true
+      logger.info("Removing last admin pairing — clearing all pairings")
+      server.pairingStore.removeAll()
+    } else {
+      isLastAdmin = false
+      server.pairingStore.removePairing(identifier: id)
     }
-
-    server.pairingStore.removePairing(identifier: id)
 
     // HAP spec §5.11: terminate sessions for the removed controller.
     // Use a short delay to ensure the M2 response bytes are flushed
@@ -117,8 +124,9 @@ public nonisolated enum PairingsHandler {
     // Normalize to uppercase to match verifiedControllerID (set in PairVerify).
     server.terminateSessionsAfterResponse(forController: id.uppercased())
 
-    // If no pairings remain, update advertisement
-    if !server.pairingStore.isPaired {
+    // If last admin was removed (all pairings cleared) or no pairings
+    // remain, update advertisement to indicate unpaired state.
+    if isLastAdmin || !server.pairingStore.isPaired {
       server.updateAdvertisement()
     }
 
