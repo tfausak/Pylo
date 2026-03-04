@@ -106,9 +106,9 @@ struct HAPAccessoryTests {
   @Test("State change callback fires on write")
   func stateChangeCallback() {
     let accessory = HAPAccessory(aid: 2)
-    var callbackCalled = false
-    var receivedAid = 0
-    var receivedIid = 0
+    nonisolated(unsafe) var callbackCalled = false
+    nonisolated(unsafe) var receivedAid = 0
+    nonisolated(unsafe) var receivedIid = 0
     accessory.onStateChange = { aid, iid, _ in
       callbackCalled = true
       receivedAid = aid
