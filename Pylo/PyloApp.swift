@@ -61,9 +61,9 @@ struct PyloApp: App {
       // because the App struct lives for the entire process lifetime and orientation
       // data is needed continuously for camera stream rotation.
       UIDevice.current.beginGeneratingDeviceOrientationNotifications()
-      // Seed the orientation cache while on MainActor so its lazy token
-      // init reads UIDevice.current.orientation safely.
-      _ = DeviceOrientationCache.current
+      // Seed the orientation cache on MainActor so it reads
+      // UIDevice.current.orientation safely before any background access.
+      DeviceOrientationCache.seed()
     #endif
     verifyHomeKitUUIDs()
   }

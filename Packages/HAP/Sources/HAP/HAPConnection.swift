@@ -194,6 +194,10 @@ public nonisolated final class HAPConnection: @unchecked Sendable {
         logger.info("\(request.method) \(request.path)")
         if let response = routeRequest(request) {
           sendResponse(response)
+        } else {
+          // Async handler owns the response — stop parsing until it calls
+          // receiveNextRequest(). Matches the encrypted path behavior.
+          return true
         }
       case .needsMoreData:
         return true

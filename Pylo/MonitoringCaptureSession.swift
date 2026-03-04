@@ -253,9 +253,11 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     }
     fragmentWriter?.includeAudioTrack = audioReady
 
-    // Reset frame counters on captureQueue before starting the session
-    // to ensure encodeFrameCount starts at 0 (keyframe on first frame).
-    captureQueue.async { [self] in
+    // Reset frame counters on captureQueue synchronously before starting the
+    // session to guarantee they are zeroed before the first frame arrives.
+    // Using async here would race with sessionQueue.async { startRunning() }
+    // since the two queues have no ordering guarantee.
+    captureQueue.sync { [self] in
       encodeFrameCount = 0
       captureFrameCount = 0
     }
