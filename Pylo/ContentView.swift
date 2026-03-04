@@ -58,6 +58,9 @@ struct ContentView: View {
       if isScreenDimmed {
         Color.black
           .ignoresSafeArea()
+          .accessibilityLabel("Screen dimmed")
+          .accessibilityHint("Tap to wake")
+          .accessibilityAddTraits(.isButton)
           .onTapGesture { resetDimTimer() }
       }
     }
@@ -105,6 +108,7 @@ struct ContentView: View {
     HStack(spacing: 6) {
       Image(systemName: running ? "checkmark.circle.fill" : "bolt.fill")
         .foregroundStyle(running ? .green : .orange)
+        .accessibilityHidden(true)
       Text(running ? "Running" : "Starting")
         .font(.subheadline)
         .foregroundStyle(.secondary)

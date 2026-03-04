@@ -14,10 +14,12 @@ struct PairingView: View {
           .resizable()
           .scaledToFit()
           .frame(width: 200, height: 200)
+          .accessibilityLabel("HomeKit setup QR code")
       } else {
         RoundedRectangle(cornerRadius: 12)
           .fill(.quaternary)
           .frame(width: 200, height: 200)
+          .accessibilityLabel("Loading QR code")
       }
 
       Text(viewModel.setupCode)

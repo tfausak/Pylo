@@ -14,10 +14,11 @@ struct AccessoryCard<Content: View>: View {
           .font(.title3)
           .foregroundStyle(isOn ? Color.accentColor : Color.secondary)
           .frame(width: 28)
+          .accessibilityHidden(true)
         Text(title)
           .font(.headline)
         Spacer()
-        Toggle("", isOn: $isOn)
+        Toggle(title, isOn: $isOn)
           .labelsHidden()
       }
       .padding()
