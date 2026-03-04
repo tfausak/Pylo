@@ -33,7 +33,8 @@ public nonisolated enum AUHeader {
       return payload
     }
     // Validate AU-size (upper 13 bits of bytes 2-3) matches remaining payload
-    let auSizeBits = UInt16(payload[payload.startIndex + 2]) << 8
+    let auSizeBits =
+      UInt16(payload[payload.startIndex + 2]) << 8
       | UInt16(payload[payload.startIndex + 3])
     let auSize = Int(auSizeBits >> 3)
     guard auSize == payload.count - 4 else { return payload }

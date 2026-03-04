@@ -83,7 +83,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   struct State: @unchecked Sendable {
     var captureSession: AVCaptureSession?
     var compressionSession: VTCompressionSession?  // non-Sendable → withLockUnchecked
-    var audioConverter: AudioConverterRef?          // non-Sendable → withLockUnchecked
+    var audioConverter: AudioConverterRef?  // non-Sendable → withLockUnchecked
     var pcmAccumulator = Data()
     // Strong references to delegates to prevent premature deallocation.
     // Stored as AnyObject to avoid exposing file-private delegate types.

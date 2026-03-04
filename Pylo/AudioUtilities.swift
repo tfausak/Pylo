@@ -38,9 +38,10 @@ nonisolated func convertToFloat32At16kHz(
           let src = ptr.assumingMemoryBound(to: Float.self).baseAddress!
           var scale = 1.0 / Float(sourceChannels)
           for ch in 0..<sourceChannels {
-            vDSP_vsma(src + ch, vDSP_Stride(sourceChannels),
-                      &scale, dst.baseAddress!, 1, dst.baseAddress!, 1,
-                      vDSP_Length(totalFrames))
+            vDSP_vsma(
+              src + ch, vDSP_Stride(sourceChannels),
+              &scale, dst.baseAddress!, 1, dst.baseAddress!, 1,
+              vDSP_Length(totalFrames))
           }
         }
       }
@@ -50,8 +51,9 @@ nonisolated func convertToFloat32At16kHz(
     // Vectorized Int16 → Float conversion
     var allFloat = [Float](unsafeUninitializedCapacity: int16Count) { buf, count in
       data.withUnsafeBytes { ptr in
-        vDSP_vflt16(ptr.assumingMemoryBound(to: Int16.self).baseAddress!, 1,
-                    buf.baseAddress!, 1, vDSP_Length(int16Count))
+        vDSP_vflt16(
+          ptr.assumingMemoryBound(to: Int16.self).baseAddress!, 1,
+          buf.baseAddress!, 1, vDSP_Length(int16Count))
       }
       count = int16Count
     }
@@ -68,9 +70,10 @@ nonisolated func convertToFloat32At16kHz(
       monoFloat.withUnsafeMutableBufferPointer { dst in
         allFloat.withUnsafeBufferPointer { src in
           for ch in 0..<sourceChannels {
-            vDSP_vsma(src.baseAddress! + ch, vDSP_Stride(sourceChannels),
-                      &scale, dst.baseAddress!, 1, dst.baseAddress!, 1,
-                      vDSP_Length(totalFrames))
+            vDSP_vsma(
+              src.baseAddress! + ch, vDSP_Stride(sourceChannels),
+              &scale, dst.baseAddress!, 1, dst.baseAddress!, 1,
+              vDSP_Length(totalFrames))
           }
         }
       }
@@ -97,8 +100,9 @@ nonisolated func convertToFloat32At16kHz(
       count = outputCount
     }
     var resampled = [Float](repeating: 0, count: outputCount)
-    vDSP_vlint(&monoFloat, &control, 1, &resampled, 1,
-               vDSP_Length(outputCount), vDSP_Length(monoFloat.count))
+    vDSP_vlint(
+      &monoFloat, &control, 1, &resampled, 1,
+      vDSP_Length(outputCount), vDSP_Length(monoFloat.count))
     monoFloat = resampled
   }
 

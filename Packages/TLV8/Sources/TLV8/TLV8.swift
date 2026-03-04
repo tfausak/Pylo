@@ -139,7 +139,8 @@ public nonisolated enum TLV8 {
       if tag == .separator {
         // Separators must always be empty (FF 00). Discard any data payload.
         if !value.isEmpty {
-          logger.warning("Non-empty separator value (\(value.count)B) discarded — encoding as FF 00")
+          logger.warning(
+            "Non-empty separator value (\(value.count)B) discarded — encoding as FF 00")
         }
         result.append(Tag.separator.rawValue)
         result.append(0)

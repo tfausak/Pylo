@@ -167,7 +167,10 @@ nonisolated final class HAPAccessory: HAPAccessoryProtocol, @unchecked Sendable 
 
   /// Cancel any in-progress identify blink.
   func cancelIdentify() {
-    _identifyTask.withLock { $0?.cancel(); $0 = nil }
+    _identifyTask.withLock {
+      $0?.cancel()
+      $0 = nil
+    }
   }
 
   // MARK: - Torch Control
