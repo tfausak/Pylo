@@ -67,6 +67,15 @@ struct AUHeaderTests {
     #expect(result == short)
   }
 
+  @Test("strip() does not false-positive on AAC data starting with 0x00 0x10")
+  func stripFalsePositive() {
+    // An AAC frame whose first two bytes happen to be 0x00, 0x10 but whose
+    // AU-size field (bytes 2-3) does not match the remaining payload length.
+    let aacFrame = Data([0x00, 0x10, 0xFF, 0xFE, 0xAA, 0xBB, 0xCC])
+    let result = AUHeader.strip(from: aacFrame)
+    #expect(result == aacFrame, "Should not strip data that merely starts with 0x00 0x10")
+  }
+
   @Test("add() with empty payload")
   func addEmpty() throws {
     let framed = try #require(AUHeader.add(to: Data()))

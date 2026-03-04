@@ -98,7 +98,8 @@ public nonisolated final class HAPServer: @unchecked Sendable {
     {
       var hash: UInt32 = 5381
       for byte in str.utf8 { hash = hash &* 33 &+ UInt32(byte) }
-      self.configurationNumber = hash == 0 ? 1 : Int(hash)
+      // HAP spec §6.6.1: c# must be in range 1–65535 (uint16).
+      self.configurationNumber = Int(hash % 65535) + 1
     }
   }
 

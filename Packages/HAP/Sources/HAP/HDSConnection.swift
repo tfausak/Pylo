@@ -126,7 +126,10 @@ public nonisolated final class HDSConnection: @unchecked Sendable {
         }
 
         guard let payload, payload.count == totalRead else {
-          if isPayloadComplete { self.cancel() }
+          // Always cancel on nil/short data — without this, a partial read
+          // with !isPayloadComplete leaves the connection with no further
+          // receives scheduled and no cleanup (limbo state).
+          self.cancel()
           return
         }
 
