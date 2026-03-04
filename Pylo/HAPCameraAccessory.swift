@@ -138,7 +138,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     set { streamState.withLock { $0.ambientLightDetector = newValue } }
   }
 
-  let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "Camera")
+  let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "Camera")
 
   /// Reusable CIContext for snapshot JPEG encoding (CIContext is expensive to allocate).
   let snapshotCIContext = CIContext()

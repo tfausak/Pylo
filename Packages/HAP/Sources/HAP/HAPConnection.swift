@@ -15,7 +15,7 @@ public nonisolated final class HAPConnection: @unchecked Sendable {
   private let connection: NWConnection
   private weak var server: HAPServer?
   private let queue: DispatchQueue
-  private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "Connection")
+  private let logger = Logger(subsystem: logSubsystem, category: "Connection")
 
   // All mutable state below is accessed exclusively on `queue`. The properties
   // use private(set) to enforce that external callers use the setter methods,

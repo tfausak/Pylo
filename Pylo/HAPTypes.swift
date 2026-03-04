@@ -6,10 +6,10 @@ import os
 
 nonisolated enum KeychainHelper {
 
-  private static let service = "me.fausak.taylor.Pylo"
+  private static let service = Bundle.main.bundleIdentifier!
   private static let signingKeyAccount = "device-signing-key"
   private static let deviceIDAccount = "device-id"
-  private static let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "Keychain")
+  private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "Keychain")
 
   @discardableResult
   static func save(

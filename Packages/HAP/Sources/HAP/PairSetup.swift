@@ -75,7 +75,7 @@ public nonisolated final class PairSetupThrottle: @unchecked Sendable {
 
 public nonisolated enum PairSetupHandler {
 
-  private static let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "PairSetup")
+  private static let logger = Logger(subsystem: logSubsystem, category: "PairSetup")
 
   /// Rate limiter for pair-setup attempts (shared across all connections).
   public static let throttle = PairSetupThrottle()

@@ -25,7 +25,7 @@ nonisolated final class VideoMotionDetector {
     set { state.withLock { $0.cooldown = newValue } }
   }
 
-  private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "VideoMotion")
+  private let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "VideoMotion")
 
   // Target thumbnail dimensions for comparison
   private static let thumbWidth = 160

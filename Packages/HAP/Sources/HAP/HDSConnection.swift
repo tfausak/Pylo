@@ -15,7 +15,7 @@ public nonisolated final class HDSConnection: @unchecked Sendable {
 
   private let connection: NWConnection
   private let queue: DispatchQueue
-  private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "HDSConn")
+  private let logger = Logger(subsystem: logSubsystem, category: "HDSConn")
 
   // Encryption keys — set once in setupEncryption (on queue), then read-only.
   private var readKey: SymmetricKey?

@@ -15,7 +15,7 @@ nonisolated final class HAPAccessory: HAPAccessoryProtocol, @unchecked Sendable 
   let firmwareRevision: String
   let aid: Int
 
-  private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "Accessory")
+  private let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "Accessory")
 
   // MARK: - Lightbulb State
 

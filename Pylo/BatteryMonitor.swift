@@ -11,7 +11,7 @@ import os
   /// Whether the device reports a valid battery level (false on Mac Catalyst / Simulator without battery).
   private(set) var isAvailable = false
 
-  private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "Battery")
+  private let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "Battery")
 
   /// Low battery threshold (percentage).
   private let lowThreshold = 20

@@ -25,7 +25,7 @@ nonisolated final class AmbientLightDetector {
   }
   private let state = OSAllocatedUnfairLock(initialState: State())
 
-  private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "AmbientLight")
+  private let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "AmbientLight")
 
   var currentLux: Float {
     state.withLock { $0.currentLux }

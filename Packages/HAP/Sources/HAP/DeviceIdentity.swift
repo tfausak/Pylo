@@ -7,7 +7,7 @@ import os
 
 public nonisolated final class DeviceIdentity: @unchecked Sendable {
 
-  private static let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "Identity")
+  private static let logger = Logger(subsystem: logSubsystem, category: "Identity")
 
   /// Persistent Ed25519 signing key.
   public let signingKey: Curve25519.Signing.PrivateKey

@@ -2,6 +2,8 @@ import CommonCrypto
 import Foundation
 import os
 
+private let logSubsystem = "me.fausak.taylor.Pylo"
+
 // MARK: - SRTP Context
 
 /// Minimal SRTP implementation using AES-128-ICM + HMAC-SHA1-80.
@@ -21,7 +23,7 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
   private let srtcpSalt: Data  // salting_key,   label 0x05
   private let srtcpAuthKey: Data  // message_auth,  label 0x04
 
-  private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "SRTP")
+  private let logger = Logger(subsystem: logSubsystem, category: "SRTP")
 
   // Mutable state protected by a lock to prevent data races when
   // protect/unprotect are called from concurrent threads.
@@ -69,7 +71,7 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
 
   /// Verify key derivation against RFC 3711 Appendix B.3 test vectors.
   private static func runSelfTest() {
-    let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "SRTP")
+    let logger = Logger(subsystem: logSubsystem, category: "SRTP")
     let testKey = Data([
       0xE1, 0xF9, 0x7A, 0x0D, 0x3E, 0x01, 0x8B, 0xE0,
       0xD6, 0x4F, 0xA3, 0x2C, 0x06, 0xDE, 0x41, 0x39,

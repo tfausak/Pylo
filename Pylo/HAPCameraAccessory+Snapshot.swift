@@ -62,7 +62,8 @@ extension HAPCameraAccessory {
     // Skip early frames so auto-exposure has time to converge; the very
     // first frames from a cold-started session are often black/dark.
     let grabber = FrameGrabber(framesToSkip: 10, context: snapshotCIContext)
-    let queue = DispatchQueue(label: "me.fausak.taylor.Pylo.snapshot", qos: .userInteractive)
+    let queue = DispatchQueue(
+      label: "\(Bundle.main.bundleIdentifier!).snapshot", qos: .userInteractive)
     videoOutput.setSampleBufferDelegate(grabber, queue: queue)
 
     session.startRunning()

@@ -1,6 +1,8 @@
 import CoreMedia
 import os
 
+private let logSubsystem = "me.fausak.taylor.Pylo"
+
 // MARK: - Fragment Ring Buffer
 
 /// A completed fMP4 fragment ready for serving via HDS.
@@ -108,7 +110,7 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     set { _onFragmentReady.withLockUnchecked { $0.handler = newValue } }
   }
 
-  private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "fMP4Writer")
+  private let logger = Logger(subsystem: logSubsystem, category: "fMP4Writer")
 
   /// Minimum elapsed time before emitting a fragment at the next keyframe.
   /// Set below the hub's 4000ms fragment limit so we don't overshoot when

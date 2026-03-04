@@ -8,7 +8,7 @@ import os
 
 public nonisolated enum PairingsHandler {
 
-  private static let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "Pairings")
+  private static let logger = Logger(subsystem: logSubsystem, category: "Pairings")
 
   // Pairing methods
   private static let methodAddPairing: UInt8 = 3

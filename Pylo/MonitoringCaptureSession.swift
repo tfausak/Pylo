@@ -47,7 +47,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     set { _audioRecordingEnabled.withLock { $0 = newValue } }
   }
 
-  let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "MonitoringCapture")
+  let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "MonitoringCapture")
 
   /// Serial queue for AVCaptureSession start/stop — these are not thread-safe.
   private let sessionQueue: DispatchQueue
@@ -67,10 +67,10 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   private let luxFrameInterval = 60
 
   init() {
-    let sQueue = DispatchQueue(label: "me.fausak.taylor.Pylo.monitorSession")
+    let sQueue = DispatchQueue(label: "\(Bundle.main.bundleIdentifier!).monitorSession")
     sQueue.setSpecific(key: sessionQueueKey, value: true)
     self.sessionQueue = sQueue
-    self.captureQueue = DispatchQueue(label: "me.fausak.taylor.Pylo.monitorCapture")
+    self.captureQueue = DispatchQueue(label: "\(Bundle.main.bundleIdentifier!).monitorCapture")
   }
 
   /// AAC-ELD frame size in samples (480 for 16kHz).

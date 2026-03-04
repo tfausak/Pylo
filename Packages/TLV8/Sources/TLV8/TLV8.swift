@@ -1,6 +1,8 @@
 import Foundation
 import os
 
+private let logSubsystem = "me.fausak.taylor.Pylo"
+
 // MARK: - TLV8 Codec
 // HomeKit Accessory Protocol uses TLV8 (Type-Length-Value, 8-bit) encoding
 // for pairing data exchange. Values longer than 255 bytes are split across
@@ -43,7 +45,7 @@ public nonisolated enum TLV8 {
 
   // MARK: - Decode
 
-  private static let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "TLV8")
+  private static let logger = Logger(subsystem: logSubsystem, category: "TLV8")
 
   /// Decodes a TLV8-encoded Data blob into an ordered list of (tag, value) pairs.
   /// Consecutive items with the same tag are coalesced (fragmented values).

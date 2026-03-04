@@ -3,6 +3,8 @@ import Foundation
 import SRP
 import os
 
+let logSubsystem = "me.fausak.taylor.Pylo"
+
 // MARK: - Encryption Context
 // After pair-verify succeeds, this handles encrypting/decrypting HAP frames
 // using ChaCha20-Poly1305 with incrementing nonce counters.
@@ -12,7 +14,7 @@ public nonisolated final class EncryptionContext: @unchecked Sendable {
   private let readKey: SymmetricKey  // Controller-to-Accessory
   private let writeKey: SymmetricKey  // Accessory-to-Controller
   private let counters = OSAllocatedUnfairLock(initialState: (read: UInt64(0), write: UInt64(0)))
-  private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "Crypto")
+  private let logger = Logger(subsystem: logSubsystem, category: "Crypto")
 
   public init(readKey: SymmetricKey, writeKey: SymmetricKey) {
     self.readKey = readKey

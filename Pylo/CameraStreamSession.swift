@@ -31,14 +31,14 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   let videoSSRC: UInt32
   let audioSSRC: UInt32
 
-  let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "CameraStream")
+  let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "CameraStream")
 
   // Video pipeline
   private var captureSession: AVCaptureSession?
   private var videoOutput: AVCaptureVideoDataOutput?
   private var compressionSession: VTCompressionSession?
-  let captureQueue = DispatchQueue(label: "me.fausak.taylor.Pylo.camera.capture")
-  let rtpQueue = DispatchQueue(label: "me.fausak.taylor.Pylo.camera.rtp")
+  let captureQueue = DispatchQueue(label: "\(Bundle.main.bundleIdentifier!).camera.capture")
+  let rtpQueue = DispatchQueue(label: "\(Bundle.main.bundleIdentifier!).camera.rtp")
 
   // Video UDP — BSD socket (immune to ICMP route-poisoning that kills NWConnection)
   private var videoSocketFD: Int32 = -1

@@ -14,7 +14,7 @@ import os
 public nonisolated enum CharacteristicsHandler {
 
   private static let logger = Logger(
-    subsystem: "me.fausak.taylor.Pylo", category: "Characteristics")
+    subsystem: logSubsystem, category: "Characteristics")
 
   public static func handleGet(request: HTTPRequest, server: HAPServer) -> HTTPResponse {
     // Parse query string: /characteristics?id=1.9,1.10

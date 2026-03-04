@@ -23,8 +23,8 @@ import os
 public nonisolated final class HAPServer: @unchecked Sendable {
 
   private let listener: NWListener
-  private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "Server")
-  private let queue = DispatchQueue(label: "me.fausak.taylor.Pylo.server")
+  private let logger = Logger(subsystem: logSubsystem, category: "Server")
+  private let queue = DispatchQueue(label: "\(logSubsystem).server")
   private let queueKey = DispatchSpecificKey<Bool>()
 
   /// Active connections keyed by a unique ID.

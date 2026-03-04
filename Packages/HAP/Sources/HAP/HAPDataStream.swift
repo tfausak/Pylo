@@ -12,7 +12,7 @@ import os
 /// derived from the HAP pair-verify shared secret.
 public nonisolated final class HAPDataStream: @unchecked Sendable {
 
-  private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "DataStream")
+  private let logger = Logger(subsystem: logSubsystem, category: "DataStream")
 
   /// All mutable state protected by stateLock, since setupTransport runs
   /// on the HAP queue and newConnectionHandler/listener callbacks run on
@@ -62,7 +62,7 @@ public nonisolated final class HAPDataStream: @unchecked Sendable {
     let params = NWParameters.tcp
     let listener = try NWListener(using: params)
 
-    let queue = DispatchQueue(label: "me.fausak.taylor.Pylo.datastream")
+    let queue = DispatchQueue(label: "\(logSubsystem).datastream")
 
     listener.stateUpdateHandler = { [weak self] state in
       switch state {

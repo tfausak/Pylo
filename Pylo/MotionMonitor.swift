@@ -19,7 +19,7 @@ nonisolated final class MotionMonitor: @unchecked Sendable {
   /// before the instance is shared across queues.
   let isAvailable: Bool
 
-  private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "Motion")
+  private let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "Motion")
   private let motionManager = CMMotionManager()
 
   init() {
@@ -46,7 +46,7 @@ nonisolated final class MotionMonitor: @unchecked Sendable {
 
   private let motionQueue: OperationQueue = {
     let q = OperationQueue()
-    q.name = "me.fausak.taylor.Pylo.motion"
+    q.name = "\(Bundle.main.bundleIdentifier!).motion"
     q.maxConcurrentOperationCount = 1
     return q
   }()

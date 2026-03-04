@@ -18,7 +18,7 @@ public nonisolated final class PairingStore: @unchecked Sendable {
     }
   }
 
-  private static let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "PairingStore")
+  private static let logger = Logger(subsystem: logSubsystem, category: "PairingStore")
 
   /// Called whenever pairings are added or removed.
   /// Protected by its own lock: set from @MainActor, called from the server queue.
