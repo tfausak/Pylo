@@ -33,6 +33,14 @@ struct AccessoryConfig: Equatable {
 @Observable @MainActor
 final class HAPViewModel {
 
+  /// App version + build number reported as firmware revision in HomeKit (e.g. "1.0-3").
+  nonisolated static let firmwareVersion: String = {
+    let info = Bundle.main.infoDictionary
+    let version = info?["CFBundleShortVersionString"] as? String ?? "0.0"
+    let build = info?["CFBundleVersion"] as? String ?? "0"
+    return "\(version)-\(build)"
+  }()
+
   init(skipRestore: Bool = false) {
     if !skipRestore {
       restorePreferences()
@@ -439,30 +447,31 @@ private struct ServerSetup: @unchecked Sendable {
 /// creation are the heaviest operations moved off MainActor.
 private nonisolated func createServerSetup(config: StartConfig) throws -> ServerSetup {
   let device = config.deviceModel  // "iPhone", "iPad", etc.
+  let fw = HAPViewModel.firmwareVersion
 
   let bridge = HAPBridgeInfo(
     name: "Pylo Bridge", model: "\(device) Bridge", manufacturer: "Pylo",
-    serialNumber: config.serial, firmwareRevision: "0.1.0"
+    serialNumber: config.serial, firmwareRevision: fw
   )
 
   let lightbulb = HAPAccessory(
     aid: 2, name: "Pylo Flashlight", model: "\(device) Light", manufacturer: "Pylo",
-    serialNumber: config.serial + "-light", firmwareRevision: "0.1.0"
+    serialNumber: config.serial + "-light", firmwareRevision: fw
   )
 
   let camera = HAPCameraAccessory(
     aid: 3, name: "Pylo Camera", model: "\(device) Camera", manufacturer: "Pylo",
-    serialNumber: config.serial + "-cam", firmwareRevision: "0.1.0"
+    serialNumber: config.serial + "-cam", firmwareRevision: fw
   )
 
   let lightSensor = HAPLightSensorAccessory(
     aid: 4, name: "Pylo Light Sensor", model: "\(device) Light Sensor", manufacturer: "Pylo",
-    serialNumber: config.serial + "-light-sensor", firmwareRevision: "0.1.0"
+    serialNumber: config.serial + "-light-sensor", firmwareRevision: fw
   )
 
   let motionSensor = HAPMotionSensorAccessory(
     aid: 5, name: "Pylo Motion Sensor", model: "\(device) Motion Sensor", manufacturer: "Pylo",
-    serialNumber: config.serial + "-motion", firmwareRevision: "0.1.0"
+    serialNumber: config.serial + "-motion", firmwareRevision: fw
   )
 
   // File I/O and Keychain reads — the main motivation for running off MainActor
