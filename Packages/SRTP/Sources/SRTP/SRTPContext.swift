@@ -16,10 +16,10 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
   private let sessionSalt: Data  // 14 bytes — IV/counter salt
   private let sessionAuthKey: Data  // 20 bytes — HMAC-SHA1 key
 
-  // Derived SRTCP session keys (labels 0x03, 0x04, 0x05)
-  private let srtcpKey: Data
-  private let srtcpSalt: Data
-  private let srtcpAuthKey: Data
+  // Derived SRTCP session keys (RFC 3711 §4.3.1 Table 1)
+  private let srtcpKey: Data      // cipher_key,   label 0x03
+  private let srtcpSalt: Data     // salting_key,   label 0x05
+  private let srtcpAuthKey: Data  // message_auth,  label 0x04
 
   private let logger = Logger(subsystem: "me.fausak.taylor.Pylo", category: "SRTP")
 

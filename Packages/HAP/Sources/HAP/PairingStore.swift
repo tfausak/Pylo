@@ -89,6 +89,12 @@ public nonisolated final class PairingStore: @unchecked Sendable {
     let normalized = Pairing(
       identifier: key, publicKey: pairing.publicKey, isAdmin: pairing.isAdmin)
     // Mutate atomically under lock, then persist outside the lock.
+    // Note: between mutation and save, concurrent readers see the new pairing
+    // before it's persisted. If save fails, the rollback restores consistency.
+    // This window is < 1ms (atomic file write) and only matters on disk failure.
+    // The alternative (persist first, then mutate) is worse: concurrent addPairing
+    // calls would each snapshot pre-mutation state, and the second save would
+    // overwrite the first, losing data on disk.
     let (snapshot, previous) = lock.withLock { state -> ([String: Pairing], Pairing?) in
       let prev = state[key]
       state[key] = normalized
