@@ -302,6 +302,10 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     guard captureOK else {
       logger.error("Failed to set up capture pipeline")
       existingCaptureSession?.stopRunning()
+      if let compressionSession = self.compressionSession {
+        VTCompressionSessionInvalidate(compressionSession)
+        self.compressionSession = nil
+      }
       close(videoFD)
       self.videoSocketFD = -1
       return false
@@ -437,6 +441,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
 
     // Audio mic cleanup
     audioOutput = nil
+    videoOutput = nil
     videoCaptureDelegate = nil
     audioCaptureDelegate = nil
 
