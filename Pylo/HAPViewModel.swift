@@ -592,14 +592,15 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     monitoring.fragmentWriter = fmp4Writer
     monitoringSession = monitoring
 
-    camera.onMonitoringCaptureNeeded = { [weak monitoring, weak camera] needed in
+    camera.onMonitoringCaptureNeeded = {
+      [weak monitoring, weak camera] needed, existingSession in
       guard let camera else { return }
       if needed {
         monitoring?.videoMotionDetector = camera.videoMotionDetector
         monitoring?.ambientLightDetector = camera.ambientLightDetector
         monitoring?.audioRecordingEnabled = camera.recordingAudioActive != 0
         if let device = camera.resolvedCamera {
-          monitoring?.start(camera: device)
+          monitoring?.start(camera: device, existingSession: existingSession)
         }
       } else {
         monitoring?.stop()
@@ -628,6 +629,13 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
         }
       }
     }
+  }
+
+  // Hand off the monitoring session's AVCaptureSession to the stream session
+  // for reuse, avoiding the ~500ms cold-start of creating a new one.
+  camera.onMonitoringSessionHandoff = { [weak monitoringSession, weak camera] in
+    camera?.videoMotionDetector?.reset()
+    return monitoringSession?.handoff()
   }
 
   // Pause/resume the monitoring session around snapshot captures

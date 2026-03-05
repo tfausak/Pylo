@@ -212,11 +212,13 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   }
 
   /// Start streaming. Returns `true` on success, `false` if socket setup failed.
+  /// If `existingCaptureSession` is provided (handed off from monitoring), the session
+  /// is reconfigured in-place without stopping the camera — saving ~500ms of startup.
   @discardableResult
   func startStreaming(
     width: Int, height: Int, fps: Int, bitrate: Int, payloadType: UInt8,
     audioPayloadType: UInt8 = 110, camera: AVCaptureDevice, rotationAngle: Int = 90,
-    swapDimensions: Bool = true
+    swapDimensions: Bool = true, existingCaptureSession: AVCaptureSession? = nil
   ) -> Bool {
     logger.info(
       "Starting stream: \(width)x\(height)@\(fps)fps, \(bitrate)kbps, PT=\(payloadType) → \(self.controllerAddress):\(self.controllerVideoPort)"
@@ -293,7 +295,8 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     let encHeight = swapDimensions ? width : height
     self.setupCompression(width: encWidth, height: encHeight, fps: fps, bitrate: bitrate)
     self.setupCapture(
-      width: width, height: height, fps: fps, camera: camera, rotationAngle: rotationAngle)
+      width: width, height: height, fps: fps, camera: camera, rotationAngle: rotationAngle,
+      existingSession: existingCaptureSession)
     self.startRTCPTimer()
 
     // Audio: single BSD UDP socket for both send and receive.
@@ -360,9 +363,27 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   }
 
   func stopStreaming() {
+    tearDown(keepCaptureSession: false)
+  }
+
+  /// Hand off the running AVCaptureSession for reuse by the monitoring session.
+  /// Tears down all streaming resources (sockets, SRTP, audio, timers) but
+  /// leaves the AVCaptureSession running. Returns nil if no session is active.
+  func handoff() -> AVCaptureSession? {
+    return tearDown(keepCaptureSession: true)
+  }
+
+  /// Shared teardown logic. When `keepCaptureSession` is true, the
+  /// AVCaptureSession is extracted and returned instead of being stopped.
+  @discardableResult
+  private func tearDown(keepCaptureSession: Bool) -> AVCaptureSession? {
     dispatchPrecondition(condition: .notOnQueue(captureQueue))
     dispatchPrecondition(condition: .notOnQueue(rtpQueue))
-    logger.info("Stopping stream")
+    if keepCaptureSession {
+      logger.info("Handing off stream session")
+    } else {
+      logger.info("Stopping stream")
+    }
 
     // Cancel all timers before draining queues so no timer fires in the
     // window between drain and cancellation.
@@ -371,12 +392,18 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     audioRTCPTimer?.cancel()
     audioRTCPTimer = nil
 
-    // stopRunning() is synchronous — it blocks until the session fully
-    // stops delivering frames. Calling it directly (rather than async)
-    // ensures the VTCompressionSession won't receive new frames after
-    // we invalidate it below.
-    captureSession?.stopRunning()
-    captureSession = nil
+    let session = captureSession
+    if keepCaptureSession {
+      // Hand off — don't stop the session, just detach it
+      captureSession = nil
+    } else {
+      // stopRunning() is synchronous — it blocks until the session fully
+      // stops delivering frames. Calling it directly (rather than async)
+      // ensures the VTCompressionSession won't receive new frames after
+      // we invalidate it below.
+      captureSession?.stopRunning()
+      captureSession = nil
+    }
 
     // Drain in-flight captureQueue blocks so no concurrent encodeFrame or
     // encodeAndSendAudioFrame call is mid-execution when we dispose resources.
@@ -396,6 +423,8 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
 
     // Audio mic cleanup
     audioOutput = nil
+    videoCaptureDelegate = nil
+    audioCaptureDelegate = nil
 
     // Safe to dispose here: encodeAndSendAudioFrame uses audioConverter synchronously
     // on captureQueue (already drained above), and only dispatches the encoded result
@@ -451,12 +480,15 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     audioEngine = nil
     audioDecoder = nil
     incomingSRTPContext = nil
+
+    return keepCaptureSession ? session : nil
   }
 
   // MARK: - Video Capture
 
   private func setupCapture(
-    width: Int, height: Int, fps: Int, camera: AVCaptureDevice, rotationAngle: Int = 90
+    width: Int, height: Int, fps: Int, camera: AVCaptureDevice, rotationAngle: Int = 90,
+    existingSession: AVCaptureSession? = nil
   ) {
     do {
       try camera.lockForConfiguration()
@@ -486,17 +518,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
       }
     #endif
 
-    let session = AVCaptureSession()
-    session.sessionPreset = width > 1280 ? .hd1920x1080 : width > 640 ? .hd1280x720 : .medium
-
-    do {
-      let input = try AVCaptureDeviceInput(device: camera)
-      if session.canAddInput(input) { session.addInput(input) }
-    } catch {
-      logger.error("Camera input error: \(error)")
-      return
-    }
-
+    // Build the new video output and delegate (shared between both paths)
     let output = AVCaptureVideoDataOutput()
     output.videoSettings = [
       kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
@@ -514,22 +536,39 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
       self.encodeFrame(pixelBuffer, pts: pts)
     }
     output.setSampleBufferDelegate(delegate, queue: captureQueue)
-    if session.canAddOutput(output) { session.addOutput(output) }
 
-    // Rotate output to match device orientation.
-    if let connection = output.connection(with: .video),
-      connection.isVideoRotationAngleSupported(CGFloat(rotationAngle))
-    {
-      connection.videoRotationAngle = CGFloat(rotationAngle)
-    }
+    let session: AVCaptureSession
+    if let existing = existingSession {
+      // Reuse the monitoring session's running AVCaptureSession — reconfigure
+      // in-place to avoid the ~500ms cold-start of creating a new one.
+      session = existing
+      logger.info("Reusing handed-off capture session (already running)")
 
-    // Add microphone input for audio capture
-    if let mic = AVCaptureDevice.default(for: .audio),
-      let micInput = try? AVCaptureDeviceInput(device: mic),
-      session.canAddInput(micInput)
-    {
-      session.addInput(micInput)
+      session.beginConfiguration()
 
+      // Remove monitoring's outputs (video, possibly audio)
+      for old in session.outputs { session.removeOutput(old) }
+
+      // Change preset if needed (monitoring always uses .hd1920x1080)
+      let targetPreset: AVCaptureSession.Preset =
+        width > 1280 ? .hd1920x1080 : width > 640 ? .hd1280x720 : .medium
+      if session.sessionPreset != targetPreset { session.sessionPreset = targetPreset }
+
+      // Add streaming video output
+      if session.canAddOutput(output) { session.addOutput(output) }
+
+      // Add mic input if monitoring didn't have it
+      let hasMic = session.inputs.contains { input in
+        (input as? AVCaptureDeviceInput)?.device.hasMediaType(.audio) == true
+      }
+      if !hasMic, let mic = AVCaptureDevice.default(for: .audio),
+        let micInput = try? AVCaptureDeviceInput(device: mic),
+        session.canAddInput(micInput)
+      {
+        session.addInput(micInput)
+      }
+
+      // Add streaming audio output
       let audioOut = AVCaptureAudioDataOutput()
       let audioDelegate = AudioCaptureDelegate { [weak self] sampleBuffer in
         self?.handleAudioSampleBuffer(sampleBuffer)
@@ -539,10 +578,58 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
         session.addOutput(audioOut)
         self.audioOutput = audioOut
         self.audioCaptureDelegate = audioDelegate
-        logger.info("Microphone audio capture added to session")
       }
+
+      session.commitConfiguration()
+      // Session is already running — no startRunning() needed
     } else {
-      logger.error("Failed to add microphone input")
+      // Cold start — create a new AVCaptureSession from scratch
+      session = AVCaptureSession()
+      session.sessionPreset = width > 1280 ? .hd1920x1080 : width > 640 ? .hd1280x720 : .medium
+
+      do {
+        let input = try AVCaptureDeviceInput(device: camera)
+        if session.canAddInput(input) { session.addInput(input) }
+      } catch {
+        logger.error("Camera input error: \(error)")
+        return
+      }
+
+      if session.canAddOutput(output) { session.addOutput(output) }
+
+      // Add microphone input for audio capture
+      if let mic = AVCaptureDevice.default(for: .audio),
+        let micInput = try? AVCaptureDeviceInput(device: mic),
+        session.canAddInput(micInput)
+      {
+        session.addInput(micInput)
+
+        let audioOut = AVCaptureAudioDataOutput()
+        let audioDelegate = AudioCaptureDelegate { [weak self] sampleBuffer in
+          self?.handleAudioSampleBuffer(sampleBuffer)
+        }
+        audioOut.setSampleBufferDelegate(audioDelegate, queue: captureQueue)
+        if session.canAddOutput(audioOut) {
+          session.addOutput(audioOut)
+          self.audioOutput = audioOut
+          self.audioCaptureDelegate = audioDelegate
+          logger.info("Microphone audio capture added to session")
+        }
+      } else {
+        logger.error("Failed to add microphone input")
+      }
+
+      captureQueue.async { [weak self] in
+        session.startRunning()
+        self?.logger.info("Capture session running: \(session.isRunning)")
+      }
+    }
+
+    // Rotate output to match device orientation.
+    if let connection = output.connection(with: .video),
+      connection.isVideoRotationAngleSupported(CGFloat(rotationAngle))
+    {
+      connection.videoRotationAngle = CGFloat(rotationAngle)
     }
 
     self.captureSession = session
@@ -553,11 +640,6 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     // Without this, audio samples arriving before the audio UDP is ready are silently dropped.
     if self.audioConverter == nil {
       self.setupAudioEncoder()
-    }
-
-    captureQueue.async { [weak self] in
-      session.startRunning()
-      self?.logger.info("Capture session running: \(session.isRunning)")
     }
   }
 

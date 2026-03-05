@@ -68,7 +68,8 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   private struct Callbacks {
     var onSnapshotWillCapture: (() -> Void)?
     var onSnapshotDidCapture: (() -> Void)?
-    var onMonitoringCaptureNeeded: ((_ needed: Bool) -> Void)?
+    var onMonitoringCaptureNeeded: ((_ needed: Bool, _ existingSession: AVCaptureSession?) -> Void)?
+    var onMonitoringSessionHandoff: (() -> AVCaptureSession?)?
     var onVideoMotionChange: ((Bool) -> Void)?
     var onRecordingConfigChange: ((_ active: Bool) -> Void)?
     var onRecordingAudioActiveChange: ((_ active: Bool) -> Void)?
@@ -89,9 +90,13 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     get { _callbacks.withLock { $0.onSnapshotDidCapture } }
     set { _callbacks.withLock { $0.onSnapshotDidCapture = newValue } }
   }
-  var onMonitoringCaptureNeeded: ((_ needed: Bool) -> Void)? {
+  var onMonitoringCaptureNeeded: ((_ needed: Bool, _ existingSession: AVCaptureSession?) -> Void)? {
     get { _callbacks.withLock { $0.onMonitoringCaptureNeeded } }
     set { _callbacks.withLock { $0.onMonitoringCaptureNeeded = newValue } }
+  }
+  var onMonitoringSessionHandoff: (() -> AVCaptureSession?)? {
+    get { _callbacks.withLock { $0.onMonitoringSessionHandoff } }
+    set { _callbacks.withLock { $0.onMonitoringSessionHandoff = newValue } }
   }
   var onVideoMotionChange: ((Bool) -> Void)? {
     get { _callbacks.withLock { $0.onVideoMotionChange } }
@@ -521,10 +526,10 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
         // Signal monitoring capture: needed when recording armed + no live stream
         if isActive {
           if streamSession == nil {
-            onMonitoringCaptureNeeded?(true)
+            onMonitoringCaptureNeeded?(true, nil)
           }
         } else {
-          onMonitoringCaptureNeeded?(false)
+          onMonitoringCaptureNeeded?(false, nil)
         }
         return true
       }
