@@ -257,6 +257,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     let videoFD = socket(AF_INET, SOCK_DGRAM, 0)
     guard videoFD >= 0 else {
       logger.error("Failed to create video UDP socket: errno \(errno)")
+      existingCaptureSession?.stopRunning()
       return false
     }
 
@@ -274,6 +275,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     guard videoBindResult == 0 else {
       logger.error("Failed to bind video socket to port \(self.localVideoPort): errno \(errno)")
       close(videoFD)
+      existingCaptureSession?.stopRunning()
       return false
     }
 
@@ -294,9 +296,16 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     let encWidth = swapDimensions ? height : width
     let encHeight = swapDimensions ? width : height
     self.setupCompression(width: encWidth, height: encHeight, fps: fps, bitrate: bitrate)
-    self.setupCapture(
+    let captureOK = self.setupCapture(
       width: width, height: height, fps: fps, camera: camera, rotationAngle: rotationAngle,
       existingSession: existingCaptureSession)
+    guard captureOK else {
+      logger.error("Failed to set up capture pipeline")
+      existingCaptureSession?.stopRunning()
+      close(videoFD)
+      self.videoSocketFD = -1
+      return false
+    }
     self.startRTCPTimer()
 
     // Audio: single BSD UDP socket for both send and receive.
@@ -491,10 +500,11 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
 
   // MARK: - Video Capture
 
+  @discardableResult
   private func setupCapture(
     width: Int, height: Int, fps: Int, camera: AVCaptureDevice, rotationAngle: Int = 90,
     existingSession: AVCaptureSession? = nil
-  ) {
+  ) -> Bool {
     do {
       try camera.lockForConfiguration()
       // Find closest frame rate range
@@ -563,7 +573,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
       guard session.canAddOutput(output) else {
         logger.error("Failed to add video output when reusing capture session")
         session.commitConfiguration()
-        return
+        return false
       }
       session.addOutput(output)
 
@@ -602,7 +612,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
         if session.canAddInput(input) { session.addInput(input) }
       } catch {
         logger.error("Camera input error: \(error)")
-        return
+        return false
       }
 
       if session.canAddOutput(output) { session.addOutput(output) }
@@ -651,6 +661,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     if self.audioConverter == nil {
       self.setupAudioEncoder()
     }
+    return true
   }
 
   // MARK: - H.264 Compression

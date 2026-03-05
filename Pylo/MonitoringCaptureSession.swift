@@ -209,6 +209,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       } else {
         logger.error("Failed to add monitoring video output to reused capture session")
         session.commitConfiguration()
+        mState.withLock { $0.captureSession = nil }
         return
       }
 
