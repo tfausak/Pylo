@@ -393,8 +393,13 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     audioRTCPTimer = nil
 
     let session = captureSession
-    if keepCaptureSession {
-      // Hand off — don't stop the session, just detach it
+    if keepCaptureSession, let session {
+      // Remove our outputs so the running session stops delivering frames
+      // to our delegates before we dispose encoders/sockets below.
+      session.beginConfiguration()
+      if let videoOutput { session.removeOutput(videoOutput) }
+      if let audioOutput { session.removeOutput(audioOutput) }
+      session.commitConfiguration()
       captureSession = nil
     } else {
       // stopRunning() is synchronous — it blocks until the session fully
