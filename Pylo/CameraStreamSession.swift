@@ -165,7 +165,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     set { _onSnapshotFrame.withLock { $0 = newValue } }
   }
   private var snapshotFrameCounter = 0
-  private let snapshotInterval = 150  // every ~5s at 30fps
+  private let snapshotInterval = 30  // every ~1s at 30fps
   private let snapshotCIContext: CIContext
 
   // Audio encoder state — accumulates PCM until we have a full AAC-ELD frame
