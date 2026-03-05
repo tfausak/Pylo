@@ -165,7 +165,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     set { _onSnapshotFrame.withLock { $0 = newValue } }
   }
   private var snapshotFrameCounter = 0
-  private let snapshotInterval = 30  // every ~1s at 30fps
+  private var snapshotInterval = 30  // every ~1s, derived from negotiated fps
   private let snapshotCIContext: CIContext
 
   // Audio encoder state — accumulates PCM until we have a full AAC-ELD frame
@@ -228,6 +228,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     )
 
     self.targetFPS = fps
+    self.snapshotInterval = max(1, fps)
     self.rtpPayloadType = payloadType
     self.audioPayloadType = audioPayloadType
     // Safe to reset from any queue here: the capture pipeline hasn't started yet
@@ -620,7 +621,12 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
         return false
       }
 
-      if session.canAddOutput(output) { session.addOutput(output) }
+      if session.canAddOutput(output) {
+        session.addOutput(output)
+      } else {
+        logger.error("Failed to add video output to capture session")
+        return false
+      }
 
       // Add microphone input for audio capture
       if let mic = AVCaptureDevice.default(for: .audio),

@@ -270,7 +270,13 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
         return
       }
 
-      if session.canAddOutput(output) { session.addOutput(output) }
+      if session.canAddOutput(output) {
+        session.addOutput(output)
+      } else {
+        logger.error("Unable to add video output to monitoring capture session; aborting cold start")
+        mState.withLock { $0.captureSession = nil }
+        return
+      }
 
       // Add microphone input for audio capture (only when hub has enabled recording audio)
       if audioRecordingEnabled, let mic = AVCaptureDevice.default(for: .audio),
