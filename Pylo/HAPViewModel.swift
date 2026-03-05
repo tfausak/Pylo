@@ -601,15 +601,14 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     let snapshotQueue = DispatchQueue(
       label: "\(Bundle.main.bundleIdentifier!).snapshot-encode", qos: .utility)
     monitoring.snapshotCallback = { [weak camera] pixelBuffer in
-      // Dispatch all rendering to a background queue to avoid blocking
-      // captureQueue (both createCGImage and jpegRepresentation are expensive).
-      // Capturing pixelBuffer in the closure retains it via ARC, keeping the
-      // backing memory valid past the captureOutput callback.
-      nonisolated(unsafe) let buffer: CVPixelBuffer = pixelBuffer
+      // Render to CGImage on captureQueue while the pixel buffer is valid,
+      // then dispatch the cheaper JPEG encoding to a background queue.
+      let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+      guard let cgImage = ciContext.createCGImage(ciImage, from: ciImage.extent) else { return }
       snapshotQueue.async { [weak camera] in
-        let ciImage = CIImage(cvPixelBuffer: buffer)
+        let ci = CIImage(cgImage: cgImage)
         guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-          let jpeg = ciContext.jpegRepresentation(of: ciImage, colorSpace: colorSpace, options: [:])
+          let jpeg = ciContext.jpegRepresentation(of: ci, colorSpace: colorSpace, options: [:])
         else { return }
         camera?.cachedSnapshot = jpeg
       }
