@@ -167,17 +167,22 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   /// Most recent JPEG snapshot captured during streaming (used as fallback for snapshot requests).
   /// Protected by a lock because it is written from captureQueue (via onSnapshotFrame) and from
   /// a global queue (captureSnapshot), and read from the server queue.
+  private let snapshotClock = ContinuousClock()
   private let _cachedSnapshot = OSAllocatedUnfairLock<
     (data: Data, timestamp: ContinuousClock.Instant)?
   >(initialState: nil)
   var cachedSnapshot: Data? {
     get { _cachedSnapshot.withLock { $0?.data } }
-    set { _cachedSnapshot.withLock { $0 = newValue.map { (data: $0, timestamp: .now) } } }
+    set {
+      let now = snapshotClock.now
+      _cachedSnapshot.withLock { $0 = newValue.map { (data: $0, timestamp: now) } }
+    }
   }
   /// Returns the cached snapshot only if it was captured within the given duration.
   func cachedSnapshot(maxAge: Duration) -> Data? {
-    _cachedSnapshot.withLock { cached in
-      guard let cached, ContinuousClock.now - cached.timestamp < maxAge else { return nil }
+    let now = snapshotClock.now
+    return _cachedSnapshot.withLock { cached in
+      guard let cached, cached.timestamp.duration(to: now) < maxAge else { return nil }
       return cached.data
     }
   }
