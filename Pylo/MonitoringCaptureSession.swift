@@ -420,8 +420,12 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
 
     fragmentWriter?.includeAudioTrack = false
 
-    // Invalidate the monitoring compression session. In-flight encodeFrame()
-    // calls on captureQueue will see compressionSession == nil and return.
+    // Drain in-flight captureQueue blocks before invalidating the compression
+    // session. An encodeFrame() call may have already read compressionSession
+    // (non-nil) before the lock cleared it — invalidating while it's mid-encode
+    // causes kVTInvalidSessionErr (-12903).
+    captureQueue.sync {}
+
     if let cs = oldCS {
       VTCompressionSessionCompleteFrames(cs, untilPresentationTimeStamp: .positiveInfinity)
       VTCompressionSessionInvalidate(cs)
