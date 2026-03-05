@@ -367,8 +367,11 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       captureFrameCount = 0
     }
     if existingSession == nil {
-      sessionQueue.sync {
-        session.startRunning()
+      let startBlock = { session.startRunning() }
+      if DispatchQueue.getSpecific(key: sessionQueueKey) != nil {
+        startBlock()
+      } else {
+        sessionQueue.sync(execute: startBlock)
       }
     }
     logger.info(

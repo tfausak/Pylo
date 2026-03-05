@@ -613,6 +613,8 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
         session.addOutput(audioOut)
         self.audioOutput = audioOut
         self.audioCaptureDelegate = audioDelegate
+      } else {
+        logger.warning("Failed to add audio output to reused capture session — streaming without audio")
       }
 
       session.commitConfiguration()
@@ -743,23 +745,19 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     encodeFrameCount += 1
 
     // Periodically cache a JPEG for snapshot requests while streaming.
-    // Render to CGImage synchronously (fast — just materializes the lazy CIImage),
-    // then dispatch JPEG compression to a background queue to avoid blocking
-    // video frame delivery on captureQueue.
+    // Dispatch all rendering and JPEG encoding off captureQueue to avoid
+    // blocking frame delivery. The closure capture retains the pixel buffer.
     snapshotFrameCounter += 1
     if snapshotFrameCounter >= snapshotInterval, let callback = onSnapshotFrame {
       snapshotFrameCounter = 0
-      let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-      if let cgImage = snapshotCIContext.createCGImage(ciImage, from: ciImage.extent) {
-        let ctx = snapshotCIContext
-        DispatchQueue.global(qos: .utility).async {
-          let rendered = CIImage(cgImage: cgImage)
-          if let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-            let jpeg = ctx.jpegRepresentation(
-              of: rendered, colorSpace: colorSpace, options: [:])
-          {
-            callback(jpeg)
-          }
+      nonisolated(unsafe) let pixelBuffer = pixelBuffer
+      let ctx = snapshotCIContext
+      DispatchQueue.global(qos: .utility).async {
+        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+        if let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+          let jpeg = ctx.jpegRepresentation(of: ciImage, colorSpace: colorSpace, options: [:])
+        {
+          callback(jpeg)
         }
       }
     }
