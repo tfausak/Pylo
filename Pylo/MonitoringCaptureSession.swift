@@ -349,7 +349,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       captureFrameCount = 0
     }
     if existingSession == nil {
-      sessionQueue.async {
+      sessionQueue.sync {
         session.startRunning()
       }
     }
@@ -424,6 +424,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     // session. An encodeFrame() call may have already read compressionSession
     // (non-nil) before the lock cleared it — invalidating while it's mid-encode
     // causes kVTInvalidSessionErr (-12903).
+    dispatchPrecondition(condition: .notOnQueue(captureQueue))
     captureQueue.sync {}
 
     if let cs = oldCS {

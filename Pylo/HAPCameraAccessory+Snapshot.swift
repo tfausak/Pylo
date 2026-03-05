@@ -28,7 +28,8 @@ extension HAPCameraAccessory {
     // If the monitoring session is caching snapshots, return the latest one
     // immediately. This avoids the 1-3 second cold-start delay of creating a
     // new AVCaptureSession, which causes HomeKit to show "No Response".
-    if let cached = cachedSnapshot {
+    // Only use cache if fresh (within 2s) to avoid serving stale images.
+    if let cached = cachedSnapshot(maxAge: .seconds(2)) {
       logger.info("Returning cached monitoring snapshot")
       return cached
     }

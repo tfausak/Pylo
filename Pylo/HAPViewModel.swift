@@ -595,13 +595,23 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     // Cache a JPEG snapshot from the monitoring session every ~1s so snapshot
     // requests from Home.app can be answered instantly instead of cold-starting
     // a new AVCaptureSession (which takes 1-3s and causes "No Response").
+    // JPEG encoding is dispatched off captureQueue to avoid blocking frame
+    // delivery (which would cause dropped frames and affect motion/lux detection).
     let ciContext = camera.snapshotCIContext
+    let snapshotQueue = DispatchQueue(
+      label: "\(Bundle.main.bundleIdentifier!).snapshot-encode", qos: .utility)
     monitoring.snapshotCallback = { [weak camera] pixelBuffer in
+      // Copy the pixel buffer contents immediately while still valid, then
+      // dispatch the expensive JPEG encoding to a background queue.
       let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-      guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-        let jpeg = ciContext.jpegRepresentation(of: ciImage, colorSpace: colorSpace, options: [:])
-      else { return }
-      camera?.cachedSnapshot = jpeg
+      guard let cgImage = ciContext.createCGImage(ciImage, from: ciImage.extent) else { return }
+      snapshotQueue.async { [weak camera] in
+        let ci = CIImage(cgImage: cgImage)
+        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+          let jpeg = ciContext.jpegRepresentation(of: ci, colorSpace: colorSpace, options: [:])
+        else { return }
+        camera?.cachedSnapshot = jpeg
+      }
     }
 
     camera.onMonitoringCaptureNeeded = {
