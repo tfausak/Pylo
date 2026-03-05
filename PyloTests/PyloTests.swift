@@ -623,4 +623,27 @@ struct VideoMotionDetectorThreadSafetyTests {
       }
     }
   }
+
+  // MARK: - Cached Snapshot Freshness Tests
+
+  @Test("cachedSnapshot(maxAge:) returns snapshot within age limit")
+  func cachedSnapshotFresh() {
+    let camera = HAPCameraAccessory(aid: 3)
+    let data = Data([0xFF, 0xD8, 0xFF, 0xD9])
+    camera.cachedSnapshot = data
+    #expect(camera.cachedSnapshot(maxAge: .seconds(10)) == data)
+  }
+
+  @Test("cachedSnapshot(maxAge:) returns nil for zero maxAge")
+  func cachedSnapshotExpired() {
+    let camera = HAPCameraAccessory(aid: 3)
+    camera.cachedSnapshot = Data([0xFF, 0xD8, 0xFF, 0xD9])
+    #expect(camera.cachedSnapshot(maxAge: .zero) == nil)
+  }
+
+  @Test("cachedSnapshot(maxAge:) returns nil when no snapshot is cached")
+  func cachedSnapshotNil() {
+    let camera = HAPCameraAccessory(aid: 3)
+    #expect(camera.cachedSnapshot(maxAge: .seconds(10)) == nil)
+  }
 }

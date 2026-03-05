@@ -204,7 +204,13 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       if session.sessionPreset != .hd1920x1080 { session.sessionPreset = .hd1920x1080 }
 
       // Add monitoring video output
-      if session.canAddOutput(output) { session.addOutput(output) }
+      if session.canAddOutput(output) {
+        session.addOutput(output)
+      } else {
+        logger.error("Failed to add monitoring video output to reused capture session")
+        session.commitConfiguration()
+        return
+      }
 
       // Add audio if needed and not already present
       if audioRecordingEnabled {
@@ -416,9 +422,16 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
         $0.pcmAccumulator = Data()
         return (s, cs, ac)
       }
-    guard session != nil else { return nil }
+    guard let session else { return nil }
 
     fragmentWriter?.includeAudioTrack = false
+
+    // Remove our outputs so AVFoundation stops delivering frames to our
+    // delegates before we release them. Without this, in-flight frames can
+    // be delivered to a deallocated delegate.
+    session.beginConfiguration()
+    for old in session.outputs { session.removeOutput(old) }
+    session.commitConfiguration()
 
     // Drain in-flight captureQueue blocks before invalidating the compression
     // session. An encodeFrame() call may have already read compressionSession

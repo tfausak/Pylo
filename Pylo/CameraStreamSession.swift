@@ -560,7 +560,12 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
       if session.sessionPreset != targetPreset { session.sessionPreset = targetPreset }
 
       // Add streaming video output
-      if session.canAddOutput(output) { session.addOutput(output) }
+      guard session.canAddOutput(output) else {
+        logger.error("Failed to add video output when reusing capture session")
+        session.commitConfiguration()
+        return
+      }
+      session.addOutput(output)
 
       // Add mic input if monitoring didn't have it
       let hasMic = session.inputs.contains { input in
