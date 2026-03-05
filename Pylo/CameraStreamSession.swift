@@ -614,7 +614,8 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
         self.audioOutput = audioOut
         self.audioCaptureDelegate = audioDelegate
       } else {
-        logger.warning("Failed to add audio output to reused capture session — streaming without audio")
+        logger.warning(
+          "Failed to add audio output to reused capture session — streaming without audio")
       }
 
       session.commitConfiguration()

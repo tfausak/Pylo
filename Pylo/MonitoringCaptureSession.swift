@@ -278,7 +278,8 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       if session.canAddOutput(output) {
         session.addOutput(output)
       } else {
-        logger.error("Unable to add video output to monitoring capture session; aborting cold start")
+        logger.error(
+          "Unable to add video output to monitoring capture session; aborting cold start")
         mState.withLock { $0.captureSession = nil }
         return
       }
