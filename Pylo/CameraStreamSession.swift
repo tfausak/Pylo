@@ -258,6 +258,8 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     let videoFD = socket(AF_INET, SOCK_DGRAM, 0)
     guard videoFD >= 0 else {
       logger.error("Failed to create video UDP socket: errno \(errno)")
+      // Safe to call from any queue: ownership was transferred to us, so no
+      // other code touches this session concurrently.
       existingCaptureSession?.stopRunning()
       return false
     }
@@ -276,6 +278,8 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     guard videoBindResult == 0 else {
       logger.error("Failed to bind video socket to port \(self.localVideoPort): errno \(errno)")
       close(videoFD)
+      // Safe to call from any queue: ownership was transferred to us, so no
+      // other code touches this session concurrently.
       existingCaptureSession?.stopRunning()
       return false
     }
@@ -302,6 +306,8 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
       existingSession: existingCaptureSession)
     guard captureOK else {
       logger.error("Failed to set up capture pipeline")
+      // Safe to call from any queue: ownership was transferred to us, so no
+      // other code touches this session concurrently.
       existingCaptureSession?.stopRunning()
       if let compressionSession = self.compressionSession {
         VTCompressionSessionInvalidate(compressionSession)
@@ -482,7 +488,10 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
       // and any in-flight sendVideoUDP/sendAudioUDP/readAudioSocket calls have drained.
       if videoFD >= 0 { close(videoFD) }
       // Close audio FD here if there was no read source to own it.
-      if readSource == nil, audioFD >= 0 { close(audioFD) }
+      if readSource == nil, audioFD >= 0 {
+        logger.warning("Audio FD open but no read source — closing in fallback path")
+        close(audioFD)
+      }
       if let dec = decoder { AudioConverterDispose(dec) }
       _ = incomingSRTP  // prevent premature dealloc until after queue drains
     }

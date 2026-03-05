@@ -301,8 +301,9 @@ extension HAPCameraAccessory {
   func stopStreaming() {
     // Hand off the AVCaptureSession back to monitoring if recording is armed,
     // so it can resume without a cold-start.
+    let recordingArmed = hksvState.withLock({ $0.recordingActive }) != 0
     let handBackSession: AVCaptureSession?
-    if hksvState.withLock({ $0.recordingActive }) != 0 {
+    if recordingArmed {
       handBackSession = streamSession?.handoff()
     } else {
       streamSession?.stopStreaming()
@@ -312,7 +313,7 @@ extension HAPCameraAccessory {
     onStateChange?(
       aid, Self.iidStreamingStatus, .string(streamingStatusTLV().base64EncodedString()))
     // Resume monitoring capture if recording is still armed
-    if handBackSession != nil || hksvState.withLock({ $0.recordingActive }) != 0 {
+    if recordingArmed {
       onMonitoringCaptureNeeded?(true, handBackSession)
     }
   }

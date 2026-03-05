@@ -119,6 +119,9 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
 
   func start(camera: AVCaptureDevice, existingSession: AVCaptureSession? = nil) {
     // Atomically check-and-mark to prevent concurrent start().
+    // Note: the session stored here acts as a sentinel until configuration completes.
+    // This is safe because start/stop/handoff are called sequentially from the HAP
+    // server's accessory management path — no concurrent handoff() can race here.
     let alreadyRunning = mState.withLock { (state: inout State) -> Bool in
       if state.captureSession != nil { return true }
       state.captureSession = existingSession ?? AVCaptureSession()  // sentinel (or reuse)
@@ -192,6 +195,8 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     if let existing = existingSession {
       // Reuse the stream session's running AVCaptureSession — reconfigure
       // in-place to avoid the ~500ms cold-start of creating a new one.
+      // beginConfiguration/commitConfiguration are thread-safe per Apple docs,
+      // so we don't need sessionQueue here (only startRunning requires it).
       session = existing
       logger.info("Reusing handed-off capture session for monitoring")
 
@@ -460,6 +465,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       $0.videoCaptureDelegate = nil
       $0.audioCaptureDelegate = nil
     }
+    snapshotCallback = nil
     logger.info("Monitoring capture handed off (session still running)")
     return session
   }
