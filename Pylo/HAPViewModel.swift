@@ -592,6 +592,18 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     monitoring.fragmentWriter = fmp4Writer
     monitoringSession = monitoring
 
+    // Cache a JPEG snapshot from the monitoring session every ~1s so snapshot
+    // requests from Home.app can be answered instantly instead of cold-starting
+    // a new AVCaptureSession (which takes 1-3s and causes "No Response").
+    let ciContext = camera.snapshotCIContext
+    monitoring.snapshotCallback = { [weak camera] pixelBuffer in
+      let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+      guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+        let jpeg = ciContext.jpegRepresentation(of: ciImage, colorSpace: colorSpace, options: [:])
+      else { return }
+      camera?.cachedSnapshot = jpeg
+    }
+
     camera.onMonitoringCaptureNeeded = {
       [weak monitoring, weak camera] needed, existingSession in
       guard let camera else { return }

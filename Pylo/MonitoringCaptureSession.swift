@@ -60,11 +60,24 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   /// Reset in start()/stop() before captureQueue delivers frames.
   private var encodeFrameCount: Int = 0
 
-  /// Frame counter for throttling motion/lux detection — captureQueue only.
-  /// Motion fires every 15 frames (~2fps at 30fps), lux every 60 (~0.5fps).
+  /// Frame counter for throttling motion/lux/snapshot detection — captureQueue only.
+  /// Motion fires every 15 frames (~2fps at 30fps), lux every 60 (~0.5fps),
+  /// snapshot every 30 (~1fps).
   private var captureFrameCount: Int = 0
   private let motionFrameInterval = 15
   private let luxFrameInterval = 60
+  private let snapshotFrameInterval = 30
+
+  /// Callback to periodically provide a pixel buffer for snapshot caching.
+  /// Called every ~1 second on the captureQueue. The receiver should JPEG-encode
+  /// the buffer and cache it for fast snapshot responses.
+  /// Protected: written from server queue, read from captureQueue.
+  private let _snapshotCallback = OSAllocatedUnfairLock<((CVPixelBuffer) -> Void)?>(
+    initialState: nil)
+  var snapshotCallback: ((CVPixelBuffer) -> Void)? {
+    get { _snapshotCallback.withLock { $0 } }
+    set { _snapshotCallback.withLock { $0 = newValue } }
+  }
 
   init() {
     let sQueue = DispatchQueue(label: "\(Bundle.main.bundleIdentifier!).monitorSession")
@@ -165,6 +178,9 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       }
       if self.captureFrameCount % self.luxFrameInterval == 0 {
         self.ambientLightDetector?.sample()
+      }
+      if self.captureFrameCount % self.snapshotFrameInterval == 0 {
+        self.snapshotCallback?(pixelBuffer)
       }
       self.encodeFrame(pixelBuffer, pts: pts)
     }
