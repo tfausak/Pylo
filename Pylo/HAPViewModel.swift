@@ -158,7 +158,8 @@ final class HAPViewModel {
     }
     var message: String {
       switch self {
-      case .camera: "Pylo needs camera access for the camera and flashlight. You can enable it in Settings."
+      case .camera:
+        "Pylo needs camera access for the camera and flashlight. You can enable it in Settings."
       case .microphone: "Pylo needs microphone access for audio. You can enable it in Settings."
       }
     }

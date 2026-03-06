@@ -189,10 +189,12 @@ struct ContentView: View {
         .foregroundStyle(.secondary)
       Text("Local Network Access Required")
         .font(.title3.weight(.semibold))
-      Text("Pylo needs local network access to communicate with the Home app. Enable it in Settings.")
-        .font(.subheadline)
-        .foregroundStyle(.secondary)
-        .multilineTextAlignment(.center)
+      Text(
+        "Pylo needs local network access to communicate with the Home app. Enable it in Settings."
+      )
+      .font(.subheadline)
+      .foregroundStyle(.secondary)
+      .multilineTextAlignment(.center)
       Button("Open Settings") { Self.openSettings() }
         .buttonStyle(.borderedProminent)
       Spacer()
