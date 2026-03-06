@@ -33,12 +33,13 @@ struct AccessoryConfig: Equatable {
 @Observable @MainActor
 final class HAPViewModel {
 
-  /// App version + build number reported as firmware revision in HomeKit (e.g. "1.0-3").
+  /// App version + build number reported as firmware revision in HomeKit (e.g. "1.0.3").
+  /// HAP spec requires "X.Y.Z" format for FirmwareRevision.
   nonisolated static let firmwareVersion: String = {
     let info = Bundle.main.infoDictionary
     let version = info?["CFBundleShortVersionString"] as? String ?? "0.0"
     let build = info?["CFBundleVersion"] as? String ?? "0"
-    return "\(version)-\(build)"
+    return "\(version).\(build)"
   }()
 
   init(skipRestore: Bool = false) {
