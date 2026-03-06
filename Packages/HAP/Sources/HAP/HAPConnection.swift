@@ -581,7 +581,7 @@ public nonisolated final class HAPConnection: @unchecked Sendable {
       // the encryption context) doesn't race with other I/O. Resume the
       // receive loop after sending — the encrypted frame handler deferred
       // receiveNextRequest() while this async response was pending.
-      self?.queue.async {
+      self?.queue.async { [weak self] in
         if let jpeg {
           self?.sendResponse(HTTPResponse(status: 200, body: jpeg, contentType: "image/jpeg"))
         } else {
