@@ -299,7 +299,9 @@ struct ContentView: View {
   private func resetDimTimer() {
     dimTask?.cancel()
     isScreenDimmed = false
-    guard viewModel.isRunning, viewModel.keepScreenAwake, viewModel.screenSaverEnabled else {
+    guard viewModel.isRunning, viewModel.hasPairings, viewModel.keepScreenAwake,
+      viewModel.screenSaverEnabled
+    else {
       return
     }
     dimTask = Task {
