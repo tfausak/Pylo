@@ -83,6 +83,15 @@ struct ContentView: View {
     .onChange(of: viewModel.screenSaverDelay) {
       if viewModel.isRunning { resetDimTimer() }
     }
+    .onChange(of: viewModel.hasPairings) {
+      if !viewModel.hasPairings {
+        dimTask?.cancel()
+        dimTask = nil
+        isScreenDimmed = false
+      } else if viewModel.isRunning {
+        resetDimTimer()
+      }
+    }
   }
 
   // MARK: - Status Indicator
@@ -290,7 +299,9 @@ struct ContentView: View {
   private func resetDimTimer() {
     dimTask?.cancel()
     isScreenDimmed = false
-    guard viewModel.isRunning, viewModel.keepScreenAwake, viewModel.screenSaverEnabled else {
+    guard viewModel.isRunning, viewModel.hasPairings, viewModel.keepScreenAwake,
+      viewModel.screenSaverEnabled
+    else {
       return
     }
     dimTask = Task {
