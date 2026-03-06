@@ -545,6 +545,7 @@ public nonisolated final class HAPConnection: @unchecked Sendable {
       let camera = server.accessory(aid: aid) as? HAPSnapshotProvider
     else {
       sendResponse(HTTPResponse(status: 404, body: nil, contentType: "application/hap+json"))
+      receiveNextRequest()
       return
     }
 
@@ -554,11 +555,13 @@ public nonisolated final class HAPConnection: @unchecked Sendable {
       if reason == 0 && !camera.periodicSnapshotsActive {
         let body = try? JSONSerialization.data(withJSONObject: ["status": -70412])
         sendResponse(HTTPResponse(status: 200, body: body, contentType: "application/hap+json"))
+        receiveNextRequest()
         return
       }
       if reason == 1 && !camera.eventSnapshotsActive {
         let body = try? JSONSerialization.data(withJSONObject: ["status": -70412])
         sendResponse(HTTPResponse(status: 200, body: body, contentType: "application/hap+json"))
+        receiveNextRequest()
         return
       }
     }

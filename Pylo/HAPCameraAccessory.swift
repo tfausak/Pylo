@@ -68,7 +68,8 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   private struct Callbacks {
     var onSnapshotWillCapture: (() -> Void)?
     var onSnapshotDidCapture: (() -> Void)?
-    var onMonitoringCaptureNeeded: ((_ needed: Bool) -> Void)?
+    var onMonitoringCaptureNeeded: ((_ needed: Bool, _ existingSession: AVCaptureSession?) -> Void)?
+    var onMonitoringSessionHandoff: (() -> AVCaptureSession?)?
     var onVideoMotionChange: ((Bool) -> Void)?
     var onRecordingConfigChange: ((_ active: Bool) -> Void)?
     var onRecordingAudioActiveChange: ((_ active: Bool) -> Void)?
@@ -89,9 +90,13 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     get { _callbacks.withLock { $0.onSnapshotDidCapture } }
     set { _callbacks.withLock { $0.onSnapshotDidCapture = newValue } }
   }
-  var onMonitoringCaptureNeeded: ((_ needed: Bool) -> Void)? {
+  var onMonitoringCaptureNeeded: ((_ needed: Bool, _ existingSession: AVCaptureSession?) -> Void)? {
     get { _callbacks.withLock { $0.onMonitoringCaptureNeeded } }
     set { _callbacks.withLock { $0.onMonitoringCaptureNeeded = newValue } }
+  }
+  var onMonitoringSessionHandoff: (() -> AVCaptureSession?)? {
+    get { _callbacks.withLock { $0.onMonitoringSessionHandoff } }
+    set { _callbacks.withLock { $0.onMonitoringSessionHandoff = newValue } }
   }
   var onVideoMotionChange: ((Bool) -> Void)? {
     get { _callbacks.withLock { $0.onVideoMotionChange } }
@@ -162,10 +167,24 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   /// Most recent JPEG snapshot captured during streaming (used as fallback for snapshot requests).
   /// Protected by a lock because it is written from captureQueue (via onSnapshotFrame) and from
   /// a global queue (captureSnapshot), and read from the server queue.
-  private let _cachedSnapshot = OSAllocatedUnfairLock<Data?>(initialState: nil)
+  private let snapshotClock = ContinuousClock()
+  private let _cachedSnapshot = OSAllocatedUnfairLock<
+    (data: Data, timestamp: ContinuousClock.Instant)?
+  >(initialState: nil)
   var cachedSnapshot: Data? {
-    get { _cachedSnapshot.withLock { $0 } }
-    set { _cachedSnapshot.withLock { $0 = newValue } }
+    get { _cachedSnapshot.withLock { $0?.data } }
+    set {
+      let now = snapshotClock.now
+      _cachedSnapshot.withLock { $0 = newValue.map { (data: $0, timestamp: now) } }
+    }
+  }
+  /// Returns the cached snapshot only if it was captured within the given duration.
+  func cachedSnapshot(maxAge: Duration) -> Data? {
+    let now = snapshotClock.now
+    return _cachedSnapshot.withLock { cached in
+      guard let cached, cached.timestamp.duration(to: now) < maxAge else { return nil }
+      return cached.data
+    }
   }
 
   /// Audio settings accessed from the server queue (read/write characteristics)
@@ -521,10 +540,10 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
         // Signal monitoring capture: needed when recording armed + no live stream
         if isActive {
           if streamSession == nil {
-            onMonitoringCaptureNeeded?(true)
+            onMonitoringCaptureNeeded?(true, nil)
           }
         } else {
-          onMonitoringCaptureNeeded?(false)
+          onMonitoringCaptureNeeded?(false, nil)
         }
         return true
       }

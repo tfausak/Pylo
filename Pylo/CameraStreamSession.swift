@@ -165,7 +165,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     set { _onSnapshotFrame.withLock { $0 = newValue } }
   }
   private var snapshotFrameCounter = 0
-  private let snapshotInterval = 150  // every ~5s at 30fps
+  private var snapshotInterval = 30  // every ~1s, derived from negotiated fps
   private let snapshotCIContext: CIContext
 
   // Audio encoder state — accumulates PCM until we have a full AAC-ELD frame
@@ -212,11 +212,13 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   }
 
   /// Start streaming. Returns `true` on success, `false` if socket setup failed.
+  /// If `existingCaptureSession` is provided (handed off from monitoring), the session
+  /// is reconfigured in-place without stopping the camera — saving ~500ms of startup.
   @discardableResult
   func startStreaming(
     width: Int, height: Int, fps: Int, bitrate: Int, payloadType: UInt8,
     audioPayloadType: UInt8 = 110, camera: AVCaptureDevice, rotationAngle: Int = 90,
-    swapDimensions: Bool = true
+    swapDimensions: Bool = true, existingCaptureSession: AVCaptureSession? = nil
   ) -> Bool {
     logger.info(
       "Starting stream: \(width)x\(height)@\(fps)fps, \(bitrate)kbps, PT=\(payloadType) → \(self.controllerAddress):\(self.controllerVideoPort)"
@@ -226,6 +228,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     )
 
     self.targetFPS = fps
+    self.snapshotInterval = max(1, fps)
     self.rtpPayloadType = payloadType
     self.audioPayloadType = audioPayloadType
     // Safe to reset from any queue here: the capture pipeline hasn't started yet
@@ -255,6 +258,9 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     let videoFD = socket(AF_INET, SOCK_DGRAM, 0)
     guard videoFD >= 0 else {
       logger.error("Failed to create video UDP socket: errno \(errno)")
+      // Safe to call from any queue: ownership was transferred to us, so no
+      // other code touches this session concurrently.
+      existingCaptureSession?.stopRunning()
       return false
     }
 
@@ -272,6 +278,9 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     guard videoBindResult == 0 else {
       logger.error("Failed to bind video socket to port \(self.localVideoPort): errno \(errno)")
       close(videoFD)
+      // Safe to call from any queue: ownership was transferred to us, so no
+      // other code touches this session concurrently.
+      existingCaptureSession?.stopRunning()
       return false
     }
 
@@ -292,8 +301,22 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     let encWidth = swapDimensions ? height : width
     let encHeight = swapDimensions ? width : height
     self.setupCompression(width: encWidth, height: encHeight, fps: fps, bitrate: bitrate)
-    self.setupCapture(
-      width: width, height: height, fps: fps, camera: camera, rotationAngle: rotationAngle)
+    let captureOK = self.setupCapture(
+      width: width, height: height, fps: fps, camera: camera, rotationAngle: rotationAngle,
+      existingSession: existingCaptureSession)
+    guard captureOK else {
+      logger.error("Failed to set up capture pipeline")
+      // Safe to call from any queue: ownership was transferred to us, so no
+      // other code touches this session concurrently.
+      existingCaptureSession?.stopRunning()
+      if let compressionSession = self.compressionSession {
+        VTCompressionSessionInvalidate(compressionSession)
+        self.compressionSession = nil
+      }
+      close(videoFD)
+      self.videoSocketFD = -1
+      return false
+    }
     self.startRTCPTimer()
 
     // Audio: single BSD UDP socket for both send and receive.
@@ -360,9 +383,27 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   }
 
   func stopStreaming() {
+    tearDown(keepCaptureSession: false)
+  }
+
+  /// Hand off the running AVCaptureSession for reuse by the monitoring session.
+  /// Tears down all streaming resources (sockets, SRTP, audio, timers) but
+  /// leaves the AVCaptureSession running. Returns nil if no session is active.
+  func handoff() -> AVCaptureSession? {
+    return tearDown(keepCaptureSession: true)
+  }
+
+  /// Shared teardown logic. When `keepCaptureSession` is true, the
+  /// AVCaptureSession is extracted and returned instead of being stopped.
+  @discardableResult
+  private func tearDown(keepCaptureSession: Bool) -> AVCaptureSession? {
     dispatchPrecondition(condition: .notOnQueue(captureQueue))
     dispatchPrecondition(condition: .notOnQueue(rtpQueue))
-    logger.info("Stopping stream")
+    if keepCaptureSession {
+      logger.info("Handing off stream session")
+    } else {
+      logger.info("Stopping stream")
+    }
 
     // Cancel all timers before draining queues so no timer fires in the
     // window between drain and cancellation.
@@ -371,12 +412,23 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     audioRTCPTimer?.cancel()
     audioRTCPTimer = nil
 
-    // stopRunning() is synchronous — it blocks until the session fully
-    // stops delivering frames. Calling it directly (rather than async)
-    // ensures the VTCompressionSession won't receive new frames after
-    // we invalidate it below.
-    captureSession?.stopRunning()
-    captureSession = nil
+    let session = captureSession
+    if keepCaptureSession, let session {
+      // Remove our outputs so the running session stops delivering frames
+      // to our delegates before we dispose encoders/sockets below.
+      session.beginConfiguration()
+      if let videoOutput { session.removeOutput(videoOutput) }
+      if let audioOutput { session.removeOutput(audioOutput) }
+      session.commitConfiguration()
+      captureSession = nil
+    } else {
+      // stopRunning() is synchronous — it blocks until the session fully
+      // stops delivering frames. Calling it directly (rather than async)
+      // ensures the VTCompressionSession won't receive new frames after
+      // we invalidate it below.
+      captureSession?.stopRunning()
+      captureSession = nil
+    }
 
     // Drain in-flight captureQueue blocks so no concurrent encodeFrame or
     // encodeAndSendAudioFrame call is mid-execution when we dispose resources.
@@ -396,6 +448,9 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
 
     // Audio mic cleanup
     audioOutput = nil
+    videoOutput = nil
+    videoCaptureDelegate = nil
+    audioCaptureDelegate = nil
 
     // Safe to dispose here: encodeAndSendAudioFrame uses audioConverter synchronously
     // on captureQueue (already drained above), and only dispatches the encoded result
@@ -433,7 +488,10 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
       // and any in-flight sendVideoUDP/sendAudioUDP/readAudioSocket calls have drained.
       if videoFD >= 0 { close(videoFD) }
       // Close audio FD here if there was no read source to own it.
-      if readSource == nil, audioFD >= 0 { close(audioFD) }
+      if readSource == nil, audioFD >= 0 {
+        logger.warning("Audio FD open but no read source — closing in fallback path")
+        close(audioFD)
+      }
       if let dec = decoder { AudioConverterDispose(dec) }
       _ = incomingSRTP  // prevent premature dealloc until after queue drains
     }
@@ -451,13 +509,17 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     audioEngine = nil
     audioDecoder = nil
     incomingSRTPContext = nil
+
+    return keepCaptureSession ? session : nil
   }
 
   // MARK: - Video Capture
 
+  @discardableResult
   private func setupCapture(
-    width: Int, height: Int, fps: Int, camera: AVCaptureDevice, rotationAngle: Int = 90
-  ) {
+    width: Int, height: Int, fps: Int, camera: AVCaptureDevice, rotationAngle: Int = 90,
+    existingSession: AVCaptureSession? = nil
+  ) -> Bool {
     do {
       try camera.lockForConfiguration()
       // Find closest frame rate range
@@ -486,17 +548,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
       }
     #endif
 
-    let session = AVCaptureSession()
-    session.sessionPreset = width > 1280 ? .hd1920x1080 : width > 640 ? .hd1280x720 : .medium
-
-    do {
-      let input = try AVCaptureDeviceInput(device: camera)
-      if session.canAddInput(input) { session.addInput(input) }
-    } catch {
-      logger.error("Camera input error: \(error)")
-      return
-    }
-
+    // Build the new video output and delegate (shared between both paths)
     let output = AVCaptureVideoDataOutput()
     output.videoSettings = [
       kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
@@ -514,22 +566,44 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
       self.encodeFrame(pixelBuffer, pts: pts)
     }
     output.setSampleBufferDelegate(delegate, queue: captureQueue)
-    if session.canAddOutput(output) { session.addOutput(output) }
 
-    // Rotate output to match device orientation.
-    if let connection = output.connection(with: .video),
-      connection.isVideoRotationAngleSupported(CGFloat(rotationAngle))
-    {
-      connection.videoRotationAngle = CGFloat(rotationAngle)
-    }
+    let session: AVCaptureSession
+    if let existing = existingSession {
+      // Reuse the monitoring session's running AVCaptureSession — reconfigure
+      // in-place to avoid the ~500ms cold-start of creating a new one.
+      session = existing
+      logger.info("Reusing handed-off capture session (already running)")
 
-    // Add microphone input for audio capture
-    if let mic = AVCaptureDevice.default(for: .audio),
-      let micInput = try? AVCaptureDeviceInput(device: mic),
-      session.canAddInput(micInput)
-    {
-      session.addInput(micInput)
+      session.beginConfiguration()
 
+      // Remove monitoring's outputs (video, possibly audio)
+      for old in session.outputs { session.removeOutput(old) }
+
+      // Change preset if needed (monitoring always uses .hd1920x1080)
+      let targetPreset: AVCaptureSession.Preset =
+        width > 1280 ? .hd1920x1080 : width > 640 ? .hd1280x720 : .medium
+      if session.sessionPreset != targetPreset { session.sessionPreset = targetPreset }
+
+      // Add streaming video output
+      guard session.canAddOutput(output) else {
+        logger.error("Failed to add video output when reusing capture session")
+        session.commitConfiguration()
+        return false
+      }
+      session.addOutput(output)
+
+      // Add mic input if monitoring didn't have it
+      let hasMic = session.inputs.contains { input in
+        (input as? AVCaptureDeviceInput)?.device.hasMediaType(.audio) == true
+      }
+      if !hasMic, let mic = AVCaptureDevice.default(for: .audio),
+        let micInput = try? AVCaptureDeviceInput(device: mic),
+        session.canAddInput(micInput)
+      {
+        session.addInput(micInput)
+      }
+
+      // Add streaming audio output
       let audioOut = AVCaptureAudioDataOutput()
       let audioDelegate = AudioCaptureDelegate { [weak self] sampleBuffer in
         self?.handleAudioSampleBuffer(sampleBuffer)
@@ -539,10 +613,66 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
         session.addOutput(audioOut)
         self.audioOutput = audioOut
         self.audioCaptureDelegate = audioDelegate
-        logger.info("Microphone audio capture added to session")
+      } else {
+        logger.warning(
+          "Failed to add audio output to reused capture session — streaming without audio")
       }
+
+      session.commitConfiguration()
+      // Session is already running — no startRunning() needed
     } else {
-      logger.error("Failed to add microphone input")
+      // Cold start — create a new AVCaptureSession from scratch
+      session = AVCaptureSession()
+      session.sessionPreset = width > 1280 ? .hd1920x1080 : width > 640 ? .hd1280x720 : .medium
+
+      do {
+        let input = try AVCaptureDeviceInput(device: camera)
+        if session.canAddInput(input) { session.addInput(input) }
+      } catch {
+        logger.error("Camera input error: \(error)")
+        return false
+      }
+
+      if session.canAddOutput(output) {
+        session.addOutput(output)
+      } else {
+        logger.error("Failed to add video output to capture session")
+        return false
+      }
+
+      // Add microphone input for audio capture
+      if let mic = AVCaptureDevice.default(for: .audio),
+        let micInput = try? AVCaptureDeviceInput(device: mic),
+        session.canAddInput(micInput)
+      {
+        session.addInput(micInput)
+
+        let audioOut = AVCaptureAudioDataOutput()
+        let audioDelegate = AudioCaptureDelegate { [weak self] sampleBuffer in
+          self?.handleAudioSampleBuffer(sampleBuffer)
+        }
+        audioOut.setSampleBufferDelegate(audioDelegate, queue: captureQueue)
+        if session.canAddOutput(audioOut) {
+          session.addOutput(audioOut)
+          self.audioOutput = audioOut
+          self.audioCaptureDelegate = audioDelegate
+          logger.info("Microphone audio capture added to session")
+        }
+      } else {
+        logger.error("Failed to add microphone input")
+      }
+
+      captureQueue.async { [weak self] in
+        session.startRunning()
+        self?.logger.info("Capture session running: \(session.isRunning)")
+      }
+    }
+
+    // Rotate output to match device orientation.
+    if let connection = output.connection(with: .video),
+      connection.isVideoRotationAngleSupported(CGFloat(rotationAngle))
+    {
+      connection.videoRotationAngle = CGFloat(rotationAngle)
     }
 
     self.captureSession = session
@@ -554,11 +684,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     if self.audioConverter == nil {
       self.setupAudioEncoder()
     }
-
-    captureQueue.async { [weak self] in
-      session.startRunning()
-      self?.logger.info("Capture session running: \(session.isRunning)")
-    }
+    return true
   }
 
   // MARK: - H.264 Compression
@@ -620,23 +746,19 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     encodeFrameCount += 1
 
     // Periodically cache a JPEG for snapshot requests while streaming.
-    // Render to CGImage synchronously (fast — just materializes the lazy CIImage),
-    // then dispatch JPEG compression to a background queue to avoid blocking
-    // video frame delivery on captureQueue.
+    // Dispatch all rendering and JPEG encoding off captureQueue to avoid
+    // blocking frame delivery. The closure capture retains the pixel buffer.
     snapshotFrameCounter += 1
     if snapshotFrameCounter >= snapshotInterval, let callback = onSnapshotFrame {
       snapshotFrameCounter = 0
-      let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-      if let cgImage = snapshotCIContext.createCGImage(ciImage, from: ciImage.extent) {
-        let ctx = snapshotCIContext
-        DispatchQueue.global(qos: .utility).async {
-          let rendered = CIImage(cgImage: cgImage)
-          if let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-            let jpeg = ctx.jpegRepresentation(
-              of: rendered, colorSpace: colorSpace, options: [:])
-          {
-            callback(jpeg)
-          }
+      nonisolated(unsafe) let pixelBuffer = pixelBuffer
+      let ctx = snapshotCIContext
+      DispatchQueue.global(qos: .utility).async {
+        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+        if let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+          let jpeg = ctx.jpegRepresentation(of: ciImage, colorSpace: colorSpace, options: [:])
+        {
+          callback(jpeg)
         }
       }
     }

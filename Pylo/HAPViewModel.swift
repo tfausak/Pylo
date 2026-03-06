@@ -592,14 +592,37 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     monitoring.fragmentWriter = fmp4Writer
     monitoringSession = monitoring
 
-    camera.onMonitoringCaptureNeeded = { [weak monitoring, weak camera] needed in
+    // Cache a JPEG snapshot from the monitoring session every ~1s so snapshot
+    // requests from Home.app can be answered instantly instead of cold-starting
+    // a new AVCaptureSession (which takes 1-3s and causes "No Response").
+    // JPEG encoding is dispatched off captureQueue to avoid blocking frame
+    // delivery (which would cause dropped frames and affect motion/lux detection).
+    let ciContext = camera.snapshotCIContext
+    let snapshotQueue = DispatchQueue(
+      label: "\(Bundle.main.bundleIdentifier!).snapshot-encode", qos: .utility)
+    monitoring.snapshotCallback = { [weak camera] pixelBuffer in
+      // Dispatch all rendering and JPEG encoding to snapshotQueue to keep
+      // captureQueue unblocked (avoids dropped frames and motion/lux lag).
+      // Swift's closure capture retains the CVPixelBuffer automatically.
+      nonisolated(unsafe) let pixelBuffer = pixelBuffer
+      snapshotQueue.async { [weak camera] in
+        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+          let jpeg = ciContext.jpegRepresentation(of: ciImage, colorSpace: colorSpace, options: [:])
+        else { return }
+        camera?.cachedSnapshot = jpeg
+      }
+    }
+
+    camera.onMonitoringCaptureNeeded = {
+      [weak monitoring, weak camera] needed, existingSession in
       guard let camera else { return }
       if needed {
         monitoring?.videoMotionDetector = camera.videoMotionDetector
         monitoring?.ambientLightDetector = camera.ambientLightDetector
         monitoring?.audioRecordingEnabled = camera.recordingAudioActive != 0
         if let device = camera.resolvedCamera {
-          monitoring?.start(camera: device)
+          monitoring?.start(camera: device, existingSession: existingSession)
         }
       } else {
         monitoring?.stop()
@@ -628,6 +651,13 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
         }
       }
     }
+  }
+
+  // Hand off the monitoring session's AVCaptureSession to the stream session
+  // for reuse, avoiding the ~500ms cold-start of creating a new one.
+  camera.onMonitoringSessionHandoff = { [weak monitoringSession, weak camera] in
+    camera?.videoMotionDetector?.reset()
+    return monitoringSession?.handoff()
   }
 
   // Pause/resume the monitoring session around snapshot captures

@@ -272,10 +272,13 @@ extension HAPCameraAccessory {
       self?.cachedSnapshot = jpeg
     }
 
-    // Stop monitoring capture -- live stream takes over motion detection.
-    // fMP4 prebuffering pauses because the live stream encodes at a different
-    // resolution that doesn't match the init segment.
-    onMonitoringCaptureNeeded?(false)
+    // Hand off the monitoring session's AVCaptureSession for reuse if available.
+    // This avoids the ~500ms cold-start of creating a new session. If no monitoring
+    // session is running, fall back to stopping it and creating a fresh session.
+    let existingSession = onMonitoringSessionHandoff?()
+    if existingSession == nil {
+      onMonitoringCaptureNeeded?(false, nil)
+    }
 
     let effectiveBitrate = max(bitrate, minimumBitrate)
     let rotation = currentRotation()
@@ -285,24 +288,33 @@ extension HAPCameraAccessory {
     let started = session.startStreaming(
       width: width, height: height, fps: fps, bitrate: effectiveBitrate, payloadType: payloadType,
       audioPayloadType: audioPayloadType, camera: camera, rotationAngle: rotation.angle,
-      swapDimensions: rotation.swapDimensions)
+      swapDimensions: rotation.swapDimensions, existingCaptureSession: existingSession)
     if !started {
       logger.error("Stream session failed to start — clearing session")
       streamSession = nil
-      onMonitoringCaptureNeeded?(true)
+      onMonitoringCaptureNeeded?(true, nil)
     }
     onStateChange?(
       aid, Self.iidStreamingStatus, .string(streamingStatusTLV().base64EncodedString()))
   }
 
   func stopStreaming() {
-    streamSession?.stopStreaming()
+    // Hand off the AVCaptureSession back to monitoring if recording is armed,
+    // so it can resume without a cold-start.
+    let recordingArmed = hksvState.withLock({ $0.recordingActive }) != 0
+    let handBackSession: AVCaptureSession?
+    if recordingArmed {
+      handBackSession = streamSession?.handoff()
+    } else {
+      streamSession?.stopStreaming()
+      handBackSession = nil
+    }
     streamSession = nil
     onStateChange?(
       aid, Self.iidStreamingStatus, .string(streamingStatusTLV().base64EncodedString()))
     // Resume monitoring capture if recording is still armed
-    if hksvState.withLock({ $0.recordingActive }) != 0 {
-      onMonitoringCaptureNeeded?(true)
+    if recordingArmed {
+      onMonitoringCaptureNeeded?(true, handBackSession)
     }
   }
 

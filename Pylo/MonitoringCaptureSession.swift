@@ -60,11 +60,24 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   /// Reset in start()/stop() before captureQueue delivers frames.
   private var encodeFrameCount: Int = 0
 
-  /// Frame counter for throttling motion/lux detection — captureQueue only.
-  /// Motion fires every 15 frames (~2fps at 30fps), lux every 60 (~0.5fps).
+  /// Frame counter for throttling motion/lux/snapshot detection — captureQueue only.
+  /// Motion fires every 15 frames (~2fps at 30fps), lux every 60 (~0.5fps),
+  /// snapshot every 30 (~1fps).
   private var captureFrameCount: Int = 0
   private let motionFrameInterval = 15
   private let luxFrameInterval = 60
+  private let snapshotFrameInterval = 30
+
+  /// Callback to periodically provide a pixel buffer for snapshot caching.
+  /// Called every ~1 second on the captureQueue. The receiver should JPEG-encode
+  /// the buffer and cache it for fast snapshot responses.
+  /// Protected: written from server queue, read from captureQueue.
+  private let _snapshotCallback = OSAllocatedUnfairLock<((CVPixelBuffer) -> Void)?>(
+    initialState: nil)
+  var snapshotCallback: ((CVPixelBuffer) -> Void)? {
+    get { _snapshotCallback.withLock { $0 } }
+    set { _snapshotCallback.withLock { $0 = newValue } }
+  }
 
   init() {
     let sQueue = DispatchQueue(label: "\(Bundle.main.bundleIdentifier!).monitorSession")
@@ -104,11 +117,14 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
 
   // MARK: - Lifecycle
 
-  func start(camera: AVCaptureDevice) {
+  func start(camera: AVCaptureDevice, existingSession: AVCaptureSession? = nil) {
     // Atomically check-and-mark to prevent concurrent start().
+    // Note: the session stored here acts as a sentinel until configuration completes.
+    // This is safe because start/stop/handoff are called sequentially from the HAP
+    // server's accessory management path — no concurrent handoff() can race here.
     let alreadyRunning = mState.withLock { (state: inout State) -> Bool in
       if state.captureSession != nil { return true }
-      state.captureSession = AVCaptureSession()  // sentinel
+      state.captureSession = existingSession ?? AVCaptureSession()  // sentinel (or reuse)
       return false
     }
     guard !alreadyRunning else { return }
@@ -151,18 +167,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       }
     #endif
 
-    let session = AVCaptureSession()
-    session.sessionPreset = .hd1920x1080
-
-    do {
-      let input = try AVCaptureDeviceInput(device: camera)
-      if session.canAddInput(input) { session.addInput(input) }
-    } catch {
-      logger.error("Camera input error: \(error)")
-      mState.withLock { $0.captureSession = nil }
-      return
-    }
-
+    // Build the new video output and delegate (shared between both paths)
     let output = AVCaptureVideoDataOutput()
     output.videoSettings = [
       kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
@@ -177,35 +182,132 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       if self.captureFrameCount % self.luxFrameInterval == 0 {
         self.ambientLightDetector?.sample()
       }
+      if self.captureFrameCount % self.snapshotFrameInterval == 0 {
+        self.snapshotCallback?(pixelBuffer)
+      }
       self.encodeFrame(pixelBuffer, pts: pts)
     }
     output.setSampleBufferDelegate(delegate, queue: captureQueue)
-    if session.canAddOutput(output) { session.addOutput(output) }
 
-    // Add microphone input for audio capture (only when hub has enabled recording audio)
+    let session: AVCaptureSession
     var audioReady = false
-    if audioRecordingEnabled, let mic = AVCaptureDevice.default(for: .audio),
-      let micInput = try? AVCaptureDeviceInput(device: mic),
-      session.canAddInput(micInput)
-    {
-      session.addInput(micInput)
-      let audioOut = AVCaptureAudioDataOutput()
-      let audioDelegate = AudioCaptureDelegate { [weak self] sampleBuffer in
-        self?.handleAudioSampleBuffer(sampleBuffer)
-      }
-      audioOut.setSampleBufferDelegate(audioDelegate, queue: captureQueue)
-      if session.canAddOutput(audioOut) {
-        session.addOutput(audioOut)
-        mState.withLock { $0.audioCaptureDelegate = audioDelegate }
 
-        // Create AAC-ELD encoder
-        if let converter = createAACELDEncoder() {
-          mState.withLockUnchecked {
-            $0.audioConverter = converter
-            $0.pcmAccumulator = Data()
+    if let existing = existingSession {
+      // Reuse the stream session's running AVCaptureSession — reconfigure
+      // in-place to avoid the ~500ms cold-start of creating a new one.
+      // beginConfiguration/commitConfiguration are thread-safe per Apple docs,
+      // so we don't need sessionQueue here (only startRunning requires it).
+      session = existing
+      logger.info("Reusing handed-off capture session for monitoring")
+
+      session.beginConfiguration()
+
+      // Remove stream's outputs
+      for old in session.outputs { session.removeOutput(old) }
+
+      // Restore preset to monitoring's 1080p
+      if session.sessionPreset != .hd1920x1080 { session.sessionPreset = .hd1920x1080 }
+
+      // Add monitoring video output
+      if session.canAddOutput(output) {
+        session.addOutput(output)
+      } else {
+        logger.error("Failed to add monitoring video output to reused capture session")
+        session.commitConfiguration()
+        mState.withLock { $0.captureSession = nil }
+        return
+      }
+
+      // Add audio if needed and not already present
+      if audioRecordingEnabled {
+        let hasMic = session.inputs.contains { input in
+          (input as? AVCaptureDeviceInput)?.device.hasMediaType(.audio) == true
+        }
+        if !hasMic, let mic = AVCaptureDevice.default(for: .audio),
+          let micInput = try? AVCaptureDeviceInput(device: mic),
+          session.canAddInput(micInput)
+        {
+          session.addInput(micInput)
+        }
+
+        let audioOut = AVCaptureAudioDataOutput()
+        let audioDelegate = AudioCaptureDelegate { [weak self] sampleBuffer in
+          self?.handleAudioSampleBuffer(sampleBuffer)
+        }
+        audioOut.setSampleBufferDelegate(audioDelegate, queue: captureQueue)
+        if session.canAddOutput(audioOut) {
+          session.addOutput(audioOut)
+          mState.withLock { $0.audioCaptureDelegate = audioDelegate }
+          if let converter = createAACELDEncoder() {
+            mState.withLockUnchecked {
+              $0.audioConverter = converter
+              $0.pcmAccumulator = Data()
+            }
+            audioReady = true
           }
-          audioReady = true
-          logger.info("Monitoring audio capture + AAC-ELD encoder ready")
+        }
+      }
+
+      // Remove mic input if monitoring doesn't need audio but stream had it
+      if !audioRecordingEnabled {
+        for input in session.inputs {
+          if let devInput = input as? AVCaptureDeviceInput,
+            devInput.device.hasMediaType(.audio)
+          {
+            session.removeInput(devInput)
+          }
+        }
+      }
+
+      session.commitConfiguration()
+      // Session is already running — no startRunning() needed
+    } else {
+      // Cold start — create a new AVCaptureSession from scratch
+      session = AVCaptureSession()
+      session.sessionPreset = .hd1920x1080
+
+      do {
+        let input = try AVCaptureDeviceInput(device: camera)
+        if session.canAddInput(input) { session.addInput(input) }
+      } catch {
+        logger.error("Camera input error: \(error)")
+        mState.withLock { $0.captureSession = nil }
+        return
+      }
+
+      if session.canAddOutput(output) {
+        session.addOutput(output)
+      } else {
+        logger.error(
+          "Unable to add video output to monitoring capture session; aborting cold start")
+        mState.withLock { $0.captureSession = nil }
+        return
+      }
+
+      // Add microphone input for audio capture (only when hub has enabled recording audio)
+      if audioRecordingEnabled, let mic = AVCaptureDevice.default(for: .audio),
+        let micInput = try? AVCaptureDeviceInput(device: mic),
+        session.canAddInput(micInput)
+      {
+        session.addInput(micInput)
+        let audioOut = AVCaptureAudioDataOutput()
+        let audioDelegate = AudioCaptureDelegate { [weak self] sampleBuffer in
+          self?.handleAudioSampleBuffer(sampleBuffer)
+        }
+        audioOut.setSampleBufferDelegate(audioDelegate, queue: captureQueue)
+        if session.canAddOutput(audioOut) {
+          session.addOutput(audioOut)
+          mState.withLock { $0.audioCaptureDelegate = audioDelegate }
+
+          // Create AAC-ELD encoder
+          if let converter = createAACELDEncoder() {
+            mState.withLockUnchecked {
+              $0.audioConverter = converter
+              $0.pcmAccumulator = Data()
+            }
+            audioReady = true
+            logger.info("Monitoring audio capture + AAC-ELD encoder ready")
+          }
         }
       }
     }
@@ -265,10 +367,16 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       encodeFrameCount = 0
       captureFrameCount = 0
     }
-    sessionQueue.async {
-      session.startRunning()
+    if existingSession == nil {
+      let startBlock = { session.startRunning() }
+      if DispatchQueue.getSpecific(key: sessionQueueKey) != nil {
+        startBlock()
+      } else {
+        sessionQueue.sync(execute: startBlock)
+      }
     }
-    logger.info("Monitoring capture started (audio=\(audioReady))")
+    logger.info(
+      "Monitoring capture started (audio=\(audioReady), reused=\(existingSession != nil))")
   }
 
   func stop() {
@@ -312,6 +420,58 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       $0.audioCaptureDelegate = nil
     }
     logger.info("Monitoring capture stopped")
+  }
+
+  /// Hand off the running AVCaptureSession to a stream session for reuse.
+  /// Cleans up monitoring-specific resources (compression, audio encoder, delegates)
+  /// but does NOT stop the capture session — the caller takes ownership.
+  /// Returns nil if no session is running.
+  func handoff() -> AVCaptureSession? {
+    let (session, oldCS, oldAudioConverter):
+      (AVCaptureSession?, VTCompressionSession?, AudioConverterRef?) = mState.withLockUnchecked {
+        let s = $0.captureSession
+        let cs = $0.compressionSession
+        let ac = $0.audioConverter
+        $0.captureSession = nil
+        $0.compressionSession = nil
+        $0.audioConverter = nil
+        $0.pcmAccumulator = Data()
+        return (s, cs, ac)
+      }
+    guard let session else { return nil }
+
+    fragmentWriter?.includeAudioTrack = false
+
+    // Remove our outputs so AVFoundation stops delivering frames to our
+    // delegates before we release them. Without this, in-flight frames can
+    // be delivered to a deallocated delegate.
+    session.beginConfiguration()
+    for old in session.outputs { session.removeOutput(old) }
+    session.commitConfiguration()
+
+    // Drain in-flight captureQueue blocks before invalidating the compression
+    // session. An encodeFrame() call may have already read compressionSession
+    // (non-nil) before the lock cleared it — invalidating while it's mid-encode
+    // causes kVTInvalidSessionErr (-12903).
+    dispatchPrecondition(condition: .notOnQueue(captureQueue))
+    captureQueue.sync {}
+
+    if let cs = oldCS {
+      VTCompressionSessionCompleteFrames(cs, untilPresentationTimeStamp: .positiveInfinity)
+      VTCompressionSessionInvalidate(cs)
+    }
+
+    if let ac = oldAudioConverter {
+      AudioConverterDispose(ac)
+    }
+
+    mState.withLock {
+      $0.videoCaptureDelegate = nil
+      $0.audioCaptureDelegate = nil
+    }
+    snapshotCallback = nil
+    logger.info("Monitoring capture handed off (session still running)")
+    return session
   }
 
   // MARK: - H.264 Encoding
