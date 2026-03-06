@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pylo Support</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            color: #1d1d1f;
+            background: #f5f5f7;
+        }
+        .container {
+            max-width: 680px;
+            margin: 0 auto;
+            padding: 48px 24px;
+        }
+        h1 { font-size: 2rem; margin-bottom: 8px; }
+        .subtitle { color: #6e6e73; margin-bottom: 40px; }
+        h2 { font-size: 1.25rem; margin: 32px 0 12px; }
+        p, li { color: #1d1d1f; }
+        section {
+            background: #fff;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 20px;
+        }
+        details { margin-bottom: 12px; }
+        details:last-child { margin-bottom: 0; }
+        summary {
+            cursor: pointer;
+            font-weight: 600;
+            padding: 4px 0;
+        }
+        details p { margin-top: 8px; color: #6e6e73; }
+        a { color: #0066cc; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .contact-link {
+            display: inline-block;
+            margin-top: 8px;
+            padding: 10px 20px;
+            background: #0066cc;
+            color: #fff;
+            border-radius: 8px;
+            font-weight: 600;
+        }
+        .contact-link:hover { background: #0055aa; text-decoration: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Pylo Support</h1>
+        <p class="subtitle">HomeKit bridge for your old iPhone</p>
+
+        <section>
+            <h2>About</h2>
+            <p>Pylo turns a spare iPhone into a HomeKit bridge, exposing its camera, flashlight, ambient light sensor, and motion sensor as native HomeKit accessories.</p>
+        </section>
+
+        <section>
+            <h2>Frequently Asked Questions</h2>
+
+            <details>
+                <summary>How do I add Pylo to my home?</summary>
+                <p>Open the Home app on your primary device, tap "+" to add an accessory, and scan the pairing code shown in Pylo. The accessories will appear in your home automatically.</p>
+            </details>
+
+            <details>
+                <summary>Which accessories does Pylo provide?</summary>
+                <p>Pylo exposes a flashlight (as a lightbulb), a camera with live streaming, an ambient light sensor, and a motion sensor.</p>
+            </details>
+
+            <details>
+                <summary>Does Pylo work in the background?</summary>
+                <p>Pylo needs to remain in the foreground to maintain its HomeKit connection and stream video. Keep the app open on the device you're using as a bridge.</p>
+            </details>
+
+            <details>
+                <summary>Why can't HomeKit find my accessory?</summary>
+                <p>Make sure both devices are on the same Wi-Fi network. If the accessory still doesn't appear, try restarting Pylo and re-scanning the pairing code.</p>
+            </details>
+
+            <details>
+                <summary>How do I remove a pairing?</summary>
+                <p>Remove the accessory from the Home app on your primary device. You can also reset pairings within Pylo to start fresh.</p>
+            </details>
+        </section>
+
+        <section>
+            <h2>Get Help</h2>
+            <p>If you have a question or need help, please open an issue on GitHub:</p>
+            <a class="contact-link" href="https://github.com/tfausak/Pylo/issues">Contact Support</a>
+        </section>
+    </div>
+</body>
+</html>
