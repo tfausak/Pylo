@@ -100,6 +100,7 @@ nonisolated final class HAPAccessory: HAPAccessoryProtocol, @unchecked Sendable 
     case AccessoryInfoIID.name: return .string(name)
     case AccessoryInfoIID.serialNumber: return .string(serialNumber)
     case AccessoryInfoIID.firmwareRevision: return .string(firmwareRevision)
+    case ProtocolInfoIID.version: return .string(hapProtocolVersion)
     case Self.iidOn: return .bool(isOn)
     case Self.iidBrightness: return .int(brightness)
     case BatteryIID.batteryLevel: return batteryState.map { .int($0.level) }
@@ -212,6 +213,7 @@ nonisolated final class HAPAccessory: HAPAccessoryProtocol, @unchecked Sendable 
   func toJSON() -> [String: Any] {
     var services: [[String: Any]] = [
       accessoryInformationServiceJSON(),
+      protocolInformationServiceJSON(),
       // Lightbulb Service
       [
         "iid": Self.iidLightbulbService,

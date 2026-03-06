@@ -403,7 +403,7 @@ struct AccessoryIIDConstantsTests {
     let motion = HAPMotionSensorAccessory(aid: 5)
     let json = motion.toJSON()
     let services = json["services"] as! [[String: Any]]
-    let sensorService = services[1]
+    let sensorService = services[2]
     #expect(
       sensorService["iid"] as? Int
         == HAPMotionSensorAccessory.iidMotionSensorService)
@@ -472,13 +472,14 @@ struct HAPBridgeInfoTests {
     #expect(bridge.writeCharacteristic(iid: 99, value: .bool(true)) == false)
   }
 
-  @Test("Bridge toJSON has single service")
-  func toJSONSingleService() {
+  @Test("Bridge toJSON has accessory info and protocol info services")
+  func toJSONServices() {
     let bridge = HAPBridgeInfo()
     let json = bridge.toJSON()
     let services = json["services"] as! [[String: Any]]
-    #expect(services.count == 1)
-    #expect(services[0]["type"] as? String == "3E")
+    #expect(services.count == 2)
+    #expect(services[0]["type"] as? String == "3E")  // Accessory Information
+    #expect(services[1]["type"] as? String == "A2")  // Protocol Information
   }
 }
 
@@ -520,11 +521,12 @@ struct HAPMotionSensorTests {
     let sensor = HAPMotionSensorAccessory(aid: 5)
     let json = sensor.toJSON()
     let services = json["services"] as! [[String: Any]]
-    #expect(services.count == 3)  // accessory info + motion sensor + battery
-    #expect(services[1]["type"] as? String == "85")  // motion sensor
-    let chars = services[1]["characteristics"] as! [[String: Any]]
+    #expect(services.count == 4)  // accessory info + protocol info + motion sensor + battery
+    #expect(services[1]["type"] as? String == "A2")  // protocol info
+    #expect(services[2]["type"] as? String == "85")  // motion sensor
+    let chars = services[2]["characteristics"] as! [[String: Any]]
     #expect(chars[0]["format"] as? String == "bool")
-    #expect(services[2]["type"] as? String == BatteryUUID.service)  // battery
+    #expect(services[3]["type"] as? String == BatteryUUID.service)  // battery
   }
 }
 

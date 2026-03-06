@@ -63,6 +63,7 @@ extension HAPCameraAccessory {
 
     var services: [[String: Any]] = [
       accessoryInformationServiceJSON(),
+      protocolInformationServiceJSON(),
       // Camera RTP Stream Management Service
       [
         "iid": Self.iidCameraService,

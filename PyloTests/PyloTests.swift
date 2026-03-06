@@ -128,17 +128,20 @@ struct HAPAccessoryTests {
     #expect(json["aid"] as? Int == 7)
 
     let services = json["services"] as! [[String: Any]]
-    // Accessory Info + Lightbulb + Battery = 3 services
-    #expect(services.count == 3)
+    // Accessory Info + Protocol Info + Lightbulb + Battery = 4 services
+    #expect(services.count == 4)
 
     // Accessory Information service
     #expect(services[0]["type"] as? String == "3E")
     let infoChars = services[0]["characteristics"] as! [[String: Any]]
     #expect(infoChars.count == 6)
 
+    // Protocol Information service
+    #expect(services[1]["type"] as? String == "A2")
+
     // Lightbulb service
-    #expect(services[1]["type"] as? String == "43")
-    let lightChars = services[1]["characteristics"] as! [[String: Any]]
+    #expect(services[2]["type"] as? String == "43")
+    let lightChars = services[2]["characteristics"] as! [[String: Any]]
     #expect(lightChars.count == 2)
 
     // On characteristic
@@ -155,7 +158,7 @@ struct HAPAccessoryTests {
     #expect(brightChar["unit"] as? String == "percentage")
 
     // Battery service (always included for stable c# hashing)
-    #expect(services[2]["type"] as? String == BatteryUUID.service)
+    #expect(services[3]["type"] as? String == BatteryUUID.service)
   }
 }
 
@@ -205,7 +208,7 @@ struct AccessoryIIDConstantsAppTests {
     let light = HAPAccessory(aid: 2)
     let json = light.toJSON()
     let services = json["services"] as! [[String: Any]]
-    let lightService = services[1]
+    let lightService = services[2]
     #expect(lightService["iid"] as? Int == HAPAccessory.iidLightbulbService)
     let chars = lightService["characteristics"] as! [[String: Any]]
     #expect(chars[0]["iid"] as? Int == HAPAccessory.iidOn)
@@ -218,7 +221,7 @@ struct AccessoryIIDConstantsAppTests {
     let json = camera.toJSON()
     let services = json["services"] as! [[String: Any]]
 
-    let cameraService = services[1]
+    let cameraService = services[2]
     #expect(
       cameraService["iid"] as? Int
         == HAPCameraAccessory.iidCameraService)
@@ -231,12 +234,12 @@ struct AccessoryIIDConstantsAppTests {
       cameraChars[5]["iid"] as? Int
         == HAPCameraAccessory.iidStreamingStatus)
 
-    let micService = services[2]
+    let micService = services[3]
     #expect(
       micService["iid"] as? Int
         == HAPCameraAccessory.iidMicrophoneService)
 
-    let speakerService = services[3]
+    let speakerService = services[4]
     #expect(
       speakerService["iid"] as? Int
         == HAPCameraAccessory.iidSpeakerService)
@@ -435,12 +438,12 @@ struct BatteryServiceTests {
 
     let json = light.toJSON()
     let services = json["services"] as! [[String: Any]]
-    // Accessory Info + Lightbulb + Battery = 3 services
-    #expect(services.count == 3)
-    #expect(services[2]["type"] as? String == BatteryUUID.service)
-    #expect(services[2]["iid"] as? Int == BatteryIID.service)
+    // Accessory Info + Protocol Info + Lightbulb + Battery = 4 services
+    #expect(services.count == 4)
+    #expect(services[3]["type"] as? String == BatteryUUID.service)
+    #expect(services[3]["iid"] as? Int == BatteryIID.service)
 
-    let chars = services[2]["characteristics"] as! [[String: Any]]
+    let chars = services[3]["characteristics"] as! [[String: Any]]
     #expect(chars.count == 3)
     #expect(chars[0]["iid"] as? Int == BatteryIID.batteryLevel)
     #expect(chars[0]["value"] as? Int == 75)
@@ -455,11 +458,11 @@ struct BatteryServiceTests {
     let light = HAPAccessory(aid: 2)
     let json = light.toJSON()
     let services = json["services"] as! [[String: Any]]
-    // Accessory Info + Lightbulb + Battery = 3 services (battery always present for stable c#)
-    #expect(services.count == 3)
-    #expect(services[2]["type"] as? String == BatteryUUID.service)
+    // Accessory Info + Protocol Info + Lightbulb + Battery = 4 services (battery always present for stable c#)
+    #expect(services.count == 4)
+    #expect(services[3]["type"] as? String == BatteryUUID.service)
     // Verify default values when batteryState is nil
-    let chars = services[2]["characteristics"] as! [[String: Any]]
+    let chars = services[3]["characteristics"] as! [[String: Any]]
     #expect(chars[0]["value"] as? Int == 0)  // level defaults to 0
   }
 
@@ -474,8 +477,8 @@ struct BatteryServiceTests {
 
     let json = sensor.toJSON()
     let services = json["services"] as! [[String: Any]]
-    #expect(services.count == 3)
-    #expect(services[2]["type"] as? String == BatteryUUID.service)
+    #expect(services.count == 4)
+    #expect(services[3]["type"] as? String == BatteryUUID.service)
   }
 
   @Test("Motion sensor toJSON always includes battery service")
@@ -483,9 +486,9 @@ struct BatteryServiceTests {
     let sensor = HAPMotionSensorAccessory(aid: 5)
     let json = sensor.toJSON()
     let services = json["services"] as! [[String: Any]]
-    // Accessory Info + Motion Sensor + Battery = 3 services
-    #expect(services.count == 3)
-    #expect(services[2]["type"] as? String == BatteryUUID.service)
+    // Accessory Info + Protocol Info + Motion Sensor + Battery = 4 services
+    #expect(services.count == 4)
+    #expect(services[3]["type"] as? String == BatteryUUID.service)
   }
 
   @Test("Camera toJSON includes battery service when batteryState is set")
@@ -499,9 +502,9 @@ struct BatteryServiceTests {
 
     let json = camera.toJSON()
     let services = json["services"] as! [[String: Any]]
-    // Accessory Info + Camera RTP + Microphone + Speaker + Battery = 5 services
-    #expect(services.count == 5)
-    #expect(services[4]["type"] as? String == BatteryUUID.service)
+    // Accessory Info + Protocol Info + Camera RTP + Microphone + Speaker + Battery = 6 services
+    #expect(services.count == 6)
+    #expect(services[5]["type"] as? String == BatteryUUID.service)
   }
 
   @Test("Camera toJSON always includes battery service")
@@ -509,9 +512,9 @@ struct BatteryServiceTests {
     let camera = HAPCameraAccessory(aid: 3)
     let json = camera.toJSON()
     let services = json["services"] as! [[String: Any]]
-    // Accessory Info + Camera RTP + Microphone + Speaker + Battery = 5 services
-    #expect(services.count == 5)
-    #expect(services[4]["type"] as? String == BatteryUUID.service)
+    // Accessory Info + Protocol Info + Camera RTP + Microphone + Speaker + Battery = 6 services
+    #expect(services.count == 6)
+    #expect(services[5]["type"] as? String == BatteryUUID.service)
   }
 
   @Test("readCharacteristic returns battery values when state is set")

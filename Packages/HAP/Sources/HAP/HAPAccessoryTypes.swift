@@ -37,7 +37,7 @@ public nonisolated enum HAPValue: Equatable, Sendable {
     switch self {
     case .bool(let v): return v
     case .int(let v): return v
-    case .float(let v): return v
+    case .float(let v): return Double(v)
     case .string(let v): return v
     }
   }
@@ -117,6 +117,25 @@ public nonisolated enum AccessoryInfoIID {
   public static let firmwareRevision = 7
 }
 
+// MARK: - HAP Protocol Information Service (required by HAP spec §6.6.1)
+
+/// IIDs for the HAP Protocol Information service, shared by all accessories.
+/// Uses IIDs 110-111 to avoid conflicts with other shared services (Battery is 100-103).
+public nonisolated enum ProtocolInfoIID {
+  public static let service = 110
+  public static let version = 111
+}
+
+/// HAP short-form UUIDs for the Protocol Information service.
+public nonisolated enum ProtocolInfoUUID {
+  public static let service = "A2"  // HAP Protocol Information
+  public static let version = "37"  // Version characteristic
+}
+
+/// The HAP protocol version reported in the Protocol Information service.
+/// Also relates to "pv" in the Bonjour TXT record ("1.1"), which uses a shorter format.
+public let hapProtocolVersion = "1.1.0"
+
 // MARK: - Shared Battery Service IIDs & UUIDs
 
 /// Instance IDs for the Battery Service, shared by all accessories.
@@ -175,6 +194,22 @@ extension HAPAccessoryProtocol {
           "type": HAPUUID.firmwareRevision, "format": "string",
           "perms": ["pr"], "value": firmwareRevision,
         ],
+      ],
+    ]
+  }
+
+  /// Builds the HAP Protocol Information service JSON (iid 110, characteristic 111).
+  /// Required by HAP spec §6.6.1 on every accessory.
+  public func protocolInformationServiceJSON() -> [String: Any] {
+    [
+      "iid": ProtocolInfoIID.service,
+      "type": ProtocolInfoUUID.service,
+      "characteristics": [
+        [
+          "iid": ProtocolInfoIID.version,
+          "type": ProtocolInfoUUID.version, "format": "string",
+          "perms": ["pr"], "value": hapProtocolVersion,
+        ]
       ],
     ]
   }
@@ -256,6 +291,7 @@ public nonisolated final class HAPBridgeInfo: HAPAccessoryProtocol, @unchecked S
     case AccessoryInfoIID.name: return .string(name)
     case AccessoryInfoIID.serialNumber: return .string(serialNumber)
     case AccessoryInfoIID.firmwareRevision: return .string(firmwareRevision)
+    case ProtocolInfoIID.version: return .string(hapProtocolVersion)
     default: return nil
     }
   }
@@ -279,7 +315,8 @@ public nonisolated final class HAPBridgeInfo: HAPAccessoryProtocol, @unchecked S
     [
       "aid": aid,
       "services": [
-        accessoryInformationServiceJSON()
+        accessoryInformationServiceJSON(),
+        protocolInformationServiceJSON(),
       ],
     ]
   }
@@ -351,6 +388,7 @@ public nonisolated final class HAPMotionSensorAccessory: HAPAccessoryProtocol, @
     case AccessoryInfoIID.name: return .string(name)
     case AccessoryInfoIID.serialNumber: return .string(serialNumber)
     case AccessoryInfoIID.firmwareRevision: return .string(firmwareRevision)
+    case ProtocolInfoIID.version: return .string(hapProtocolVersion)
     case Self.iidMotionDetected: return .bool(isMotionDetected)
     case BatteryIID.batteryLevel: return batteryState.map { .int($0.level) }
     case BatteryIID.chargingState: return batteryState.map { .int($0.chargingState) }
@@ -375,6 +413,7 @@ public nonisolated final class HAPMotionSensorAccessory: HAPAccessoryProtocol, @
   public func toJSON() -> [String: Any] {
     var services: [[String: Any]] = [
       accessoryInformationServiceJSON(),
+      protocolInformationServiceJSON(),
       [
         "iid": Self.iidMotionSensorService,
         "type": Self.uuidMotionSensor,
@@ -419,7 +458,7 @@ public nonisolated final class HAPLightSensorAccessory: HAPAccessoryProtocol, @u
     set { _batteryState.withLock { $0 = newValue } }
   }
 
-  private let _currentLux = OSAllocatedUnfairLock<Float>(initialState: 0.0001)
+  private let _currentLux = OSAllocatedUnfairLock<Float>(initialState: 1.0)
   public var currentLux: Float {
     _currentLux.withLock { $0 }
   }
@@ -458,6 +497,7 @@ public nonisolated final class HAPLightSensorAccessory: HAPAccessoryProtocol, @u
     case AccessoryInfoIID.name: return .string(name)
     case AccessoryInfoIID.serialNumber: return .string(serialNumber)
     case AccessoryInfoIID.firmwareRevision: return .string(firmwareRevision)
+    case ProtocolInfoIID.version: return .string(hapProtocolVersion)
     case Self.iidCurrentAmbientLightLevel: return .float(currentLux)
     case BatteryIID.batteryLevel: return batteryState.map { .int($0.level) }
     case BatteryIID.chargingState: return batteryState.map { .int($0.chargingState) }
@@ -482,6 +522,7 @@ public nonisolated final class HAPLightSensorAccessory: HAPAccessoryProtocol, @u
   public func toJSON() -> [String: Any] {
     var services: [[String: Any]] = [
       accessoryInformationServiceJSON(),
+      protocolInformationServiceJSON(),
       [
         "iid": Self.iidLightSensorService,
         "type": Self.uuidLightSensor,
@@ -489,7 +530,7 @@ public nonisolated final class HAPLightSensorAccessory: HAPAccessoryProtocol, @u
           [
             "iid": Self.iidCurrentAmbientLightLevel,
             "type": Self.uuidCurrentAmbientLightLevel, "format": "float",
-            "perms": ["pr", "ev"], "value": currentLux,
+            "perms": ["pr", "ev"], "value": max(0.0001, Double(currentLux)),
             "minValue": 0.0001, "maxValue": 100000, "unit": "lux",
           ] as [String: Any]
         ],
