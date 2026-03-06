@@ -4,6 +4,7 @@ struct AccessoryCard<Content: View>: View {
   let icon: String
   let title: String
   @Binding var isOn: Bool
+  var blocked: Bool = false
   @ViewBuilder var content: () -> Content
 
   var body: some View {
@@ -20,6 +21,7 @@ struct AccessoryCard<Content: View>: View {
         Spacer()
         Toggle(title, isOn: $isOn)
           .labelsHidden()
+          .tint(blocked ? Color.secondary : nil)
       }
       .padding()
 

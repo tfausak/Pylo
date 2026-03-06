@@ -158,6 +158,10 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   /// no concurrent access occurs — the server queue is not active during setup.
   var minimumBitrate: Int = 0
 
+  /// Whether microphone audio is enabled (user preference). When false, capture sessions
+  /// skip mic input entirely. Read from the server queue during stream/monitoring setup.
+  var microphoneEnabled: Bool = false
+
   /// Active streaming session (nil when idle).
   var streamSession: CameraStreamSession? {
     get { streamState.withLock { $0.streamSession } }

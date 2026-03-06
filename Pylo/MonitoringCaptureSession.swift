@@ -153,17 +153,19 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
 
     // Configure audio session BEFORE creating capture session so the mic is available
     #if os(iOS)
-      do {
-        let audioSession = AVAudioSession.sharedInstance()
-        try audioSession.setCategory(
-          .playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
-        try audioSession.setPreferredSampleRate(16000)
-        try audioSession.setActive(true)
-      } catch {
-        // Non-fatal: continue in video-only mode. The sentinel captureSession
-        // will be replaced with the real session below, or cleared by later
-        // error paths if video setup also fails.
-        logger.error("AVAudioSession setup error: \(error)")
+      if audioRecordingEnabled {
+        do {
+          let audioSession = AVAudioSession.sharedInstance()
+          try audioSession.setCategory(
+            .playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
+          try audioSession.setPreferredSampleRate(16000)
+          try audioSession.setActive(true)
+        } catch {
+          // Non-fatal: continue in video-only mode. The sentinel captureSession
+          // will be replaced with the real session below, or cleared by later
+          // error paths if video setup also fails.
+          logger.error("AVAudioSession setup error: \(error)")
+        }
       }
     #endif
 

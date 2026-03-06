@@ -288,7 +288,8 @@ extension HAPCameraAccessory {
     let started = session.startStreaming(
       width: width, height: height, fps: fps, bitrate: effectiveBitrate, payloadType: payloadType,
       audioPayloadType: audioPayloadType, camera: camera, rotationAngle: rotation.angle,
-      swapDimensions: rotation.swapDimensions, existingCaptureSession: existingSession)
+      swapDimensions: rotation.swapDimensions, existingCaptureSession: existingSession,
+      microphoneEnabled: microphoneEnabled)
     if !started {
       logger.error("Stream session failed to start — clearing session")
       streamSession = nil

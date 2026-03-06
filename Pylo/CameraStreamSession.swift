@@ -218,7 +218,8 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   func startStreaming(
     width: Int, height: Int, fps: Int, bitrate: Int, payloadType: UInt8,
     audioPayloadType: UInt8 = 110, camera: AVCaptureDevice, rotationAngle: Int = 90,
-    swapDimensions: Bool = true, existingCaptureSession: AVCaptureSession? = nil
+    swapDimensions: Bool = true, existingCaptureSession: AVCaptureSession? = nil,
+    microphoneEnabled: Bool = true
   ) -> Bool {
     logger.info(
       "Starting stream: \(width)x\(height)@\(fps)fps, \(bitrate)kbps, PT=\(payloadType) → \(self.controllerAddress):\(self.controllerVideoPort)"
@@ -303,7 +304,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     self.setupCompression(width: encWidth, height: encHeight, fps: fps, bitrate: bitrate)
     let captureOK = self.setupCapture(
       width: width, height: height, fps: fps, camera: camera, rotationAngle: rotationAngle,
-      existingSession: existingCaptureSession)
+      existingSession: existingCaptureSession, microphoneEnabled: microphoneEnabled)
     guard captureOK else {
       logger.error("Failed to set up capture pipeline")
       // Safe to call from any queue: ownership was transferred to us, so no
@@ -518,7 +519,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   @discardableResult
   private func setupCapture(
     width: Int, height: Int, fps: Int, camera: AVCaptureDevice, rotationAngle: Int = 90,
-    existingSession: AVCaptureSession? = nil
+    existingSession: AVCaptureSession? = nil, microphoneEnabled: Bool = true
   ) -> Bool {
     do {
       try camera.lockForConfiguration()
@@ -537,14 +538,16 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
 
     // Configure audio session BEFORE creating capture session so the mic is available
     #if os(iOS)
-      do {
-        let audioSession = AVAudioSession.sharedInstance()
-        try audioSession.setCategory(
-          .playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
-        try audioSession.setPreferredSampleRate(16000)
-        try audioSession.setActive(true)
-      } catch {
-        logger.error("AVAudioSession setup error: \(error)")
+      if microphoneEnabled {
+        do {
+          let audioSession = AVAudioSession.sharedInstance()
+          try audioSession.setCategory(
+            .playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
+          try audioSession.setPreferredSampleRate(16000)
+          try audioSession.setActive(true)
+        } catch {
+          logger.error("AVAudioSession setup error: \(error)")
+        }
       }
     #endif
 
@@ -592,30 +595,32 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
       }
       session.addOutput(output)
 
-      // Add mic input if monitoring didn't have it
-      let hasMic = session.inputs.contains { input in
-        (input as? AVCaptureDeviceInput)?.device.hasMediaType(.audio) == true
-      }
-      if !hasMic, let mic = AVCaptureDevice.default(for: .audio),
-        let micInput = try? AVCaptureDeviceInput(device: mic),
-        session.canAddInput(micInput)
-      {
-        session.addInput(micInput)
-      }
+      if microphoneEnabled {
+        // Add mic input if monitoring didn't have it
+        let hasMic = session.inputs.contains { input in
+          (input as? AVCaptureDeviceInput)?.device.hasMediaType(.audio) == true
+        }
+        if !hasMic, let mic = AVCaptureDevice.default(for: .audio),
+          let micInput = try? AVCaptureDeviceInput(device: mic),
+          session.canAddInput(micInput)
+        {
+          session.addInput(micInput)
+        }
 
-      // Add streaming audio output
-      let audioOut = AVCaptureAudioDataOutput()
-      let audioDelegate = AudioCaptureDelegate { [weak self] sampleBuffer in
-        self?.handleAudioSampleBuffer(sampleBuffer)
-      }
-      audioOut.setSampleBufferDelegate(audioDelegate, queue: captureQueue)
-      if session.canAddOutput(audioOut) {
-        session.addOutput(audioOut)
-        self.audioOutput = audioOut
-        self.audioCaptureDelegate = audioDelegate
-      } else {
-        logger.warning(
-          "Failed to add audio output to reused capture session — streaming without audio")
+        // Add streaming audio output
+        let audioOut = AVCaptureAudioDataOutput()
+        let audioDelegate = AudioCaptureDelegate { [weak self] sampleBuffer in
+          self?.handleAudioSampleBuffer(sampleBuffer)
+        }
+        audioOut.setSampleBufferDelegate(audioDelegate, queue: captureQueue)
+        if session.canAddOutput(audioOut) {
+          session.addOutput(audioOut)
+          self.audioOutput = audioOut
+          self.audioCaptureDelegate = audioDelegate
+        } else {
+          logger.warning(
+            "Failed to add audio output to reused capture session — streaming without audio")
+        }
       }
 
       session.commitConfiguration()
@@ -641,7 +646,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
       }
 
       // Add microphone input for audio capture
-      if let mic = AVCaptureDevice.default(for: .audio),
+      if microphoneEnabled, let mic = AVCaptureDevice.default(for: .audio),
         let micInput = try? AVCaptureDeviceInput(device: mic),
         session.canAddInput(micInput)
       {
@@ -658,6 +663,8 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
           self.audioCaptureDelegate = audioDelegate
           logger.info("Microphone audio capture added to session")
         }
+      } else if !microphoneEnabled {
+        logger.info("Microphone disabled by user — streaming without audio")
       } else {
         logger.error("Failed to add microphone input")
       }
