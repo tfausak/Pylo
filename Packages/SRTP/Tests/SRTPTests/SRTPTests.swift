@@ -326,6 +326,8 @@ struct SRTPTests {
     for seq: UInt16 in 1...5 {
       let rtp = Self.makeRTPPacket(
         seq: seq, ssrc: 0xBEEF_CAFE, payload: Data(repeating: UInt8(seq), count: 40))
+      // Force-unwrap: try #require() triggers a "redundant" warning here because
+      // the compiler proves protect() can't return nil for these well-formed inputs.
       srtpPackets[seq] = sender.protect(rtp)!
     }
 
@@ -541,6 +543,8 @@ struct SRTPThreadSafetyTests {
     for seq: UInt16 in 1...3 {
       let rtp = Self.makeRTPPacket(
         seq: seq, ssrc: 0xDEAD_BEEF, payload: Data(repeating: UInt8(seq), count: 20))
+      // Force-unwrap: try #require() triggers a "redundant" warning here because
+      // the compiler proves protect() can't return nil for these well-formed inputs.
       srtpPackets[seq] = sender.protect(rtp)!
     }
 
