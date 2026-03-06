@@ -42,7 +42,8 @@ extension HAPViewModel {
         vm.startedConfig = AccessoryConfig(
           flashlightEnabled: !flashlightEnabled,
           selectedCameraID: vm.selectedStreamCamera?.id,
-          motionEnabled: motionEnabled
+          motionEnabled: motionEnabled,
+          microphoneEnabled: vm.microphoneEnabled
         )
       } else {
         vm.startedConfig = AccessoryConfig(from: vm)

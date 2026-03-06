@@ -1,3 +1,4 @@
+import AVFoundation
 import CoreImage.CIFilterBuiltins
 import FragmentedMP4
 import HAP
@@ -11,20 +12,23 @@ struct AccessoryConfig: Equatable {
   var flashlightEnabled: Bool
   var selectedCameraID: String?
   var motionEnabled: Bool
+  var microphoneEnabled: Bool
 
   init(
     flashlightEnabled: Bool, selectedCameraID: String?,
-    motionEnabled: Bool
+    motionEnabled: Bool, microphoneEnabled: Bool
   ) {
     self.flashlightEnabled = flashlightEnabled
     self.selectedCameraID = selectedCameraID
     self.motionEnabled = motionEnabled
+    self.microphoneEnabled = microphoneEnabled
   }
 
   init(from vm: HAPViewModel) {
     flashlightEnabled = vm.flashlightEnabled
     selectedCameraID = vm.selectedStreamCamera?.id
     motionEnabled = vm.motionEnabled
+    microphoneEnabled = vm.microphoneEnabled
   }
 }
 
@@ -59,6 +63,7 @@ final class HAPViewModel {
   var isMotionAvailable = false
   var isCameraStreaming = false
   var hasPairings = false
+  var isNetworkDenied = false
   var availableCameras: [CameraOption] = []
   var selectedStreamCamera: CameraOption? {
     didSet {
@@ -72,13 +77,13 @@ final class HAPViewModel {
       }
     }
   }
-  var flashlightEnabled: Bool = true {
+  var flashlightEnabled: Bool = false {
     didSet {
       guard !isRestoring, flashlightEnabled != oldValue else { return }
       UserDefaults.standard.set(flashlightEnabled, forKey: "flashlightEnabled")
     }
   }
-  var motionEnabled: Bool = true {
+  var motionEnabled: Bool = false {
     didSet {
       guard !isRestoring, motionEnabled != oldValue else { return }
       UserDefaults.standard.set(motionEnabled, forKey: "motionEnabled")
@@ -95,6 +100,13 @@ final class HAPViewModel {
       guard !isRestoring, motionSensitivity != oldValue else { return }
       UserDefaults.standard.set(motionSensitivity.rawValue, forKey: "motionSensitivity")
       motionMonitor?.threshold = motionSensitivity.threshold
+    }
+  }
+  var microphoneEnabled: Bool = false {
+    didSet {
+      guard !isRestoring, microphoneEnabled != oldValue else { return }
+      UserDefaults.standard.set(microphoneEnabled, forKey: "microphoneEnabled")
+      cameraAccessory?.microphoneEnabled = microphoneEnabled
     }
   }
   var videoQuality: VideoQuality = .medium {
@@ -127,6 +139,32 @@ final class HAPViewModel {
     }
   }
 
+  /// Whether camera permission has been expressly denied or restricted.
+  var cameraPermissionDenied = false
+
+  /// Whether microphone permission has been expressly denied or restricted.
+  var microphonePermissionDenied = false
+
+  /// Which permission was denied — drives the alert in ContentView.
+  var permissionAlert: PermissionKind?
+
+  enum PermissionKind {
+    case camera, microphone
+    var title: String {
+      switch self {
+      case .camera: "Camera Access Required"
+      case .microphone: "Microphone Access Required"
+      }
+    }
+    var message: String {
+      switch self {
+      case .camera:
+        "Pylo needs camera access for the camera and flashlight. You can enable it in Settings."
+      case .microphone: "Pylo needs microphone access for audio. You can enable it in Settings."
+      }
+    }
+  }
+
   /// Configuration snapshot taken when the server starts. Compared against
   /// current values to determine whether a restart is needed.
   @ObservationIgnored var startedConfig: AccessoryConfig?
@@ -152,6 +190,66 @@ final class HAPViewModel {
   @ObservationIgnored private var fragmentWriter: FragmentedMP4Writer?
   @ObservationIgnored private var dataStreamHandler: HAPDataStream?
 
+  // MARK: - Permissions
+
+  /// Request camera permission. Returns true if granted.
+  @MainActor
+  func requestCameraPermission() async -> Bool {
+    let status = AVCaptureDevice.authorizationStatus(for: .video)
+    switch status {
+    case .authorized: return true
+    case .notDetermined:
+      let granted = await AVCaptureDevice.requestAccess(for: .video)
+      if !granted { cameraPermissionDenied = true }
+      return granted
+    case .denied, .restricted:
+      cameraPermissionDenied = true
+      return false
+    @unknown default:
+      return false
+    }
+  }
+
+  /// Request microphone permission. Returns true if granted.
+  @MainActor
+  func requestMicrophonePermission() async -> Bool {
+    let status = AVCaptureDevice.authorizationStatus(for: .audio)
+    switch status {
+    case .authorized: return true
+    case .notDetermined:
+      let granted = await AVCaptureDevice.requestAccess(for: .audio)
+      if !granted { microphonePermissionDenied = true }
+      return granted
+    case .denied, .restricted:
+      microphonePermissionDenied = true
+      return false
+    @unknown default:
+      return false
+    }
+  }
+
+  /// Silently check permissions and disable accessories whose permissions were revoked.
+  /// Uses `isRestoring` to suppress UserDefaults writes so the user's saved preferences
+  /// are not overwritten by a temporary permission denial.
+  @MainActor
+  func recheckPermissions() {
+    let cameraStatus = AVCaptureDevice.authorizationStatus(for: .video)
+    cameraPermissionDenied = cameraStatus == .denied || cameraStatus == .restricted
+    if cameraPermissionDenied {
+      isRestoring = true
+      if flashlightEnabled { flashlightEnabled = false }
+      if selectedStreamCamera != nil { selectedStreamCamera = nil }
+      isRestoring = false
+    }
+    let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+    microphonePermissionDenied = micStatus == .denied || micStatus == .restricted
+    if microphonePermissionDenied {
+      isRestoring = true
+      if microphoneEnabled { microphoneEnabled = false }
+      isRestoring = false
+    }
+  }
+
   /// Restores persisted preferences so the configure screen shows saved state.
   /// Called once when the app launches, before the user presses Start.
   @MainActor
@@ -173,6 +271,9 @@ final class HAPViewModel {
     {
       videoQuality = quality
     }
+    if UserDefaults.standard.object(forKey: "microphoneEnabled") != nil {
+      microphoneEnabled = UserDefaults.standard.bool(forKey: "microphoneEnabled")
+    }
     keepScreenAwake = UserDefaults.standard.bool(forKey: "keepScreenAwake")
     screenSaverEnabled = UserDefaults.standard.bool(forKey: "screenSaverEnabled")
     let savedDelay = UserDefaults.standard.double(forKey: "screenSaverDelay")
@@ -184,15 +285,17 @@ final class HAPViewModel {
     let savedStreamID = UserDefaults.standard.string(forKey: "selectedStreamCameraID")
     if savedStreamID == "none" {
       selectedStreamCamera = nil
+    } else if let savedStreamID {
+      selectedStreamCamera = cameras.first(where: { $0.id == savedStreamID })
     } else {
-      selectedStreamCamera =
-        cameras.first(where: { $0.id == savedStreamID })
-        ?? cameras.first { $0.name.localizedCaseInsensitiveContains("back") }
-        ?? cameras.first
+      // No saved preference (fresh install or upgrade). Leave nil so the user
+      // explicitly enables via the toggle (which requests camera permission).
+      selectedStreamCamera = nil
     }
     hasPairings = UserDefaults.standard.bool(forKey: "hasPairings")
     isRestoring = false
 
+    recheckPermissions()
     start()
   }
 
@@ -211,7 +314,8 @@ final class HAPViewModel {
       selectedStreamCameraID: selectedStreamCamera?.id,
       motionEnabled: motionEnabled,
       motionThreshold: motionSensitivity.threshold,
-      minimumBitrate: videoQuality.minimumBitrate
+      minimumBitrate: videoQuality.minimumBitrate,
+      microphoneEnabled: microphoneEnabled
     )
 
     let myGeneration = startGeneration
@@ -310,6 +414,12 @@ final class HAPViewModel {
           server?.notifySubscribers(aid: aid, iid: iid, value: value)
         }
         enabledAccessories.append(setup.lightSensor)
+      }
+
+      setup.server.onListenerStateChange = { [weak self] ready in
+        Task { @MainActor [weak self] in
+          withAnimation { self?.isNetworkDenied = !ready }
+        }
       }
 
       setup.server.pairingStore.onChange = { [weak self, weak server = setup.server] in
@@ -430,6 +540,7 @@ private struct StartConfig: Sendable {
   let motionEnabled: Bool
   let motionThreshold: Double
   let minimumBitrate: Int
+  let microphoneEnabled: Bool
 }
 
 /// Objects created off MainActor, returned to MainActor for callback wiring and UI updates.
@@ -497,6 +608,7 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
   if config.selectedStreamCameraID != nil {
     camera.selectedCameraID = config.selectedStreamCameraID
     camera.minimumBitrate = config.minimumBitrate
+    camera.microphoneEnabled = config.microphoneEnabled
     camera.hksvEnabled = true
     camera.videoMotionEnabled = true
 
@@ -626,7 +738,8 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
       if needed {
         monitoring?.videoMotionDetector = camera.videoMotionDetector
         monitoring?.ambientLightDetector = camera.ambientLightDetector
-        monitoring?.audioRecordingEnabled = camera.recordingAudioActive != 0
+        monitoring?.audioRecordingEnabled =
+          camera.recordingAudioActive != 0 && camera.microphoneEnabled
         if let device = camera.resolvedCamera {
           monitoring?.start(camera: device, existingSession: existingSession)
         }
@@ -640,7 +753,8 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     if camera.recordingActive != 0, camera.streamSession == nil {
       monitoring.videoMotionDetector = camera.videoMotionDetector
       monitoring.ambientLightDetector = camera.ambientLightDetector
-      monitoring.audioRecordingEnabled = camera.recordingAudioActive != 0
+      monitoring.audioRecordingEnabled =
+        camera.recordingAudioActive != 0 && camera.microphoneEnabled
       if let device = camera.resolvedCamera {
         monitoring.start(camera: device)
       }
@@ -651,7 +765,7 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
       UserDefaults.standard.set(active ? 1 : 0, forKey: "recordingAudioActive")
       if let camera, camera.recordingActive != 0, camera.streamSession == nil {
         monitoring?.stop()
-        monitoring?.audioRecordingEnabled = active
+        monitoring?.audioRecordingEnabled = active && camera.microphoneEnabled
         if let device = camera.resolvedCamera {
           monitoring?.start(camera: device)
         }
@@ -679,7 +793,8 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     {
       monitoringSession?.videoMotionDetector = camera.videoMotionDetector
       monitoringSession?.ambientLightDetector = camera.ambientLightDetector
-      monitoringSession?.audioRecordingEnabled = camera.recordingAudioActive != 0
+      monitoringSession?.audioRecordingEnabled =
+        camera.recordingAudioActive != 0 && camera.microphoneEnabled
       monitoringSession?.start(camera: device)
     }
   }

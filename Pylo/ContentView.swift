@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
   @Bindable var viewModel: HAPViewModel
+  @Environment(\.scenePhase) private var scenePhase
   @State private var showUnpairConfirmation = false
   @State private var isScreenDimmed = false
   @State private var dimTask: Task<Void, Never>?
@@ -10,7 +11,9 @@ struct ContentView: View {
     ZStack {
       NavigationStack {
         Group {
-          if viewModel.hasPairings {
+          if viewModel.isNetworkDenied {
+            networkDeniedBody
+          } else if viewModel.hasPairings {
             pairedBody
           } else {
             PairingView(viewModel: viewModel)
@@ -54,6 +57,15 @@ struct ContentView: View {
           "This will remove all HomeKit pairings. You will need to re-add this bridge in the Home app."
         )
       }
+      .alert(
+        viewModel.permissionAlert?.title ?? "",
+        isPresented: permissionAlertPresented
+      ) {
+        Button("Open Settings") { Self.openSettings() }
+        Button("Cancel", role: .cancel) {}
+      } message: {
+        Text(viewModel.permissionAlert?.message ?? "")
+      }
 
       if isScreenDimmed {
         Color.black
@@ -82,6 +94,11 @@ struct ContentView: View {
     }
     .onChange(of: viewModel.screenSaverDelay) {
       if viewModel.isRunning { resetDimTimer() }
+    }
+    .onChange(of: scenePhase) {
+      if scenePhase == .active {
+        viewModel.recheckPermissions()
+      }
     }
     .onChange(of: viewModel.hasPairings) {
       if !viewModel.hasPairings {
@@ -133,7 +150,8 @@ struct ContentView: View {
         AccessoryCard(
           icon: "camera.fill",
           title: "Camera",
-          isOn: cameraEnabled
+          isOn: cameraEnabled,
+          blocked: viewModel.cameraPermissionDenied
         ) {
           cameraContent
         }
@@ -142,7 +160,8 @@ struct ContentView: View {
         AccessoryCard(
           icon: "flashlight.off.fill",
           title: "Flashlight",
-          isOn: $viewModel.flashlightEnabled
+          isOn: flashlightEnabled,
+          blocked: viewModel.cameraPermissionDenied
         ) {
           flashlightContent
         }
@@ -167,6 +186,29 @@ struct ContentView: View {
       }
       .padding()
     }
+  }
+
+  // MARK: - Network Denied
+
+  private var networkDeniedBody: some View {
+    VStack(spacing: 16) {
+      Spacer()
+      Image(systemName: "wifi.exclamationmark")
+        .font(.system(size: 56))
+        .foregroundStyle(.secondary)
+      Text("Local Network Access Required")
+        .font(.title3.weight(.semibold))
+      Text(
+        "Pylo needs local network access to communicate with the Home app. Enable it in Settings."
+      )
+      .font(.subheadline)
+      .foregroundStyle(.secondary)
+      .multilineTextAlignment(.center)
+      Button("Open Settings") { Self.openSettings() }
+        .buttonStyle(.borderedProminent)
+      Spacer()
+    }
+    .padding()
   }
 
   // MARK: - Card Contents
@@ -204,6 +246,9 @@ struct ContentView: View {
         .labelsHidden()
         .pickerStyle(.menu)
       }
+      Toggle("Microphone", isOn: microphoneEnabled)
+        .tint(viewModel.microphonePermissionDenied ? Color.secondary : nil)
+        .disabled(viewModel.microphonePermissionDenied)
     }
   }
 
@@ -267,18 +312,77 @@ struct ContentView: View {
     }
   }
 
+  private static func openSettings() {
+    if let url = URL(string: UIApplication.openSettingsURLString) {
+      UIApplication.shared.open(url)
+    }
+  }
+
   // MARK: - Bindings
+
+  private var permissionAlertPresented: Binding<Bool> {
+    Binding(
+      get: { viewModel.permissionAlert != nil },
+      set: { if !$0 { viewModel.permissionAlert = nil } }
+    )
+  }
 
   private var cameraEnabled: Binding<Bool> {
     Binding(
       get: { viewModel.selectedStreamCamera != nil },
       set: { enabled in
         if enabled {
-          viewModel.selectedStreamCamera =
-            viewModel.availableCameras.first { $0.name.localizedCaseInsensitiveContains("back") }
-            ?? viewModel.availableCameras.first
+          Task {
+            guard await viewModel.requestCameraPermission() else {
+              viewModel.permissionAlert = .camera
+              return
+            }
+            viewModel.selectedStreamCamera =
+              viewModel.availableCameras.first {
+                $0.name.localizedCaseInsensitiveContains("back")
+              }
+              ?? viewModel.availableCameras.first
+          }
         } else {
           viewModel.selectedStreamCamera = nil
+        }
+      }
+    )
+  }
+
+  private var flashlightEnabled: Binding<Bool> {
+    Binding(
+      get: { viewModel.flashlightEnabled },
+      set: { enabled in
+        if enabled {
+          Task {
+            guard await viewModel.requestCameraPermission() else {
+              viewModel.permissionAlert = .camera
+              return
+            }
+            viewModel.flashlightEnabled = true
+          }
+        } else {
+          viewModel.flashlightEnabled = false
+        }
+      }
+    )
+  }
+
+  private var microphoneEnabled: Binding<Bool> {
+    Binding(
+      get: { viewModel.microphoneEnabled },
+      set: { enabled in
+        if enabled {
+          Task {
+            guard await viewModel.requestMicrophonePermission() else {
+              viewModel.permissionAlert = .microphone
+              return
+            }
+            viewModel.microphoneEnabled = true
+          }
+        } else {
+          viewModel.microphoneEnabled = false
         }
       }
     )

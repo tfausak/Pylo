@@ -62,6 +62,9 @@ public nonisolated final class HAPServer: @unchecked Sendable {
     }
   }
 
+  /// Callback for listener state changes. Called on the server queue.
+  public var onListenerStateChange: ((_ ready: Bool) -> Void)?
+
   /// Configuration number — derived from a hash of the accessory database structure
   /// so it updates automatically whenever services or characteristics change.
   public private(set) var configurationNumber: Int = 1
@@ -120,9 +123,14 @@ public nonisolated final class HAPServer: @unchecked Sendable {
         if let port = self.listener.port {
           self.logger.info("HAP server listening on port \(port.rawValue)")
         }
+        self.onListenerStateChange?(true)
       case .failed(let error):
         self.logger.error("Listener failed: \(error)")
         self.listener.cancel()
+        self.onListenerStateChange?(false)
+      case .waiting(let error):
+        self.logger.warning("Listener waiting: \(error)")
+        self.onListenerStateChange?(false)
       default:
         break
       }
