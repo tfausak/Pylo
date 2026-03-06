@@ -29,7 +29,7 @@ public nonisolated enum HAPAccessoryCategory: Int, Sendable {
 public nonisolated enum HAPValue: Equatable, Sendable {
   case bool(Bool)
   case int(Int)
-  case float(Float)
+  case float(Double)
   case string(String)
 
   /// Convert to a JSON-serializable value for `JSONSerialization`.
@@ -37,7 +37,7 @@ public nonisolated enum HAPValue: Equatable, Sendable {
     switch self {
     case .bool(let v): return v
     case .int(let v): return v
-    case .float(let v): return Double(v)
+    case .float(let v): return v
     case .string(let v): return v
     }
   }
@@ -52,7 +52,7 @@ public nonisolated enum HAPValue: Equatable, Sendable {
       if CFGetTypeID(n) == CFBooleanGetTypeID() {
         self = .bool(n.boolValue)
       } else if CFNumberIsFloatType(n) {
-        self = .float(n.floatValue)
+        self = .float(n.doubleValue)
       } else {
         self = .int(n.intValue)
       }
@@ -252,7 +252,7 @@ extension HAPAccessoryProtocol {
 // MARK: - Bridge Info Accessory
 
 /// Lightweight accessory representing the bridge itself (aid=1).
-/// Only exposes the Accessory Information service.
+/// Exposes the Accessory Information and Protocol Information services.
 public nonisolated final class HAPBridgeInfo: HAPAccessoryProtocol, @unchecked Sendable {
 
   public let aid: Int = 1
@@ -487,7 +487,7 @@ public nonisolated final class HAPLightSensorAccessory: HAPAccessoryProtocol, @u
 
   public func updateLux(_ lux: Float) {
     _currentLux.withLock { $0 = lux }
-    onStateChange?(aid, Self.iidCurrentAmbientLightLevel, .float(lux))
+    onStateChange?(aid, Self.iidCurrentAmbientLightLevel, .float(Double(lux)))
   }
 
   public func readCharacteristic(iid: Int) -> HAPValue? {
@@ -498,7 +498,7 @@ public nonisolated final class HAPLightSensorAccessory: HAPAccessoryProtocol, @u
     case AccessoryInfoIID.serialNumber: return .string(serialNumber)
     case AccessoryInfoIID.firmwareRevision: return .string(firmwareRevision)
     case ProtocolInfoIID.version: return .string(hapProtocolVersion)
-    case Self.iidCurrentAmbientLightLevel: return .float(currentLux)
+    case Self.iidCurrentAmbientLightLevel: return .float(Double(currentLux))
     case BatteryIID.batteryLevel: return batteryState.map { .int($0.level) }
     case BatteryIID.chargingState: return batteryState.map { .int($0.chargingState) }
     case BatteryIID.statusLowBattery: return batteryState.map { .int($0.statusLowBattery) }

@@ -328,7 +328,7 @@ struct HAPValueTests {
       try! JSONSerialization.jsonObject(
         with: Data("{\"v\":3.14}".utf8)) as! [String: Any]
     let value = HAPValue(fromJSON: json["v"]!)
-    #expect(value == .float(Float(3.14)))
+    #expect(value == .float(3.14))
   }
 
   @Test("fromJSON distinguishes bool from int")
@@ -429,6 +429,35 @@ struct AccessoryIIDConstantsTests {
     #expect(
       chars[5]["iid"] as? Int
         == AccessoryInfoIID.firmwareRevision)
+  }
+}
+
+// MARK: - Protocol Information Service Tests
+
+@Suite("Protocol Information Service JSON")
+struct ProtocolInfoServiceTests {
+
+  @Test("Protocol info service has correct IIDs and UUIDs")
+  func serviceStructure() {
+    let bridge = HAPBridgeInfo()
+    let json = bridge.protocolInformationServiceJSON()
+    #expect(json["iid"] as? Int == ProtocolInfoIID.service)
+    #expect(json["type"] as? String == ProtocolInfoUUID.service)
+    let chars = json["characteristics"] as! [[String: Any]]
+    #expect(chars.count == 1)
+    #expect(chars[0]["iid"] as? Int == ProtocolInfoIID.version)
+    #expect(chars[0]["type"] as? String == ProtocolInfoUUID.version)
+    #expect(chars[0]["value"] as? String == hapProtocolVersion)
+  }
+
+  @Test("readCharacteristic returns protocol version")
+  func readVersion() {
+    let bridge = HAPBridgeInfo()
+    #expect(bridge.readCharacteristic(iid: ProtocolInfoIID.version) == .string(hapProtocolVersion))
+    let motion = HAPMotionSensorAccessory(aid: 5)
+    #expect(motion.readCharacteristic(iid: ProtocolInfoIID.version) == .string(hapProtocolVersion))
+    let light = HAPLightSensorAccessory(aid: 4)
+    #expect(light.readCharacteristic(iid: ProtocolInfoIID.version) == .string(hapProtocolVersion))
   }
 }
 
