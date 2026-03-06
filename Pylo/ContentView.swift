@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
   @Bindable var viewModel: HAPViewModel
+  @Environment(\.scenePhase) private var scenePhase
   @State private var showUnpairConfirmation = false
   @State private var isScreenDimmed = false
   @State private var dimTask: Task<Void, Never>?
@@ -60,11 +61,7 @@ struct ContentView: View {
         viewModel.permissionAlert?.title ?? "",
         isPresented: permissionAlertPresented
       ) {
-        Button("Open Settings") {
-          if let url = URL(string: UIApplication.openSettingsURLString) {
-            UIApplication.shared.open(url)
-          }
-        }
+        Button("Open Settings") { Self.openSettings() }
         Button("Cancel", role: .cancel) {}
       } message: {
         Text(viewModel.permissionAlert?.message ?? "")
@@ -97,6 +94,11 @@ struct ContentView: View {
     }
     .onChange(of: viewModel.screenSaverDelay) {
       if viewModel.isRunning { resetDimTimer() }
+    }
+    .onChange(of: scenePhase) {
+      if scenePhase == .active {
+        viewModel.recheckPermissions()
+      }
     }
   }
 
@@ -191,12 +193,8 @@ struct ContentView: View {
         .font(.subheadline)
         .foregroundStyle(.secondary)
         .multilineTextAlignment(.center)
-      Button("Open Settings") {
-        if let url = URL(string: UIApplication.openSettingsURLString) {
-          UIApplication.shared.open(url)
-        }
-      }
-      .buttonStyle(.borderedProminent)
+      Button("Open Settings") { Self.openSettings() }
+        .buttonStyle(.borderedProminent)
       Spacer()
     }
     .padding()
@@ -299,6 +297,12 @@ struct ContentView: View {
           .pickerStyle(.menu)
         }
       }
+    }
+  }
+
+  private static func openSettings() {
+    if let url = URL(string: UIApplication.openSettingsURLString) {
+      UIApplication.shared.open(url)
     }
   }
 

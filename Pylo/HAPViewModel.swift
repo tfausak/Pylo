@@ -140,16 +140,10 @@ final class HAPViewModel {
   }
 
   /// Whether camera permission has been expressly denied or restricted.
-  var cameraPermissionDenied: Bool {
-    let status = AVCaptureDevice.authorizationStatus(for: .video)
-    return status == .denied || status == .restricted
-  }
+  var cameraPermissionDenied = false
 
   /// Whether microphone permission has been expressly denied or restricted.
-  var microphonePermissionDenied: Bool {
-    let status = AVCaptureDevice.authorizationStatus(for: .audio)
-    return status == .denied || status == .restricted
-  }
+  var microphonePermissionDenied = false
 
   /// Which permission was denied — drives the alert in ContentView.
   var permissionAlert: PermissionKind?
@@ -231,12 +225,14 @@ final class HAPViewModel {
   @MainActor
   func recheckPermissions() {
     let cameraStatus = AVCaptureDevice.authorizationStatus(for: .video)
-    if cameraStatus == .denied || cameraStatus == .restricted {
+    cameraPermissionDenied = cameraStatus == .denied || cameraStatus == .restricted
+    if cameraPermissionDenied {
       if flashlightEnabled { flashlightEnabled = false }
       if selectedStreamCamera != nil { selectedStreamCamera = nil }
     }
     let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
-    if micStatus == .denied || micStatus == .restricted {
+    microphonePermissionDenied = micStatus == .denied || micStatus == .restricted
+    if microphonePermissionDenied {
       if microphoneEnabled { microphoneEnabled = false }
     }
   }
@@ -274,10 +270,14 @@ final class HAPViewModel {
     let cameras = CameraOption.availableCameras()
     availableCameras = cameras
     let savedStreamID = UserDefaults.standard.string(forKey: "selectedStreamCameraID")
-    if savedStreamID == "none" || savedStreamID == nil {
+    if savedStreamID == "none" {
       selectedStreamCamera = nil
-    } else {
+    } else if let savedStreamID {
       selectedStreamCamera = cameras.first(where: { $0.id == savedStreamID })
+    } else {
+      // No saved preference (fresh install or upgrade). Leave nil so the user
+      // explicitly enables via the toggle (which requests camera permission).
+      selectedStreamCamera = nil
     }
     hasPairings = UserDefaults.standard.bool(forKey: "hasPairings")
     isRestoring = false

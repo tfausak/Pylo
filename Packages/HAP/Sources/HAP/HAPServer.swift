@@ -130,7 +130,6 @@ public nonisolated final class HAPServer: @unchecked Sendable {
         self.onListenerStateChange?(false)
       case .waiting(let error):
         self.logger.warning("Listener waiting: \(error)")
-        self.onListenerStateChange?(false)
       default:
         break
       }
