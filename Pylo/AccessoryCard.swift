@@ -22,6 +22,7 @@ struct AccessoryCard<Content: View>: View {
         Toggle(title, isOn: $isOn)
           .labelsHidden()
           .tint(blocked ? Color.secondary : nil)
+          .disabled(blocked)
       }
       .padding()
 

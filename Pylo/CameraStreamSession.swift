@@ -688,7 +688,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
 
     // Pre-create the audio encoder so it's ready when mic samples arrive.
     // Without this, audio samples arriving before the audio UDP is ready are silently dropped.
-    if self.audioConverter == nil {
+    if microphoneEnabled, self.audioConverter == nil {
       self.setupAudioEncoder()
     }
     return true

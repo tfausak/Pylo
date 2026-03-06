@@ -199,8 +199,11 @@ final class HAPViewModel {
     switch status {
     case .authorized: return true
     case .notDetermined:
-      return await AVCaptureDevice.requestAccess(for: .video)
+      let granted = await AVCaptureDevice.requestAccess(for: .video)
+      if !granted { cameraPermissionDenied = true }
+      return granted
     case .denied, .restricted:
+      cameraPermissionDenied = true
       return false
     @unknown default:
       return false
@@ -214,8 +217,11 @@ final class HAPViewModel {
     switch status {
     case .authorized: return true
     case .notDetermined:
-      return await AVCaptureDevice.requestAccess(for: .audio)
+      let granted = await AVCaptureDevice.requestAccess(for: .audio)
+      if !granted { microphonePermissionDenied = true }
+      return granted
     case .denied, .restricted:
+      microphonePermissionDenied = true
       return false
     @unknown default:
       return false
@@ -223,18 +229,24 @@ final class HAPViewModel {
   }
 
   /// Silently check permissions and disable accessories whose permissions were revoked.
+  /// Uses `isRestoring` to suppress UserDefaults writes so the user's saved preferences
+  /// are not overwritten by a temporary permission denial.
   @MainActor
   func recheckPermissions() {
     let cameraStatus = AVCaptureDevice.authorizationStatus(for: .video)
     cameraPermissionDenied = cameraStatus == .denied || cameraStatus == .restricted
     if cameraPermissionDenied {
+      isRestoring = true
       if flashlightEnabled { flashlightEnabled = false }
       if selectedStreamCamera != nil { selectedStreamCamera = nil }
+      isRestoring = false
     }
     let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
     microphonePermissionDenied = micStatus == .denied || micStatus == .restricted
     if microphonePermissionDenied {
+      isRestoring = true
       if microphoneEnabled { microphoneEnabled = false }
+      isRestoring = false
     }
   }
 

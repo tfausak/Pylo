@@ -239,6 +239,7 @@ struct ContentView: View {
       }
       Toggle("Microphone", isOn: microphoneEnabled)
         .tint(viewModel.microphonePermissionDenied ? Color.secondary : nil)
+        .disabled(viewModel.microphonePermissionDenied)
     }
   }
 
