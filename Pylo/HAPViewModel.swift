@@ -123,7 +123,7 @@ final class HAPViewModel {
     didSet {
       guard !isRestoring, keepScreenAwake != oldValue else { return }
       UserDefaults.standard.set(keepScreenAwake, forKey: "keepScreenAwake")
-      UIApplication.shared.isIdleTimerDisabled = keepScreenAwake && isRunning
+      updateIdleTimer()
     }
   }
   var screenSaverEnabled: Bool = false {
@@ -427,6 +427,7 @@ final class HAPViewModel {
         UserDefaults.standard.set(isPaired, forKey: "hasPairings")
         Task { @MainActor [weak self] in
           withAnimation { self?.hasPairings = isPaired }
+          self?.updateIdleTimer()
         }
       }
 
@@ -474,8 +475,12 @@ final class HAPViewModel {
       if config.motionEnabled {
         setup.motionMonitor.start()
       }
-      UIApplication.shared.isIdleTimerDisabled = self.keepScreenAwake
+      updateIdleTimer()
     }
+  }
+
+  func updateIdleTimer() {
+    UIApplication.shared.isIdleTimerDisabled = keepScreenAwake && isRunning && hasPairings
   }
 
   @MainActor
