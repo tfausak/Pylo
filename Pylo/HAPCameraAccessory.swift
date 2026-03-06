@@ -401,6 +401,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     case AccessoryInfoIID.name: return .string(name)
     case AccessoryInfoIID.serialNumber: return .string(serialNumber)
     case AccessoryInfoIID.firmwareRevision: return .string(firmwareRevision)
+    case ProtocolInfoIID.version: return .string(hapProtocolVersion)
     case Self.iidSupportedVideoConfig:
       return .string(Self.supportedVideoConfig().base64())
     case Self.iidSupportedAudioConfig:
