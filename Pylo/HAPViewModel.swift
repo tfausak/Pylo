@@ -68,6 +68,7 @@ final class HAPViewModel {
   var isCameraStreaming = false
   var hasPairings = false
   var isNetworkDenied = false
+  var isWaitingForHomeApp = false
   var availableCameras: [CameraOption] = []
   var selectedStreamCamera: CameraOption? {
     didSet {
@@ -344,6 +345,7 @@ final class HAPViewModel {
         // start() hasn't been launched by restart()).
         if self.startGeneration == myGeneration {
           self.isStarting = false
+          self.isWaitingForHomeApp = false
           self.statusMessage = "Failed to start: \(error.localizedDescription)"
         }
         return
@@ -354,6 +356,7 @@ final class HAPViewModel {
         setup.dataStream?.stop()
         setup.monitoringSession?.stop()
         setup.fmp4Writer?.stop()
+        self.isWaitingForHomeApp = false
         return
       }
 
@@ -430,6 +433,12 @@ final class HAPViewModel {
       setup.server.onListenerStateChange = { [weak self] ready in
         Task { @MainActor [weak self] in
           withAnimation { self?.isNetworkDenied = !ready }
+        }
+      }
+
+      setup.server.onAccessoriesFetched = { [weak self] in
+        Task { @MainActor [weak self] in
+          withAnimation { self?.isWaitingForHomeApp = false }
         }
       }
 
@@ -515,7 +524,10 @@ final class HAPViewModel {
     cameraAccessory = nil
     server?.stop()
     server = nil
-    withAnimation { isRunning = false }
+    withAnimation {
+      isRunning = false
+      isWaitingForHomeApp = false
+    }
     startedConfig = nil
     UIApplication.shared.isIdleTimerDisabled = false
     statusMessage = "Stopped"
@@ -523,8 +535,12 @@ final class HAPViewModel {
 
   @MainActor
   func restart() {
+    let wasPaired = hasPairings
     stop()
     start()
+    if wasPaired {
+      isWaitingForHomeApp = true
+    }
   }
 
   @MainActor
