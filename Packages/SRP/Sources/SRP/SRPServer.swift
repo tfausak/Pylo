@@ -3,24 +3,6 @@ import CryptoKit
 import Foundation
 import os
 
-/// A simple unfair-lock wrapper that works back to iOS 15.
-private final class UnfairLock: @unchecked Sendable {
-  private let _lock: os_unfair_lock_t
-  init() {
-    _lock = .allocate(capacity: 1)
-    _lock.initialize(to: os_unfair_lock())
-  }
-  deinit {
-    _lock.deinitialize(count: 1)
-    _lock.deallocate()
-  }
-  func withLock<R>(_ body: () throws -> R) rethrows -> R {
-    os_unfair_lock_lock(_lock)
-    defer { os_unfair_lock_unlock(_lock) }
-    return try body()
-  }
-}
-
 // MARK: - SRP-6a Server Implementation
 // This is the core crypto piece that CryptoKit doesn't provide.
 // HAP uses SRP-6a with:
@@ -92,13 +74,12 @@ public nonisolated final class SRPServer {
     var sharedSecret: BigUInt?
     var sessionKey: SymmetricKey?
   }
-  private let _lock = UnfairLock()
-  private var _state = MutableState()
+  private let _state = Locked<MutableState>(initialState: MutableState())
 
   /// The derived session key (K = H(S)), available after verifyClientProof succeeds.
   /// Stored as SymmetricKey for memory protection (SecureBytes, locked pages).
   public var sessionKey: SymmetricKey? {
-    _lock.withLock { _state.sessionKey }
+    _state.withLock { $0.sessionKey }
   }
 
   // MARK: - Initialization
@@ -212,11 +193,11 @@ public nonisolated final class SRPServer {
     // 6. Store all derived values atomically under the lock.
     // Reject if setClientPublicKey was already called (prevents
     // a malicious client from silently replacing the shared secret).
-    return _lock.withLock {
-      guard _state.clientPublicKey == nil else { return false }
-      _state.clientPublicKey = clientA
-      _state.u = computedU
-      _state.sharedSecret = s
+    return _state.withLock { state in
+      guard state.clientPublicKey == nil else { return false }
+      state.clientPublicKey = clientA
+      state.u = computedU
+      state.sharedSecret = s
       return true
     }
   }
@@ -234,9 +215,9 @@ public nonisolated final class SRPServer {
     // Snapshot the mutable state under the lock.
     // Idempotency guard: if sessionKey is already set, proof was already verified.
     guard
-      let (clientA, s) = _lock.withLock({ () -> (BigUInt, BigUInt)? in
-        guard _state.sessionKey == nil else { return nil }
-        guard let a = _state.clientPublicKey, let s = _state.sharedSecret else { return nil }
+      let (clientA, s) = _state.withLock({ state -> (BigUInt, BigUInt)? in
+        guard state.sessionKey == nil else { return nil }
+        guard let a = state.clientPublicKey, let s = state.sharedSecret else { return nil }
         return (a, s)
       })
     else { return nil }
@@ -276,7 +257,7 @@ public nonisolated final class SRPServer {
     let serverProof = Data(SHA512.hash(data: m2Data))
 
     // Proof verified — now expose the session key
-    _lock.withLock { _state.sessionKey = SymmetricKey(data: derivedKey) }
+    _state.withLock { $0.sessionKey = SymmetricKey(data: derivedKey) }
 
     return serverProof
   }

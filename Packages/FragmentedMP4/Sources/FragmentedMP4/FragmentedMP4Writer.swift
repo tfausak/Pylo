@@ -1,24 +1,6 @@
 import CoreMedia
 import os
 
-/// A simple unfair-lock wrapper that works back to iOS 15.
-private final class UnfairLock: @unchecked Sendable {
-  private let _lock: os_unfair_lock_t
-  init() {
-    _lock = .allocate(capacity: 1)
-    _lock.initialize(to: os_unfair_lock())
-  }
-  deinit {
-    _lock.deinitialize(count: 1)
-    _lock.deallocate()
-  }
-  func withLock<R>(_ body: () throws -> R) rethrows -> R {
-    os_unfair_lock_lock(_lock)
-    defer { os_unfair_lock_unlock(_lock) }
-    return try body()
-  }
-}
-
 private let logSubsystem = "me.fausak.taylor.Pylo"
 
 // MARK: - Fragment Ring Buffer
@@ -51,50 +33,51 @@ public nonisolated final class FragmentRingBuffer: @unchecked Sendable {
     var nextSequence = 0
   }
 
-  private let _lock = UnfairLock()
-  private var _state: State
+  private let _state: Locked<State>
 
   public init(capacity: Int = 2) {
     self.capacity = capacity
-    self._state = State(slots: Array(repeating: nil, count: capacity))
+    self._state = Locked(initialState: State(slots: Array(repeating: nil, count: capacity)))
   }
 
   /// Add a completed fragment to the ring buffer (O(1)).
   public func append(_ fragment: MP4Fragment) {
-    _lock.withLock {
-      _state.slots[_state.writeIndex % capacity] = fragment
-      _state.writeIndex += 1
-      _state.count = min(_state.count + 1, capacity)
+    let cap = capacity
+    _state.withLock { state in
+      state.slots[state.writeIndex % cap] = fragment
+      state.writeIndex += 1
+      state.count = min(state.count + 1, cap)
     }
   }
 
   /// Get the next sequence number and advance.
   public func nextSequenceNumber() -> Int {
-    _lock.withLock {
-      let seq = _state.nextSequence
-      _state.nextSequence += 1
+    _state.withLock { state in
+      let seq = state.nextSequence
+      state.nextSequence += 1
       return seq
     }
   }
 
   /// Snapshot the current buffer contents in chronological order.
   public func snapshot() -> [MP4Fragment] {
-    _lock.withLock {
-      guard _state.count > 0 else { return [] }
-      let startIndex = _state.writeIndex - _state.count
-      return (0..<_state.count).compactMap { i in
-        _state.slots[(startIndex + i) % capacity]
+    let cap = capacity
+    return _state.withLock { state in
+      guard state.count > 0 else { return [] }
+      let startIndex = state.writeIndex - state.count
+      return (0..<state.count).compactMap { i in
+        state.slots[(startIndex + i) % cap]
       }
     }
   }
 
   /// Clear all buffered fragments.
   public func clear() {
-    _lock.withLock {
-      for i in _state.slots.indices { _state.slots[i] = nil }
-      _state.writeIndex = 0
-      _state.count = 0
-      _state.nextSequence = 0
+    _state.withLock { state in
+      for i in state.slots.indices { state.slots[i] = nil }
+      state.writeIndex = 0
+      state.count = 0
+      state.nextSequence = 0
     }
   }
 }
@@ -121,11 +104,10 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
   private struct CallbackBox: @unchecked Sendable {
     var handler: ((MP4Fragment) -> Void)?
   }
-  private let _callbackLock = UnfairLock()
-  private var _onFragmentReady = CallbackBox()
+  private let _onFragmentReady = Locked<CallbackBox>(initialState: CallbackBox())
   public var onFragmentReady: ((MP4Fragment) -> Void)? {
-    get { _callbackLock.withLock { _onFragmentReady.handler } }
-    set { _callbackLock.withLock { _onFragmentReady.handler = newValue } }
+    get { _onFragmentReady.withLock { $0.handler } }
+    set { _onFragmentReady.withLock { $0.handler = newValue } }
   }
 
   private let logger = Logger(subsystem: logSubsystem, category: "fMP4Writer")
@@ -160,34 +142,33 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     var accumulatedAudioDecodeTime: UInt64 = 0
   }
 
-  private let _writerLock = UnfairLock()
-  private var _writerState = WriterState()
+  private let _writerState = Locked<WriterState>(initialState: WriterState())
 
   public init() {}
 
   /// The initialization segment (ftyp + moov) — manually constructed from the video
   /// format description with H.264 SPS/PPS and AAC codec parameters.
   public var initSegment: Data? {
-    _writerLock.withLock { _writerState.initSegment }
+    _writerState.withLock { $0.initSegment }
   }
 
   /// Set externally by the capture session when mic + encoder are ready.
   /// Invalidates the cached init segment when changed so it's rebuilt with/without the audio track.
   public var includeAudioTrack: Bool {
-    get { _writerLock.withLock { _writerState.includeAudioTrack } }
+    get { _writerState.withLock { $0.includeAudioTrack } }
     set {
-      _writerLock.withLock {
-        if _writerState.includeAudioTrack != newValue {
-          _writerState.includeAudioTrack = newValue
-          _writerState.videoFormatDescription = nil
-          _writerState.initSegment = nil
+      _writerState.withLock { state in
+        if state.includeAudioTrack != newValue {
+          state.includeAudioTrack = newValue
+          state.videoFormatDescription = nil
+          state.initSegment = nil
         }
       }
     }
   }
 
   public func configure(width: Int, height: Int, fps: Int) {
-    _writerLock.withLock { _writerState.fps = fps }
+    _writerState.withLock { $0.fps = fps }
   }
 
   // MARK: - Writing
@@ -197,9 +178,9 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
   /// keyframes stop arriving, this caps accumulation at ~10s of audio (~330 frames)
   /// to prevent unbounded memory growth.
   public func appendAudioSample(_ encodedFrame: Data) {
-    _writerLock.withLock {
-      if _writerState.pendingAudioSamples.count < 340 {
-        _writerState.pendingAudioSamples.append(encodedFrame)
+    _writerState.withLock { state in
+      if state.pendingAudioSamples.count < 340 {
+        state.pendingAudioSamples.append(encodedFrame)
       }
     }
   }
@@ -232,35 +213,35 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
     // At most two fragments can be emitted: one from a PTS gap flush, one from a keyframe flush.
 
     // Check if init segment needs to be built (outside lock since it's heavy)
-    let needsInitSegment = _writerLock.withLock {
-      _writerState.videoFormatDescription == nil && fmt != nil
+    let needsInitSegment = _writerState.withLock { state in
+      state.videoFormatDescription == nil && fmt != nil
     }
     if needsInitSegment, let fmt {
-      let includeAudio = _writerLock.withLock { _writerState.includeAudioTrack }
+      let includeAudio = _writerState.withLock { $0.includeAudioTrack }
       let initSeg = buildInitSegment(videoFormat: fmt, includeAudio: includeAudio)
-      let needsRebuild = _writerLock.withLock { () -> Bool in
+      let needsRebuild = _writerState.withLock { state -> Bool in
         // Double-check under lock in case another thread raced us
-        guard _writerState.videoFormatDescription == nil else { return false }
+        guard state.videoFormatDescription == nil else { return false }
         // Re-check includeAudioTrack in case it changed while we were building
-        if _writerState.includeAudioTrack != includeAudio { return true }
-        _writerState.videoFormatDescription = fmt
-        _writerState.initSegment = initSeg
+        if state.includeAudioTrack != includeAudio { return true }
+        state.videoFormatDescription = fmt
+        state.initSegment = initSeg
         return false
       }
       if needsRebuild {
-        let currentAudio = _writerLock.withLock { _writerState.includeAudioTrack }
+        let currentAudio = _writerState.withLock { $0.includeAudioTrack }
         let rebuilt = buildInitSegment(videoFormat: fmt, includeAudio: currentAudio)
-        _writerLock.withLock {
-          if _writerState.videoFormatDescription == nil {
-            _writerState.videoFormatDescription = fmt
-            _writerState.initSegment = rebuilt
+        _writerState.withLock { state in
+          if state.videoFormatDescription == nil {
+            state.videoFormatDescription = fmt
+            state.initSegment = rebuilt
           }
         }
       }
     }
 
-    let (gapFragment, keyframeFragment) = _writerLock.withLock {
-      () -> (MP4Fragment?, MP4Fragment?) in
+    let (gapFragment, keyframeFragment) = _writerState.withLock {
+      state -> (MP4Fragment?, MP4Fragment?) in
       var gap: MP4Fragment?
       var kf: MP4Fragment?
 
@@ -269,32 +250,32 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
       // PTS gap inflates sample durations and causes fragments to exceed the hub's
       // 4000ms fragment limit. Require at least ~1 second of data (30 samples) to
       // avoid emitting tiny fragments from startup jitter.
-      if let lastSamplePTS = _writerState.pendingSamples.last?.pts {
+      if let lastSamplePTS = state.pendingSamples.last?.pts {
         let g = CMTimeGetSeconds(CMTimeSubtract(pts, lastSamplePTS))
-        if (g > 0.5 || g < 0) && _writerState.pendingSamples.count >= 30 {
-          gap = emitFragment(state: &_writerState)
+        if (g > 0.5 || g < 0) && state.pendingSamples.count >= 30 {
+          gap = emitFragment(state: &state)
         } else if g > 0.5 || g < 0 {
           // Gap detected with too few samples — discard to avoid a tiny fragment.
-          _writerState.pendingSamples.removeAll()
-          _writerState.fragmentStartPTS = .invalid
+          state.pendingSamples.removeAll()
+          state.fragmentStartPTS = .invalid
         }
       }
 
       // If this is a keyframe and we have enough buffered data, emit a fragment
-      if isKeyframe && !_writerState.pendingSamples.isEmpty && _writerState.fragmentStartPTS.isValid
+      if isKeyframe && !state.pendingSamples.isEmpty && state.fragmentStartPTS.isValid
       {
-        let elapsed = CMTimeGetSeconds(CMTimeSubtract(pts, _writerState.fragmentStartPTS))
+        let elapsed = CMTimeGetSeconds(CMTimeSubtract(pts, state.fragmentStartPTS))
         if elapsed >= fragmentDuration {
-          kf = emitFragment(state: &_writerState)
+          kf = emitFragment(state: &state)
         }
       }
 
       // Track fragment start time
-      if !_writerState.fragmentStartPTS.isValid {
-        _writerState.fragmentStartPTS = pts
+      if !state.fragmentStartPTS.isValid {
+        state.fragmentStartPTS = pts
       }
 
-      _writerState.pendingSamples.append(
+      state.pendingSamples.append(
         VideoSample(data: sampleData, pts: pts, isKeyframe: isKeyframe))
       return (gap, kf)
     }
@@ -318,17 +299,17 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
   /// — the hub identifies fragments by moof sequence number, not by init segment affinity.
   public func stop() {
     let handler = onFragmentReady
-    let flushed: MP4Fragment? = _writerLock.withLock {
+    let flushed: MP4Fragment? = _writerState.withLock { state in
       var result: MP4Fragment?
-      if !_writerState.pendingSamples.isEmpty {
-        result = emitFragment(state: &_writerState)
+      if !state.pendingSamples.isEmpty {
+        result = emitFragment(state: &state)
       }
-      _writerState.fragmentStartPTS = .invalid
-      _writerState.hasLoggedFirstFragment = false
-      _writerState.pendingAudioSamples.removeAll()
+      state.fragmentStartPTS = .invalid
+      state.hasLoggedFirstFragment = false
+      state.pendingAudioSamples.removeAll()
       // Reset format so init segment is rebuilt on next start, reflecting current includeAudioTrack state.
-      _writerState.videoFormatDescription = nil
-      _writerState.initSegment = nil
+      state.videoFormatDescription = nil
+      state.initSegment = nil
       return result
     }
     if let flushed { handler?(flushed) }

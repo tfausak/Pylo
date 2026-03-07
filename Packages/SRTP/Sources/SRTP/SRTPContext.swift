@@ -2,24 +2,6 @@ import CommonCrypto
 import Foundation
 import os
 
-/// A simple unfair-lock wrapper that works back to iOS 15.
-private final class UnfairLock: @unchecked Sendable {
-  private let _lock: os_unfair_lock_t
-  init() {
-    _lock = .allocate(capacity: 1)
-    _lock.initialize(to: os_unfair_lock())
-  }
-  deinit {
-    _lock.deinitialize(count: 1)
-    _lock.deallocate()
-  }
-  func withLock<R>(_ body: () throws -> R) rethrows -> R {
-    os_unfair_lock_lock(_lock)
-    defer { os_unfair_lock_unlock(_lock) }
-    return try body()
-  }
-}
-
 private let logSubsystem = "me.fausak.taylor.Pylo"
 
 // MARK: - SRTP Context
@@ -55,8 +37,7 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
     var incomingLastSeq: UInt16 = 0
     var incomingInitialized: Bool = false
   }
-  private let _lock = UnfairLock()
-  private var _state = State()
+  private let _state = Locked<State>(initialState: State())
 
   public init(masterKey: Data, masterSalt: Data) {
     self.masterKey = masterKey
@@ -149,17 +130,17 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
     let seq = Self.readU16BE(rtpPacket, at: 2)
 
     // Track rollover counter (under lock for thread safety)
-    let (currentROC, packetIndex) = _lock.withLock { () -> (UInt32, UInt64) in
+    let (currentROC, packetIndex) = _state.withLock { state -> (UInt32, UInt64) in
       // Sender-side ROC: increment when the sequence number wraps.
       // Only apply ROC logic after the first packet (RFC 3711 §3.3.1).
-      if _state.packetCount > 0
-        && seq < _state.lastSequenceNumber && (_state.lastSequenceNumber &- seq) > 0x8000
+      if state.packetCount > 0
+        && seq < state.lastSequenceNumber && (state.lastSequenceNumber &- seq) > 0x8000
       {
-        _state.rolloverCounter &+= 1
+        state.rolloverCounter &+= 1
       }
-      _state.lastSequenceNumber = seq
-      _state.packetCount += 1
-      return (_state.rolloverCounter, UInt64(_state.rolloverCounter) << 16 | UInt64(seq))
+      state.lastSequenceNumber = seq
+      state.packetCount += 1
+      return (state.rolloverCounter, UInt64(state.rolloverCounter) << 16 | UInt64(seq))
     }
 
     // Encrypt payload with AES-128-CTR (IV on the stack — no heap allocation)
@@ -211,16 +192,16 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
     //   if s_l >= 2^15: s_l - 2^15 > SEQ → v = ROC+1, else v = ROC
     // The second branch's condition (s_l - SEQ > 0x8000) is algebraically
     // equivalent to (s_l - 0x8000 > SEQ) and implicitly requires s_l >= 0x8000.
-    let (candidateROC, candidateSeq, wasInitialized) = _lock.withLock {
-      () -> (UInt32, UInt16, Bool) in
-      if !_state.incomingInitialized {
-        return (_state.incomingROC, seq, false)
+    let (candidateROC, candidateSeq, wasInitialized) = _state.withLock {
+      state -> (UInt32, UInt16, Bool) in
+      if !state.incomingInitialized {
+        return (state.incomingROC, seq, false)
       }
-      var roc = _state.incomingROC
-      if roc > 0 && _state.incomingLastSeq < 0x8000 && seq > (_state.incomingLastSeq &+ 0x8000) {
+      var roc = state.incomingROC
+      if roc > 0 && state.incomingLastSeq < 0x8000 && seq > (state.incomingLastSeq &+ 0x8000) {
         // Late packet from previous ROC period (v = ROC-1)
         roc -= 1
-      } else if seq < _state.incomingLastSeq && (_state.incomingLastSeq &- seq) > 0x8000 {
+      } else if seq < state.incomingLastSeq && (state.incomingLastSeq &- seq) > 0x8000 {
         // Forward rollover (v = ROC+1)
         roc &+= 1
       }
@@ -240,14 +221,14 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
     // Authentication passed — commit state only if this packet advances
     // the highest-seen sequence (RFC 3711 §3.3.1: update s_l only when
     // the packet index is higher than the previously stored one).
-    _lock.withLock {
+    _state.withLock { state in
       let candidateIndex = UInt64(candidateROC) << 16 | UInt64(candidateSeq)
-      let currentIndex = UInt64(_state.incomingROC) << 16 | UInt64(_state.incomingLastSeq)
+      let currentIndex = UInt64(state.incomingROC) << 16 | UInt64(state.incomingLastSeq)
       if !wasInitialized || candidateIndex > currentIndex {
-        _state.incomingROC = candidateROC
-        _state.incomingLastSeq = candidateSeq
+        state.incomingROC = candidateROC
+        state.incomingLastSeq = candidateSeq
       }
-      if !wasInitialized { _state.incomingInitialized = true }
+      if !wasInitialized { state.incomingInitialized = true }
     }
 
     let packetIndex = UInt64(candidateROC) << 16 | UInt64(seq)
@@ -281,9 +262,9 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
     // Extract SSRC from header (bytes 4-7) — read directly, no copy needed
     let ssrc = Self.readU32BE(rtcpPacket, at: 4)
 
-    let index = _lock.withLock { () -> UInt32 in
-      let idx = _state.srtcpIndex
-      _state.srtcpIndex = (_state.srtcpIndex &+ 1) & 0x7FFF_FFFF
+    let index = _state.withLock { state -> UInt32 in
+      let idx = state.srtcpIndex
+      state.srtcpIndex = (state.srtcpIndex &+ 1) & 0x7FFF_FFFF
       return idx
     }
 
