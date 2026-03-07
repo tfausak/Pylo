@@ -177,8 +177,8 @@ struct ContentView: View {
           icon: "figure.walk.motion",
           title: "Motion Sensor",
           isOn: $viewModel.motionEnabled,
-          blocked: !viewModel.isMotionAvailable,
-          blockedMessage: !viewModel.isMotionAvailable
+          blocked: !viewModel.hasAccelerometer,
+          blockedMessage: !viewModel.hasAccelerometer
             ? "Not available on this device" : nil
         ) {
           motionContent
