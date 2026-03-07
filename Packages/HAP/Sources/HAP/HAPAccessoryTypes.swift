@@ -69,7 +69,7 @@ public nonisolated enum HAPValue: Equatable, Sendable {
 /// The mutable `onStateChange` property requires conformers to be `@unchecked Sendable`
 /// with manual lock protection. This is intentional — Swift protocols cannot have stored
 /// properties, and a base class would force a class hierarchy that's worse than the 4-line
-/// boilerplate each conformer duplicates (OSAllocatedUnfairLock + computed get/set).
+/// boilerplate each conformer duplicates (Locked + computed get/set).
 public nonisolated protocol HAPAccessoryProtocol: AnyObject {
   var aid: Int { get }
   var name: String { get }
@@ -262,7 +262,7 @@ public nonisolated final class HAPBridgeInfo: HAPAccessoryProtocol, @unchecked S
   public let serialNumber: String
   public let firmwareRevision: String
 
-  private let _onStateChange = OSAllocatedUnfairLock<
+  private let _onStateChange = Locked<
     (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
   >(initialState: nil)
   public var onStateChange: (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)? {
@@ -334,7 +334,7 @@ public nonisolated final class HAPMotionSensorAccessory: HAPAccessoryProtocol, @
   public let serialNumber: String
   public let firmwareRevision: String
 
-  private let _onStateChange = OSAllocatedUnfairLock<
+  private let _onStateChange = Locked<
     (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
   >(initialState: nil)
   public var onStateChange: (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)? {
@@ -343,13 +343,13 @@ public nonisolated final class HAPMotionSensorAccessory: HAPAccessoryProtocol, @
   }
 
   /// Shared battery state — nil means no battery, omit battery service.
-  private let _batteryState = OSAllocatedUnfairLock<BatteryState?>(initialState: nil)
+  private let _batteryState = Locked<BatteryState?>(initialState: nil)
   public var batteryState: BatteryState? {
     get { _batteryState.withLock { $0 } }
     set { _batteryState.withLock { $0 = newValue } }
   }
 
-  private let _isMotionDetected = OSAllocatedUnfairLock(initialState: false)
+  private let _isMotionDetected = Locked(initialState: false)
   public var isMotionDetected: Bool {
     _isMotionDetected.withLock { $0 }
   }
@@ -443,7 +443,7 @@ public nonisolated final class HAPLightSensorAccessory: HAPAccessoryProtocol, @u
   public let serialNumber: String
   public let firmwareRevision: String
 
-  private let _onStateChange = OSAllocatedUnfairLock<
+  private let _onStateChange = Locked<
     (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
   >(initialState: nil)
   public var onStateChange: (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)? {
@@ -452,13 +452,13 @@ public nonisolated final class HAPLightSensorAccessory: HAPAccessoryProtocol, @u
   }
 
   /// Shared battery state — nil means no battery, omit battery service.
-  private let _batteryState = OSAllocatedUnfairLock<BatteryState?>(initialState: nil)
+  private let _batteryState = Locked<BatteryState?>(initialState: nil)
   public var batteryState: BatteryState? {
     get { _batteryState.withLock { $0 } }
     set { _batteryState.withLock { $0 = newValue } }
   }
 
-  private let _currentLux = OSAllocatedUnfairLock<Float>(initialState: 1.0)
+  private let _currentLux = Locked<Float>(initialState: 1.0)
   public var currentLux: Float {
     _currentLux.withLock { $0 }
   }

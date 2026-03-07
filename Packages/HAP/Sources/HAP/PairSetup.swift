@@ -27,7 +27,7 @@ public nonisolated final class PairSetupThrottle: @unchecked Sendable {
     var lastFailureDate: Date?
   }
 
-  private let lock = OSAllocatedUnfairLock(initialState: State())
+  private let lock = Locked(initialState: State())
 
   public init() {}
 
@@ -87,7 +87,7 @@ public nonisolated enum PairSetupHandler {
   /// HAPServer exists per process, so global scope is acceptable. All cleanup paths
   /// (M3/M5 guard failures, auth failures, M5 success, HAPServer.removeConnection,
   /// and terminateSessions) reset this flag to prevent it from getting stuck.
-  private static let _pairSetupInProgress = OSAllocatedUnfairLock(initialState: false)
+  private static let _pairSetupInProgress = Locked(initialState: false)
   static var isPairSetupInProgress: Bool {
     get { _pairSetupInProgress.withLock { $0 } }
     set { _pairSetupInProgress.withLock { $0 = newValue } }
@@ -139,7 +139,7 @@ public nonisolated enum PairSetupHandler {
   /// one HAPServer exists per process. Instance injection would require
   /// threading a configuration object through the server and all handlers,
   /// adding complexity with no practical benefit for a single-server app.
-  private static let _keyStore = OSAllocatedUnfairLock<KeyStore?>(initialState: nil)
+  private static let _keyStore = Locked<KeyStore?>(initialState: nil)
   public static var keyStore: KeyStore! {
     get { _keyStore.withLock { $0 } }
     set { _keyStore.withLock { $0 = newValue } }
@@ -148,7 +148,7 @@ public nonisolated enum PairSetupHandler {
   /// The setup code displayed to the user (format: XXX-XX-XXX).
   /// Generated randomly on first launch and persisted via keyStore.
   /// Cached after first access so subsequent reads are free.
-  private static let _setupCode = OSAllocatedUnfairLock<String?>(initialState: nil)
+  private static let _setupCode = Locked<String?>(initialState: nil)
   public static var setupCode: String {
     // Fast path: return cached value without touching keyStore.
     if let code = _setupCode.withLock({ $0 }) { return code }
@@ -177,7 +177,7 @@ public nonisolated enum PairSetupHandler {
 
   /// 4-character alphanumeric Setup ID required for QR code pairing.
   /// Generated once and persisted via keyStore.
-  private static let _setupID = OSAllocatedUnfairLock<String?>(initialState: nil)
+  private static let _setupID = Locked<String?>(initialState: nil)
   public static var setupID: String {
     if let id = _setupID.withLock({ $0 }) { return id }
     precondition(

@@ -37,7 +37,7 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
     var incomingLastSeq: UInt16 = 0
     var incomingInitialized: Bool = false
   }
-  private let state = OSAllocatedUnfairLock(initialState: State())
+  private let _state = Locked<State>(initialState: State())
 
   public init(masterKey: Data, masterSalt: Data) {
     self.masterKey = masterKey
@@ -130,17 +130,17 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
     let seq = Self.readU16BE(rtpPacket, at: 2)
 
     // Track rollover counter (under lock for thread safety)
-    let (currentROC, packetIndex) = state.withLock { s -> (UInt32, UInt64) in
+    let (currentROC, packetIndex) = _state.withLock { state -> (UInt32, UInt64) in
       // Sender-side ROC: increment when the sequence number wraps.
       // Only apply ROC logic after the first packet (RFC 3711 §3.3.1).
-      if s.packetCount > 0
-        && seq < s.lastSequenceNumber && (s.lastSequenceNumber &- seq) > 0x8000
+      if state.packetCount > 0
+        && seq < state.lastSequenceNumber && (state.lastSequenceNumber &- seq) > 0x8000
       {
-        s.rolloverCounter &+= 1
+        state.rolloverCounter &+= 1
       }
-      s.lastSequenceNumber = seq
-      s.packetCount += 1
-      return (s.rolloverCounter, UInt64(s.rolloverCounter) << 16 | UInt64(seq))
+      state.lastSequenceNumber = seq
+      state.packetCount += 1
+      return (state.rolloverCounter, UInt64(state.rolloverCounter) << 16 | UInt64(seq))
     }
 
     // Encrypt payload with AES-128-CTR (IV on the stack — no heap allocation)
@@ -192,16 +192,16 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
     //   if s_l >= 2^15: s_l - 2^15 > SEQ → v = ROC+1, else v = ROC
     // The second branch's condition (s_l - SEQ > 0x8000) is algebraically
     // equivalent to (s_l - 0x8000 > SEQ) and implicitly requires s_l >= 0x8000.
-    let (candidateROC, candidateSeq, wasInitialized) = state.withLock {
-      s -> (UInt32, UInt16, Bool) in
-      if !s.incomingInitialized {
-        return (s.incomingROC, seq, false)
+    let (candidateROC, candidateSeq, wasInitialized) = _state.withLock {
+      state -> (UInt32, UInt16, Bool) in
+      if !state.incomingInitialized {
+        return (state.incomingROC, seq, false)
       }
-      var roc = s.incomingROC
-      if roc > 0 && s.incomingLastSeq < 0x8000 && seq > (s.incomingLastSeq &+ 0x8000) {
+      var roc = state.incomingROC
+      if roc > 0 && state.incomingLastSeq < 0x8000 && seq > (state.incomingLastSeq &+ 0x8000) {
         // Late packet from previous ROC period (v = ROC-1)
         roc -= 1
-      } else if seq < s.incomingLastSeq && (s.incomingLastSeq &- seq) > 0x8000 {
+      } else if seq < state.incomingLastSeq && (state.incomingLastSeq &- seq) > 0x8000 {
         // Forward rollover (v = ROC+1)
         roc &+= 1
       }
@@ -221,14 +221,14 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
     // Authentication passed — commit state only if this packet advances
     // the highest-seen sequence (RFC 3711 §3.3.1: update s_l only when
     // the packet index is higher than the previously stored one).
-    state.withLock { s in
+    _state.withLock { state in
       let candidateIndex = UInt64(candidateROC) << 16 | UInt64(candidateSeq)
-      let currentIndex = UInt64(s.incomingROC) << 16 | UInt64(s.incomingLastSeq)
+      let currentIndex = UInt64(state.incomingROC) << 16 | UInt64(state.incomingLastSeq)
       if !wasInitialized || candidateIndex > currentIndex {
-        s.incomingROC = candidateROC
-        s.incomingLastSeq = candidateSeq
+        state.incomingROC = candidateROC
+        state.incomingLastSeq = candidateSeq
       }
-      if !wasInitialized { s.incomingInitialized = true }
+      if !wasInitialized { state.incomingInitialized = true }
     }
 
     let packetIndex = UInt64(candidateROC) << 16 | UInt64(seq)
@@ -262,9 +262,9 @@ public nonisolated final class SRTPContext: @unchecked Sendable {
     // Extract SSRC from header (bytes 4-7) — read directly, no copy needed
     let ssrc = Self.readU32BE(rtcpPacket, at: 4)
 
-    let index = state.withLock { s -> UInt32 in
-      let idx = s.srtcpIndex
-      s.srtcpIndex = (s.srtcpIndex &+ 1) & 0x7FFF_FFFF
+    let index = _state.withLock { state -> UInt32 in
+      let idx = state.srtcpIndex
+      state.srtcpIndex = (state.srtcpIndex &+ 1) & 0x7FFF_FFFF
       return idx
     }
 

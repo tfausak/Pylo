@@ -20,7 +20,7 @@ public nonisolated final class HDSConnection: @unchecked Sendable {
   // Encryption keys — set once in setupEncryption (on queue), then read-only.
   private var readKey: SymmetricKey?
   private var writeKey: SymmetricKey?
-  private let nonces = OSAllocatedUnfairLock(initialState: (read: UInt64(0), write: UInt64(0)))
+  private let nonces = Locked(initialState: (read: UInt64(0), write: UInt64(0)))
 
   /// The fragment writer to serve video from.
   /// Set from the HDS queue (newConnectionHandler) before start() is called.

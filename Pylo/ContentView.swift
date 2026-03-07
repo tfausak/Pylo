@@ -9,7 +9,7 @@ struct ContentView: View {
 
   var body: some View {
     ZStack {
-      NavigationStack {
+      NavigationView {
         Group {
           if viewModel.isNetworkDenied {
             networkDeniedBody
@@ -21,7 +21,7 @@ struct ContentView: View {
         }
         .navigationTitle("Pylo")
         .toolbar {
-          ToolbarItem(placement: .topBarTrailing) {
+          ToolbarItem(placement: .navigationBarTrailing) {
             statusIndicator
           }
         }
@@ -57,6 +57,7 @@ struct ContentView: View {
         .animation(.default, value: viewModel.needsRestart)
         .animation(.default, value: viewModel.isWaitingForHomeApp)
       }
+      .navigationViewStyle(.stack)
       .confirmationDialog(
         "Unpair",
         isPresented: $showUnpairConfirmation,
@@ -433,7 +434,12 @@ struct ContentView: View {
     dimTask = Task {
       // Task.sleep throws CancellationError when the task is cancelled,
       // cleanly preventing the stale isScreenDimmed write.
-      guard (try? await Task.sleep(for: .seconds(viewModel.screenSaverDelay))) != nil else {
+      let delaySeconds = viewModel.screenSaverDelay
+      guard delaySeconds.isFinite, delaySeconds > 0 else { return }
+      guard
+        (try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000)))
+          != nil
+      else {
         return
       }
       isScreenDimmed = true

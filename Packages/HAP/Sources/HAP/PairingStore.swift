@@ -22,14 +22,14 @@ public nonisolated final class PairingStore: @unchecked Sendable {
 
   /// Called whenever pairings are added or removed.
   /// Protected by its own lock: set from @MainActor, called from the server queue.
-  private let _onChange = OSAllocatedUnfairLock<(@Sendable () -> Void)?>(initialState: nil)
+  private let _onChange = Locked<(@Sendable () -> Void)?>(initialState: nil)
   public var onChange: (@Sendable () -> Void)? {
     get { _onChange.withLock { $0 } }
     set { _onChange.withLock { $0 = newValue } }
   }
 
   /// Lock-protected pairings dictionary.
-  private let lock = OSAllocatedUnfairLock(initialState: [String: Pairing]())
+  private let lock = Locked(initialState: [String: Pairing]())
 
   /// Thread-safe snapshot of all pairings.
   public var pairings: [String: Pairing] {

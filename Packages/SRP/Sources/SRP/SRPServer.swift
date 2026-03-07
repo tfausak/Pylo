@@ -74,12 +74,12 @@ public nonisolated final class SRPServer {
     var sharedSecret: BigUInt?
     var sessionKey: SymmetricKey?
   }
-  private let state = OSAllocatedUnfairLock(initialState: MutableState())
+  private let _state = Locked<MutableState>(initialState: MutableState())
 
   /// The derived session key (K = H(S)), available after verifyClientProof succeeds.
   /// Stored as SymmetricKey for memory protection (SecureBytes, locked pages).
   public var sessionKey: SymmetricKey? {
-    state.withLock { $0.sessionKey }
+    _state.withLock { $0.sessionKey }
   }
 
   // MARK: - Initialization
@@ -193,7 +193,7 @@ public nonisolated final class SRPServer {
     // 6. Store all derived values atomically under the lock.
     // Reject if setClientPublicKey was already called (prevents
     // a malicious client from silently replacing the shared secret).
-    return state.withLock { state in
+    return _state.withLock { state in
       guard state.clientPublicKey == nil else { return false }
       state.clientPublicKey = clientA
       state.u = computedU
@@ -215,7 +215,7 @@ public nonisolated final class SRPServer {
     // Snapshot the mutable state under the lock.
     // Idempotency guard: if sessionKey is already set, proof was already verified.
     guard
-      let (clientA, s) = state.withLock({ (state: inout MutableState) -> (BigUInt, BigUInt)? in
+      let (clientA, s) = _state.withLock({ state -> (BigUInt, BigUInt)? in
         guard state.sessionKey == nil else { return nil }
         guard let a = state.clientPublicKey, let s = state.sharedSecret else { return nil }
         return (a, s)
@@ -257,7 +257,7 @@ public nonisolated final class SRPServer {
     let serverProof = Data(SHA512.hash(data: m2Data))
 
     // Proof verified — now expose the session key
-    state.withLock { $0.sessionKey = SymmetricKey(data: derivedKey) }
+    _state.withLock { $0.sessionKey = SymmetricKey(data: derivedKey) }
 
     return serverProof
   }

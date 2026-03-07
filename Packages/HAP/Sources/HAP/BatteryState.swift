@@ -11,7 +11,7 @@ public nonisolated final class BatteryState: @unchecked Sendable {
     var statusLowBattery: Int = 0
   }
 
-  private let lock = OSAllocatedUnfairLock(initialState: State())
+  private let lock = Locked(initialState: State())
 
   public init() {}
 
