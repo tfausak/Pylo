@@ -467,6 +467,7 @@ public nonisolated final class HAPConnection: @unchecked Sendable {
       return HTTPResponse(status: 500, body: nil, contentType: "application/hap+json")
     }
     logger.debug("GET /accessories response (\(data.count) bytes)")
+    server.onAccessoriesFetched?()
     return HTTPResponse(status: 200, body: data, contentType: "application/hap+json")
   }
 

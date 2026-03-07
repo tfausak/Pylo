@@ -40,9 +40,22 @@ struct ContentView: View {
             .padding(.horizontal)
             .padding(.bottom, 4)
             .transition(.move(edge: .bottom).combined(with: .opacity))
+          } else if viewModel.isWaitingForHomeApp {
+            HStack(spacing: 8) {
+              ProgressView()
+              Text("Updating Home…")
+                .font(.subheadline.weight(.medium))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(12)
+            .background(.secondary.opacity(0.2), in: .rect(cornerRadius: 12))
+            .padding(.horizontal)
+            .padding(.bottom, 4)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
           }
         }
         .animation(.default, value: viewModel.needsRestart)
+        .animation(.default, value: viewModel.isWaitingForHomeApp)
       }
       .confirmationDialog(
         "Unpair",

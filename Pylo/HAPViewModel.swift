@@ -64,6 +64,7 @@ final class HAPViewModel {
   var isCameraStreaming = false
   var hasPairings = false
   var isNetworkDenied = false
+  var isWaitingForHomeApp = false
   var availableCameras: [CameraOption] = []
   var selectedStreamCamera: CameraOption? {
     didSet {
@@ -422,6 +423,12 @@ final class HAPViewModel {
         }
       }
 
+      setup.server.onAccessoriesFetched = { [weak self] in
+        Task { @MainActor [weak self] in
+          withAnimation { self?.isWaitingForHomeApp = false }
+        }
+      }
+
       setup.server.pairingStore.onChange = { [weak self, weak server = setup.server] in
         let isPaired = server?.pairingStore.isPaired ?? false
         UserDefaults.standard.set(isPaired, forKey: "hasPairings")
@@ -504,7 +511,10 @@ final class HAPViewModel {
     cameraAccessory = nil
     server?.stop()
     server = nil
-    withAnimation { isRunning = false }
+    withAnimation {
+      isRunning = false
+      isWaitingForHomeApp = false
+    }
     startedConfig = nil
     UIApplication.shared.isIdleTimerDisabled = false
     statusMessage = "Stopped"
@@ -512,8 +522,12 @@ final class HAPViewModel {
 
   @MainActor
   func restart() {
+    let wasPaired = hasPairings
     stop()
     start()
+    if wasPaired {
+      isWaitingForHomeApp = true
+    }
   }
 
   @MainActor
