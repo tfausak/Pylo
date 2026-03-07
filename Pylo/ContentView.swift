@@ -21,7 +21,7 @@ struct ContentView: View {
         }
         .navigationTitle("Pylo")
         .toolbar {
-          ToolbarItem(placement: .topBarTrailing) {
+          ToolbarItem(placement: .navigationBarTrailing) {
             statusIndicator
           }
         }
@@ -57,6 +57,7 @@ struct ContentView: View {
         .animation(.default, value: viewModel.needsRestart)
         .animation(.default, value: viewModel.isWaitingForHomeApp)
       }
+      .navigationViewStyle(.stack)
       .confirmationDialog(
         "Unpair",
         isPresented: $showUnpairConfirmation,
