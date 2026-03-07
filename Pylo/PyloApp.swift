@@ -50,7 +50,7 @@ struct PyloApp: App {
     PairSetupHandler.keyStore = KeychainKeyStore()
   }()
 
-  @State private var viewModel = {
+  @StateObject private var viewModel = {
     _ensureKeyStore
     return HAPViewModel()
   }()

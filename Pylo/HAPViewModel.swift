@@ -1,4 +1,5 @@
 import AVFoundation
+import Combine
 import CoreImage.CIFilterBuiltins
 import CoreMotion
 import FragmentedMP4
@@ -35,8 +36,8 @@ struct AccessoryConfig: Equatable {
 
 // MARK: - View Model
 
-@Observable @MainActor
-final class HAPViewModel {
+@MainActor
+final class HAPViewModel: ObservableObject {
 
   /// App version + build number reported as firmware revision in HomeKit (e.g. "1.0.3").
   /// HAP spec requires "X.Y.Z" format for FirmwareRevision.
@@ -53,24 +54,24 @@ final class HAPViewModel {
     }
   }
 
-  var isRunning = false
-  var isStarting = false
-  var isLightOn = false
-  var brightness: Int = 100
-  var isPaired = false
-  var statusMessage = "Tap Start to begin"
-  var setupCode = PairSetupHandler.setupCode
-  var isMotionDetected = false
-  var isMotionAvailable = false
-  var hasCamera = false
-  var hasTorch = false
-  var hasAccelerometer = CMMotionManager().isAccelerometerAvailable
-  var isCameraStreaming = false
-  var hasPairings = false
-  var isNetworkDenied = false
-  var isWaitingForHomeApp = false
-  var availableCameras: [CameraOption] = []
-  var selectedStreamCamera: CameraOption? {
+  @Published var isRunning = false
+  @Published var isStarting = false
+  @Published var isLightOn = false
+  @Published var brightness: Int = 100
+  @Published var isPaired = false
+  @Published var statusMessage = "Tap Start to begin"
+  @Published var setupCode = PairSetupHandler.setupCode
+  @Published var isMotionDetected = false
+  @Published var isMotionAvailable = false
+  @Published var hasCamera = false
+  @Published var hasTorch = false
+  @Published var hasAccelerometer = CMMotionManager().isAccelerometerAvailable
+  @Published var isCameraStreaming = false
+  @Published var hasPairings = false
+  @Published var isNetworkDenied = false
+  @Published var isWaitingForHomeApp = false
+  @Published var availableCameras: [CameraOption] = []
+  @Published var selectedStreamCamera: CameraOption? {
     didSet {
       guard !isRestoring, oldValue?.id != selectedStreamCamera?.id else { return }
       if let selectedStreamCamera {
@@ -82,13 +83,13 @@ final class HAPViewModel {
       }
     }
   }
-  var flashlightEnabled: Bool = false {
+  @Published var flashlightEnabled: Bool = false {
     didSet {
       guard !isRestoring, flashlightEnabled != oldValue else { return }
       UserDefaults.standard.set(flashlightEnabled, forKey: "flashlightEnabled")
     }
   }
-  var motionEnabled: Bool = false {
+  @Published var motionEnabled: Bool = false {
     didSet {
       guard !isRestoring, motionEnabled != oldValue else { return }
       UserDefaults.standard.set(motionEnabled, forKey: "motionEnabled")
@@ -100,21 +101,21 @@ final class HAPViewModel {
       }
     }
   }
-  var motionSensitivity: MotionSensitivity = .medium {
+  @Published var motionSensitivity: MotionSensitivity = .medium {
     didSet {
       guard !isRestoring, motionSensitivity != oldValue else { return }
       UserDefaults.standard.set(motionSensitivity.rawValue, forKey: "motionSensitivity")
       motionMonitor?.threshold = motionSensitivity.threshold
     }
   }
-  var microphoneEnabled: Bool = false {
+  @Published var microphoneEnabled: Bool = false {
     didSet {
       guard !isRestoring, microphoneEnabled != oldValue else { return }
       UserDefaults.standard.set(microphoneEnabled, forKey: "microphoneEnabled")
       cameraAccessory?.microphoneEnabled = microphoneEnabled
     }
   }
-  var videoQuality: VideoQuality = .medium {
+  @Published var videoQuality: VideoQuality = .medium {
     didSet {
       guard !isRestoring, videoQuality != oldValue else { return }
       UserDefaults.standard.set(videoQuality.rawValue, forKey: "videoQuality")
@@ -124,20 +125,20 @@ final class HAPViewModel {
   // NOTE: iOS does not offer a background mode suitable for a HAP server.
   // The app cannot run indefinitely in the background, so keeping the screen
   // awake (opt-in) is the best available workaround to stay reachable.
-  var keepScreenAwake: Bool = false {
+  @Published var keepScreenAwake: Bool = false {
     didSet {
       guard !isRestoring, keepScreenAwake != oldValue else { return }
       UserDefaults.standard.set(keepScreenAwake, forKey: "keepScreenAwake")
       updateIdleTimer()
     }
   }
-  var screenSaverEnabled: Bool = false {
+  @Published var screenSaverEnabled: Bool = false {
     didSet {
       guard !isRestoring, screenSaverEnabled != oldValue else { return }
       UserDefaults.standard.set(screenSaverEnabled, forKey: "screenSaverEnabled")
     }
   }
-  var screenSaverDelay: TimeInterval = 60 {
+  @Published var screenSaverDelay: TimeInterval = 60 {
     didSet {
       guard !isRestoring, screenSaverDelay != oldValue else { return }
       UserDefaults.standard.set(screenSaverDelay, forKey: "screenSaverDelay")
@@ -145,13 +146,13 @@ final class HAPViewModel {
   }
 
   /// Whether camera permission has been expressly denied or restricted.
-  var cameraPermissionDenied = false
+  @Published var cameraPermissionDenied = false
 
   /// Whether microphone permission has been expressly denied or restricted.
-  var microphonePermissionDenied = false
+  @Published var microphonePermissionDenied = false
 
   /// Which permission was denied — drives the alert in ContentView.
-  var permissionAlert: PermissionKind?
+  @Published var permissionAlert: PermissionKind?
 
   enum PermissionKind {
     case camera, microphone
@@ -172,7 +173,7 @@ final class HAPViewModel {
 
   /// Configuration snapshot taken when the server starts. Compared against
   /// current values to determine whether a restart is needed.
-  @ObservationIgnored var startedConfig: AccessoryConfig?
+  var startedConfig: AccessoryConfig?
 
   /// Whether the accessory configuration has diverged from what the server launched with.
   var needsRestart: Bool {
@@ -182,18 +183,18 @@ final class HAPViewModel {
 
   /// Suppresses didSet side effects (UserDefaults writes, monitor restarts)
   /// while restoring persisted preferences during start().
-  @ObservationIgnored var isRestoring = false
+  var isRestoring = false
 
-  @ObservationIgnored private var startTask: Task<Void, Never>?
-  @ObservationIgnored private var startGeneration = 0
-  @ObservationIgnored private var server: HAPServer?
-  @ObservationIgnored private var motionMonitor: MotionMonitor?
-  @ObservationIgnored private var batteryMonitor: BatteryMonitor?
-  @ObservationIgnored private var lightbulbAccessory: HAPAccessory?
-  @ObservationIgnored private var cameraAccessory: HAPCameraAccessory?
-  @ObservationIgnored private var monitoringSession: MonitoringCaptureSession?
-  @ObservationIgnored private var fragmentWriter: FragmentedMP4Writer?
-  @ObservationIgnored private var dataStreamHandler: HAPDataStream?
+  private var startTask: Task<Void, Never>?
+  private var startGeneration = 0
+  private var server: HAPServer?
+  private var motionMonitor: MotionMonitor?
+  private var batteryMonitor: BatteryMonitor?
+  private var lightbulbAccessory: HAPAccessory?
+  private var cameraAccessory: HAPCameraAccessory?
+  private var monitoringSession: MonitoringCaptureSession?
+  private var fragmentWriter: FragmentedMP4Writer?
+  private var dataStreamHandler: HAPDataStream?
 
   // MARK: - Permissions
 

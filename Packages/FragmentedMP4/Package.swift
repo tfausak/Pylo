@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
   name: "FragmentedMP4",
-  platforms: [.macOS(.v14), .iOS(.v17)],
+  platforms: [.macOS(.v14), .iOS(.v16)],
   products: [
     .library(name: "FragmentedMP4", targets: ["FragmentedMP4"])
   ],
