@@ -177,18 +177,18 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   /// Protected by a lock because it is written from captureQueue (via onSnapshotFrame) and from
   /// a global queue (captureSnapshot), and read from the server queue.
   private let _cachedSnapshot = Locked<
-    (data: Data, timestamp: CFAbsoluteTime)?
+    (data: Data, timestamp: TimeInterval)?
   >(initialState: nil)
   var cachedSnapshot: Data? {
     get { _cachedSnapshot.withLock { $0?.data } }
     set {
-      let now = CFAbsoluteTimeGetCurrent()
+      let now = ProcessInfo.processInfo.systemUptime
       _cachedSnapshot.withLock { $0 = newValue.map { (data: $0, timestamp: now) } }
     }
   }
   /// Returns the cached snapshot only if it was captured within the given max age in seconds.
   func cachedSnapshot(maxAgeSeconds: TimeInterval) -> Data? {
-    let now = CFAbsoluteTimeGetCurrent()
+    let now = ProcessInfo.processInfo.systemUptime
     return _cachedSnapshot.withLock { cached in
       guard let cached, (now - cached.timestamp) < maxAgeSeconds else { return nil }
       return cached.data

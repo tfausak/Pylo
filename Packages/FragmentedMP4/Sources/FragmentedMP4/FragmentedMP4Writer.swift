@@ -8,7 +8,10 @@ private final class UnfairLock: @unchecked Sendable {
     _lock = .allocate(capacity: 1)
     _lock.initialize(to: os_unfair_lock())
   }
-  deinit { _lock.deallocate() }
+  deinit {
+    _lock.deinitialize(count: 1)
+    _lock.deallocate()
+  }
   func withLock<R>(_ body: () throws -> R) rethrows -> R {
     os_unfair_lock_lock(_lock)
     defer { os_unfair_lock_unlock(_lock) }

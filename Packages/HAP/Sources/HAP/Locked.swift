@@ -12,7 +12,10 @@ nonisolated final class Locked<State>: @unchecked Sendable {
     _state = initialState
   }
 
-  deinit { _lock.deallocate() }
+  deinit {
+    _lock.deinitialize(count: 1)
+    _lock.deallocate()
+  }
 
   func withLock<R>(_ body: (inout State) throws -> R) rethrows -> R {
     os_unfair_lock_lock(_lock)
