@@ -262,8 +262,7 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
       }
 
       // If this is a keyframe and we have enough buffered data, emit a fragment
-      if isKeyframe && !state.pendingSamples.isEmpty && state.fragmentStartPTS.isValid
-      {
+      if isKeyframe && !state.pendingSamples.isEmpty && state.fragmentStartPTS.isValid {
         let elapsed = CMTimeGetSeconds(CMTimeSubtract(pts, state.fragmentStartPTS))
         if elapsed >= fragmentDuration {
           kf = emitFragment(state: &state)
