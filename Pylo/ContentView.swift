@@ -151,7 +151,10 @@ struct ContentView: View {
           icon: "camera.fill",
           title: "Camera",
           isOn: cameraEnabled,
-          blocked: viewModel.cameraPermissionDenied
+          blocked: !viewModel.hasCamera || viewModel.cameraPermissionDenied,
+          blockedMessage: !viewModel.hasCamera
+            ? "Not available on this device"
+            : viewModel.cameraPermissionDenied ? "Permission denied" : nil
         ) {
           cameraContent
         }
@@ -161,7 +164,10 @@ struct ContentView: View {
           icon: "flashlight.off.fill",
           title: "Flashlight",
           isOn: flashlightEnabled,
-          blocked: viewModel.cameraPermissionDenied
+          blocked: !viewModel.hasTorch || viewModel.cameraPermissionDenied,
+          blockedMessage: !viewModel.hasTorch
+            ? "Not available on this device"
+            : viewModel.cameraPermissionDenied ? "Permission denied" : nil
         ) {
           flashlightContent
         }
@@ -170,7 +176,10 @@ struct ContentView: View {
         AccessoryCard(
           icon: "figure.walk.motion",
           title: "Motion Sensor",
-          isOn: $viewModel.motionEnabled
+          isOn: $viewModel.motionEnabled,
+          blocked: !viewModel.isMotionAvailable,
+          blockedMessage: !viewModel.isMotionAvailable
+            ? "Not available on this device" : nil
         ) {
           motionContent
         }

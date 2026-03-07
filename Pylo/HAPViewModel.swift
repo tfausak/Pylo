@@ -61,6 +61,8 @@ final class HAPViewModel {
   var setupCode = PairSetupHandler.setupCode
   var isMotionDetected = false
   var isMotionAvailable = false
+  var hasCamera = false
+  var hasTorch = false
   var isCameraStreaming = false
   var hasPairings = false
   var isNetworkDenied = false
@@ -282,6 +284,8 @@ final class HAPViewModel {
     // Discover available cameras and restore stream camera selection
     let cameras = CameraOption.availableCameras()
     availableCameras = cameras
+    hasCamera = !cameras.isEmpty
+    hasTorch = AVCaptureDevice.default(for: .video)?.hasTorch ?? false
     let savedStreamID = UserDefaults.standard.string(forKey: "selectedStreamCameraID")
     if savedStreamID == "none" {
       selectedStreamCamera = nil
