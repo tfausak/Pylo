@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct ContentView: View {
-  @Bindable var viewModel: HAPViewModel
+  @ObservedObject var viewModel: HAPViewModel
   @Environment(\.scenePhase) private var scenePhase
   @State private var showUnpairConfirmation = false
   @State private var isScreenDimmed = false
@@ -90,7 +90,7 @@ struct ContentView: View {
       }
     }
     .animation(.default, value: isScreenDimmed)
-    .onChange(of: viewModel.isRunning) {
+    .onChange(of: viewModel.isRunning) { _ in
       if viewModel.isRunning {
         resetDimTimer()
       } else {
@@ -99,21 +99,21 @@ struct ContentView: View {
         isScreenDimmed = false
       }
     }
-    .onChange(of: viewModel.keepScreenAwake) {
+    .onChange(of: viewModel.keepScreenAwake) { _ in
       if viewModel.isRunning { resetDimTimer() }
     }
-    .onChange(of: viewModel.screenSaverEnabled) {
+    .onChange(of: viewModel.screenSaverEnabled) { _ in
       if viewModel.isRunning { resetDimTimer() }
     }
-    .onChange(of: viewModel.screenSaverDelay) {
+    .onChange(of: viewModel.screenSaverDelay) { _ in
       if viewModel.isRunning { resetDimTimer() }
     }
-    .onChange(of: scenePhase) {
+    .onChange(of: scenePhase) { _ in
       if scenePhase == .active {
         viewModel.recheckPermissions()
       }
     }
-    .onChange(of: viewModel.hasPairings) {
+    .onChange(of: viewModel.hasPairings) { _ in
       if !viewModel.hasPairings {
         dimTask?.cancel()
         dimTask = nil

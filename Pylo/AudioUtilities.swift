@@ -1,3 +1,4 @@
+import AVFoundation
 import Accelerate
 import AudioToolbox
 import Foundation
@@ -148,6 +149,19 @@ nonisolated func createAACELDEncoder() -> AudioConverterRef? {
     UInt32(MemoryLayout<UInt32>.size), &bitrate)
 
   return converter
+}
+
+// MARK: - Video Orientation
+
+/// Map a rotation angle (0/90/180/270) to the legacy AVCaptureVideoOrientation
+/// used on iOS <17 where `videoRotationAngle` is unavailable.
+nonisolated func videoOrientation(from angle: Int) -> AVCaptureVideoOrientation {
+  switch angle {
+  case 0: return .landscapeRight
+  case 180: return .landscapeLeft
+  case 270: return .portraitUpsideDown
+  default: return .portrait  // 90° or fallback
+  }
 }
 
 // MARK: - Audio Converter Callback Data

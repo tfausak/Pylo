@@ -323,10 +323,17 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
 
     // Rotate output to match device orientation.
     let rotationAngle = Self.currentRotationAngle()
-    if let connection = output.connection(with: .video),
-      connection.isVideoRotationAngleSupported(CGFloat(rotationAngle))
-    {
-      connection.videoRotationAngle = CGFloat(rotationAngle)
+    if let connection = output.connection(with: .video) {
+      if #available(iOS 17.0, *) {
+        if connection.isVideoRotationAngleSupported(CGFloat(rotationAngle)) {
+          connection.videoRotationAngle = CGFloat(rotationAngle)
+        }
+      } else {
+        let orientation = videoOrientation(from: rotationAngle)
+        if connection.isVideoOrientationSupported {
+          connection.videoOrientation = orientation
+        }
+      }
     }
 
     // Swap encoding dimensions when rotated 90°/270° — the capture connection
