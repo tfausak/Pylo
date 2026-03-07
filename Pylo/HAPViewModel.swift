@@ -334,6 +334,7 @@ final class HAPViewModel {
         // start() hasn't been launched by restart()).
         if self.startGeneration == myGeneration {
           self.isStarting = false
+          self.isWaitingForHomeApp = false
           self.statusMessage = "Failed to start: \(error.localizedDescription)"
         }
         return
@@ -344,6 +345,7 @@ final class HAPViewModel {
         setup.dataStream?.stop()
         setup.monitoringSession?.stop()
         setup.fmp4Writer?.stop()
+        self.isWaitingForHomeApp = false
         return
       }
 
