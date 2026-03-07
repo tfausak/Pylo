@@ -47,7 +47,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   let serialNumber: String
   let firmwareRevision: String
 
-  private let _onStateChange = OSAllocatedUnfairLock<
+  private let _onStateChange = Locked<
     (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
   >(initialState: nil)
   var onStateChange: (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)? {
@@ -56,7 +56,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   }
 
   /// Shared battery state -- nil means no battery, omit battery service.
-  private let _batteryState = OSAllocatedUnfairLock<BatteryState?>(initialState: nil)
+  private let _batteryState = Locked<BatteryState?>(initialState: nil)
   var batteryState: BatteryState? {
     get { _batteryState.withLock { $0 } }
     set { _batteryState.withLock { $0 = newValue } }
@@ -80,7 +80,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
           Void
       )?
   }
-  private let _callbacks = OSAllocatedUnfairLock(initialState: Callbacks())
+  private let _callbacks = Locked(initialState: Callbacks())
 
   var onSnapshotWillCapture: (() -> Void)? {
     get { _callbacks.withLock { $0.onSnapshotWillCapture } }
@@ -133,7 +133,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     var streamSession: CameraStreamSession?
     var videoMotionEnabled: Bool = false
   }
-  private let streamState = OSAllocatedUnfairLock(initialState: StreamState())
+  private let streamState = Locked(initialState: StreamState())
   var videoMotionDetector: VideoMotionDetector? {
     get { streamState.withLock { $0.videoMotionDetector } }
     set { streamState.withLock { $0.videoMotionDetector = newValue } }
@@ -161,7 +161,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   /// Whether microphone audio is enabled (user preference). When false, capture sessions
   /// skip mic input entirely. Written from MainActor, read from the server queue during
   /// stream/monitoring setup. Protected by a lock to avoid a data race.
-  private let _microphoneEnabled = OSAllocatedUnfairLock(initialState: false)
+  private let _microphoneEnabled = Locked(initialState: false)
   var microphoneEnabled: Bool {
     get { _microphoneEnabled.withLock { $0 } }
     set { _microphoneEnabled.withLock { $0 = newValue } }
@@ -176,22 +176,21 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   /// Most recent JPEG snapshot captured during streaming (used as fallback for snapshot requests).
   /// Protected by a lock because it is written from captureQueue (via onSnapshotFrame) and from
   /// a global queue (captureSnapshot), and read from the server queue.
-  private let snapshotClock = ContinuousClock()
-  private let _cachedSnapshot = OSAllocatedUnfairLock<
-    (data: Data, timestamp: ContinuousClock.Instant)?
+  private let _cachedSnapshot = Locked<
+    (data: Data, timestamp: CFAbsoluteTime)?
   >(initialState: nil)
   var cachedSnapshot: Data? {
     get { _cachedSnapshot.withLock { $0?.data } }
     set {
-      let now = snapshotClock.now
+      let now = CFAbsoluteTimeGetCurrent()
       _cachedSnapshot.withLock { $0 = newValue.map { (data: $0, timestamp: now) } }
     }
   }
-  /// Returns the cached snapshot only if it was captured within the given duration.
-  func cachedSnapshot(maxAge: Duration) -> Data? {
-    let now = snapshotClock.now
+  /// Returns the cached snapshot only if it was captured within the given max age in seconds.
+  func cachedSnapshot(maxAgeSeconds: TimeInterval) -> Data? {
+    let now = CFAbsoluteTimeGetCurrent()
     return _cachedSnapshot.withLock { cached in
-      guard let cached, cached.timestamp.duration(to: now) < maxAge else { return nil }
+      guard let cached, (now - cached.timestamp) < maxAgeSeconds else { return nil }
       return cached.data
     }
   }
@@ -203,7 +202,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     var speakerMuted: Bool = false
     var speakerVolume: Int = 100
   }
-  let audioSettings = OSAllocatedUnfairLock(initialState: AudioSettings())
+  let audioSettings = Locked(initialState: AudioSettings())
 
   // MARK: - HKSV State
 
@@ -218,7 +217,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     var selectedRecordingConfig = Data()
     var rtpStreamActive: UInt8 = 1
   }
-  let hksvState = OSAllocatedUnfairLock(initialState: HKSVState())
+  let hksvState = Locked(initialState: HKSVState())
 
   /// Convenience read-only accessors that read through the lock.
   /// `periodicSnapshotsActive` and `eventSnapshotsActive` also satisfy `HAPSnapshotProvider`.
@@ -253,7 +252,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   var fragmentWriter: FragmentedMP4Writer?
 
   /// Motion sensor state (linked to this camera accessory)
-  private let _isMotionDetected = OSAllocatedUnfairLock(initialState: false)
+  private let _isMotionDetected = Locked(initialState: false)
   var isMotionDetected: Bool {
     _isMotionDetected.withLock { $0 }
   }
@@ -279,7 +278,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   // Pending setup endpoint response (written by controller, read back after).
   // Protected by lock since writes happen from the server queue and snapshot
   // capture can trigger handleSetupEndpoints from another queue.
-  let _setupEndpointsResponse = OSAllocatedUnfairLock(initialState: Data())
+  let _setupEndpointsResponse = Locked(initialState: Data())
   var setupEndpointsResponse: Data {
     get { _setupEndpointsResponse.withLock { $0 } }
     set { _setupEndpointsResponse.withLock { $0 = newValue } }
@@ -287,7 +286,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
 
   // Pending setup DataStream response.
   // Protected by lock for the same reasons as setupEndpointsResponse.
-  let _setupDataStreamResponse = OSAllocatedUnfairLock(initialState: Data())
+  let _setupDataStreamResponse = Locked(initialState: Data())
   var setupDataStreamResponse: Data {
     get { _setupDataStreamResponse.withLock { $0 } }
     set { _setupDataStreamResponse.withLock { $0 = newValue } }
@@ -659,7 +658,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
 /// Shared by HAPCameraAccessory and MonitoringCaptureSession to avoid duplicate observers.
 #if os(iOS)
   nonisolated enum DeviceOrientationCache {
-    private static let state = OSAllocatedUnfairLock(
+    private static let state = Locked(
       initialState: Int(UIDeviceOrientation.portrait.rawValue)
     )
 

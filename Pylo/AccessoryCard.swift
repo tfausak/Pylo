@@ -42,7 +42,9 @@ struct AccessoryCard<Content: View>: View {
           .padding()
       }
     }
-    .background(.quinary, in: .rect(cornerRadius: 12))
+    .background(
+      Color(UIColor.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12)
+    )
     .animation(.default, value: isOn)
   }
 }

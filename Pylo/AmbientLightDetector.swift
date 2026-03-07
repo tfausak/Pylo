@@ -8,13 +8,13 @@ import os
 /// Caller is responsible for throttling (e.g., calling every Nth frame).
 nonisolated final class AmbientLightDetector {
 
-  private let _onLuxChange = OSAllocatedUnfairLock<((Float) -> Void)?>(initialState: nil)
+  private let _onLuxChange = Locked<((Float) -> Void)?>(initialState: nil)
   var onLuxChange: ((Float) -> Void)? {
     get { _onLuxChange.withLock { $0 } }
     set { _onLuxChange.withLock { $0 = newValue } }
   }
 
-  private let _device = OSAllocatedUnfairLock<AVCaptureDevice?>(initialState: nil)
+  private let _device = Locked<AVCaptureDevice?>(initialState: nil)
   var device: AVCaptureDevice? {
     get { _device.withLock { $0 } }
     set { _device.withLock { $0 = newValue } }
@@ -23,7 +23,7 @@ nonisolated final class AmbientLightDetector {
   private struct State {
     var currentLux: Float = 0
   }
-  private let state = OSAllocatedUnfairLock(initialState: State())
+  private let state = Locked(initialState: State())
 
   private let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "AmbientLight")
 

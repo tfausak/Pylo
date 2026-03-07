@@ -27,7 +27,7 @@ public nonisolated final class HAPDataStream: @unchecked Sendable {
     /// connection setup from setupTransport (which runs on the HAP queue).
     var queue: DispatchQueue?
   }
-  private let stateLock = OSAllocatedUnfairLock(initialState: State())
+  private let stateLock = Locked(initialState: State())
 
   /// Port the listener is bound to.
   public var port: UInt16? {

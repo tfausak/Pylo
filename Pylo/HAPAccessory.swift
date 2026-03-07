@@ -23,7 +23,7 @@ nonisolated final class HAPAccessory: HAPAccessoryProtocol, @unchecked Sendable 
     var isOn: Bool = false
     var brightness: Int = 100
   }
-  private let lightState = OSAllocatedUnfairLock(initialState: LightState())
+  private let lightState = Locked(initialState: LightState())
 
   private(set) var isOn: Bool {
     get { lightState.withLock { $0.isOn } }
@@ -43,7 +43,7 @@ nonisolated final class HAPAccessory: HAPAccessoryProtocol, @unchecked Sendable 
 
   /// Shared battery state — nil means no battery, omit battery service.
   /// Protected by a lock: written from @MainActor during setup, read on the server queue.
-  private let _batteryState = OSAllocatedUnfairLock<BatteryState?>(initialState: nil)
+  private let _batteryState = Locked<BatteryState?>(initialState: nil)
   var batteryState: BatteryState? {
     get { _batteryState.withLock { $0 } }
     set { _batteryState.withLock { $0 = newValue } }
@@ -51,11 +51,11 @@ nonisolated final class HAPAccessory: HAPAccessoryProtocol, @unchecked Sendable 
 
   /// In-progress identify blink task, cancelled on server stop to avoid
   /// leaving the torch in an unexpected state.
-  private let _identifyTask = OSAllocatedUnfairLock<Task<Void, Never>?>(initialState: nil)
+  private let _identifyTask = Locked<Task<Void, Never>?>(initialState: nil)
 
   /// Callback for notifying the server of state changes (for EVENT notifications).
   /// Protected by a lock: written from @MainActor, read from sensor/server callbacks.
-  private let _onStateChange = OSAllocatedUnfairLock<
+  private let _onStateChange = Locked<
     (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
   >(initialState: nil)
   var onStateChange: (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)? {

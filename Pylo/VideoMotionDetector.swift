@@ -7,7 +7,7 @@ import os
 /// sum of squared differences against the previous frame.
 nonisolated final class VideoMotionDetector {
 
-  private let _onMotionChange = OSAllocatedUnfairLock<((Bool) -> Void)?>(initialState: nil)
+  private let _onMotionChange = Locked<((Bool) -> Void)?>(initialState: nil)
   var onMotionChange: ((Bool) -> Void)? {
     get { _onMotionChange.withLock { $0 } }
     set { _onMotionChange.withLock { $0 = newValue } }
@@ -40,11 +40,11 @@ nonisolated final class VideoMotionDetector {
     var previousFrame: [UInt8]?
   }
 
-  private let state = OSAllocatedUnfairLock(initialState: State())
+  private let state = Locked(initialState: State())
 
   /// Debug-only flag to detect concurrent calls to processPixelBuffer.
   /// Scratch buffers are reused across calls and must not be accessed concurrently.
-  private let _processing = OSAllocatedUnfairLock(initialState: false)
+  private let _processing = Locked(initialState: false)
 
   init() {}
 

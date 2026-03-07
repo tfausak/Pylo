@@ -7,7 +7,7 @@ nonisolated final class MotionMonitor: @unchecked Sendable {
 
   /// Callback for motion state changes.
   /// Protected by a lock: written from @MainActor, read from motionQueue.
-  private let _onMotionChange = OSAllocatedUnfairLock<((Bool) -> Void)?>(initialState: nil)
+  private let _onMotionChange = Locked<((Bool) -> Void)?>(initialState: nil)
   var onMotionChange: ((Bool) -> Void)? {
     get { _onMotionChange.withLock { $0 } }
     set { _onMotionChange.withLock { $0 = newValue } }
@@ -42,7 +42,7 @@ nonisolated final class MotionMonitor: @unchecked Sendable {
     var threshold: Double = 0.15
   }
 
-  private let state = OSAllocatedUnfairLock(initialState: State())
+  private let state = Locked(initialState: State())
 
   private let motionQueue: OperationQueue = {
     let q = OperationQueue()

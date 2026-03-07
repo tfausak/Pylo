@@ -9,7 +9,7 @@ struct ContentView: View {
 
   var body: some View {
     ZStack {
-      NavigationStack {
+      NavigationView {
         Group {
           if viewModel.isNetworkDenied {
             networkDeniedBody
@@ -433,7 +433,10 @@ struct ContentView: View {
     dimTask = Task {
       // Task.sleep throws CancellationError when the task is cancelled,
       // cleanly preventing the stale isScreenDimmed write.
-      guard (try? await Task.sleep(for: .seconds(viewModel.screenSaverDelay))) != nil else {
+      guard
+        (try? await Task.sleep(nanoseconds: UInt64(viewModel.screenSaverDelay * 1_000_000_000)))
+          != nil
+      else {
         return
       }
       isScreenDimmed = true

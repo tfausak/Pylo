@@ -13,7 +13,7 @@ public nonisolated final class EncryptionContext: @unchecked Sendable {
 
   private let readKey: SymmetricKey  // Controller-to-Accessory
   private let writeKey: SymmetricKey  // Accessory-to-Controller
-  private let counters = OSAllocatedUnfairLock(initialState: (read: UInt64(0), write: UInt64(0)))
+  private let counters = Locked(initialState: (read: UInt64(0), write: UInt64(0)))
   private let logger = Logger(subsystem: logSubsystem, category: "Crypto")
 
   public init(readKey: SymmetricKey, writeKey: SymmetricKey) {

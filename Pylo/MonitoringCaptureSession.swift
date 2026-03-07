@@ -15,7 +15,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
 
   /// Optional video motion detector — called every `motionFrameInterval` frames.
   /// Protected: written from server queue, read from captureQueue.
-  private let _videoMotionDetector = OSAllocatedUnfairLock<VideoMotionDetector?>(initialState: nil)
+  private let _videoMotionDetector = Locked<VideoMotionDetector?>(initialState: nil)
   var videoMotionDetector: VideoMotionDetector? {
     get { _videoMotionDetector.withLock { $0 } }
     set { _videoMotionDetector.withLock { $0 = newValue } }
@@ -23,7 +23,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
 
   /// Optional ambient light detector — called every `luxFrameInterval` frames.
   /// Protected: written from server queue, read from captureQueue.
-  private let _ambientLightDetector = OSAllocatedUnfairLock<AmbientLightDetector?>(
+  private let _ambientLightDetector = Locked<AmbientLightDetector?>(
     initialState: nil)
   var ambientLightDetector: AmbientLightDetector? {
     get { _ambientLightDetector.withLock { $0 } }
@@ -32,7 +32,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
 
   /// Optional fMP4 writer for HKSV recording — feeds encoded H.264 samples.
   /// Protected: written from server queue, read from VT output handler and start/stop.
-  private let _fragmentWriter = OSAllocatedUnfairLock<FragmentedMP4Writer?>(initialState: nil)
+  private let _fragmentWriter = Locked<FragmentedMP4Writer?>(initialState: nil)
   var fragmentWriter: FragmentedMP4Writer? {
     get { _fragmentWriter.withLock { $0 } }
     set { _fragmentWriter.withLock { $0 = newValue } }
@@ -41,7 +41,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   /// Whether the hub has enabled audio recording (recordingAudioActive == 1).
   /// When false, microphone capture and AAC-ELD encoding are skipped entirely.
   /// Protected: written from server queue, read from start().
-  private let _audioRecordingEnabled = OSAllocatedUnfairLock(initialState: false)
+  private let _audioRecordingEnabled = Locked(initialState: false)
   var audioRecordingEnabled: Bool {
     get { _audioRecordingEnabled.withLock { $0 } }
     set { _audioRecordingEnabled.withLock { $0 = newValue } }
@@ -72,7 +72,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   /// Called every ~1 second on the captureQueue. The receiver should JPEG-encode
   /// the buffer and cache it for fast snapshot responses.
   /// Protected: written from server queue, read from captureQueue.
-  private let _snapshotCallback = OSAllocatedUnfairLock<((CVPixelBuffer) -> Void)?>(
+  private let _snapshotCallback = Locked<((CVPixelBuffer) -> Void)?>(
     initialState: nil)
   var snapshotCallback: ((CVPixelBuffer) -> Void)? {
     get { _snapshotCallback.withLock { $0 } }
@@ -103,7 +103,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     var videoCaptureDelegate: VideoCaptureDelegate?
     var audioCaptureDelegate: AudioCaptureDelegate?
   }
-  let mState = OSAllocatedUnfairLock(initialState: State())
+  let mState = Locked(initialState: State())
 
   private var captureSession: AVCaptureSession? {
     get { mState.withLock { $0.captureSession } }

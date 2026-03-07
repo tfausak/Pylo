@@ -86,14 +86,14 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   var audioRTCPTimer: DispatchSourceTimer?  // rtpQueue
   /// Optional video motion detector — called every `motionFrameInterval` frames.
   /// Protected by a lock: written from the server queue, read from captureQueue.
-  private let _videoMotionDetector = OSAllocatedUnfairLock<VideoMotionDetector?>(initialState: nil)
+  private let _videoMotionDetector = Locked<VideoMotionDetector?>(initialState: nil)
   var videoMotionDetector: VideoMotionDetector? {
     get { _videoMotionDetector.withLock { $0 } }
     set { _videoMotionDetector.withLock { $0 = newValue } }
   }
 
   /// Optional ambient light detector — called every `luxFrameInterval` frames.
-  private let _ambientLightDetector = OSAllocatedUnfairLock<AmbientLightDetector?>(
+  private let _ambientLightDetector = Locked<AmbientLightDetector?>(
     initialState: nil)
   var ambientLightDetector: AmbientLightDetector? {
     get { _ambientLightDetector.withLock { $0 } }
@@ -107,7 +107,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     var speakerVolume: Int = 100
     var playerStarted: Bool = false
   }
-  private let audioFlags = OSAllocatedUnfairLock(initialState: AudioFlags())
+  private let audioFlags = Locked(initialState: AudioFlags())
 
   // Audio RTP stats — written on captureQueue, read on rtpQueue for RTCP SR.
   struct AudioRTPStats {
@@ -115,7 +115,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     var packetsSent: Int = 0
     var octetsSent: Int = 0
   }
-  let audioRTPStats = OSAllocatedUnfairLock(initialState: AudioRTPStats())
+  let audioRTPStats = Locked(initialState: AudioRTPStats())
 
   var isMuted: Bool {
     get { audioFlags.withLock { $0.isMuted } }
@@ -159,7 +159,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   // Snapshot caching — periodically grab a JPEG from the video stream.
   // The callback is set from the server queue and read from captureQueue,
   // so it must be synchronized.
-  private let _onSnapshotFrame = OSAllocatedUnfairLock<((Data) -> Void)?>(initialState: nil)
+  private let _onSnapshotFrame = Locked<((Data) -> Void)?>(initialState: nil)
   var onSnapshotFrame: ((Data) -> Void)? {
     get { _onSnapshotFrame.withLock { $0 } }
     set { _onSnapshotFrame.withLock { $0 = newValue } }
