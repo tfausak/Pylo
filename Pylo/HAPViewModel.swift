@@ -1,5 +1,6 @@
 import AVFoundation
 import CoreImage.CIFilterBuiltins
+import CoreMotion
 import FragmentedMP4
 import HAP
 import SwiftUI
@@ -61,6 +62,9 @@ final class HAPViewModel {
   var setupCode = PairSetupHandler.setupCode
   var isMotionDetected = false
   var isMotionAvailable = false
+  var hasCamera = false
+  var hasTorch = false
+  var hasAccelerometer = CMMotionManager().isAccelerometerAvailable
   var isCameraStreaming = false
   var hasPairings = false
   var isNetworkDenied = false
@@ -283,6 +287,13 @@ final class HAPViewModel {
     // Discover available cameras and restore stream camera selection
     let cameras = CameraOption.availableCameras()
     availableCameras = cameras
+    hasCamera = !cameras.isEmpty
+    let discovery = AVCaptureDevice.DiscoverySession(
+      deviceTypes: [.builtInWideAngleCamera, .builtInTelephotoCamera, .builtInUltraWideCamera],
+      mediaType: .video,
+      position: .unspecified
+    )
+    hasTorch = discovery.devices.contains { $0.hasTorch }
     let savedStreamID = UserDefaults.standard.string(forKey: "selectedStreamCameraID")
     if savedStreamID == "none" {
       selectedStreamCamera = nil

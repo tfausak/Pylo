@@ -25,6 +25,9 @@ extension HAPViewModel {
     vm.motionEnabled = motionEnabled
     vm.isMotionDetected = motionDetected
     vm.isMotionAvailable = true
+    vm.hasCamera = true
+    vm.hasTorch = true
+    vm.hasAccelerometer = true
     vm.isCameraStreaming = cameraStreaming
     vm.screenSaverEnabled = screenSaverEnabled
     vm.screenSaverDelay = screenSaverDelay

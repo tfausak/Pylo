@@ -5,6 +5,7 @@ struct AccessoryCard<Content: View>: View {
   let title: String
   @Binding var isOn: Bool
   var blocked: Bool = false
+  var blockedMessage: String?
   @ViewBuilder var content: () -> Content
 
   var body: some View {
@@ -16,8 +17,15 @@ struct AccessoryCard<Content: View>: View {
           .foregroundStyle(isOn ? Color.accentColor : Color.secondary)
           .frame(width: 28)
           .accessibilityHidden(true)
-        Text(title)
-          .font(.headline)
+        VStack(alignment: .leading, spacing: 2) {
+          Text(title)
+            .font(.headline)
+          if blocked, let blockedMessage {
+            Text(blockedMessage)
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+        }
         Spacer()
         Toggle(title, isOn: $isOn)
           .labelsHidden()
