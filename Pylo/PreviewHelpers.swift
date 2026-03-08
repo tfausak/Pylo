@@ -33,6 +33,7 @@ extension HAPViewModel {
     vm.screenSaverDelay = screenSaverDelay
     vm.keepScreenAwake = keepScreenAwake
     vm.setupCode = "123-45-678"
+    vm.setupID = "PYLO"
     vm.statusMessage = "Advertising as 'Pylo Bridge'"
     vm.selectedStreamCamera = CameraOption(id: "preview-back", name: "Back Camera", fNumber: 1.8)
     vm.availableCameras = [

@@ -49,6 +49,8 @@ final class HAPViewModel: ObservableObject {
 
   init(skipRestore: Bool = false) {
     if !skipRestore {
+      setupCode = PairSetupHandler.setupCode
+      setupID = PairSetupHandler.setupID
       restorePreferences()
     }
   }
@@ -59,7 +61,8 @@ final class HAPViewModel: ObservableObject {
   @Published var brightness: Int = 100
   @Published var isPaired = false
   @Published var statusMessage = "Tap Start to begin"
-  @Published var setupCode = PairSetupHandler.setupCode
+  @Published var setupCode = ""
+  internal var setupID = ""
   @Published var isMotionDetected = false
   @Published var isMotionAvailable = false
   @Published var hasCamera = false
@@ -918,12 +921,15 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
 ///   bits 35–44: reserved / version (0)
 nonisolated func hapSetupURI(
   setupCode: String, category: Int = HAPAccessoryCategory.bridge.rawValue,
-  setupID: String? = nil
+  setupID: String
 )
   -> String
 {
   let digits = setupCode.filter(\.isWholeNumber)
-  guard let code = UInt64(digits) else { return "" }
+  guard let code = UInt64(digits),
+    setupID.count == 4,
+    setupID.allSatisfy(\.isASCII)
+  else { return "" }
   let flags: UInt64 = 2  // IP accessory
   var payload: UInt64 = 0
   payload |= code
@@ -933,7 +939,7 @@ nonisolated func hapSetupURI(
   // Base-36 encode, uppercase, zero-padded to 9 characters
   var encoded = String(payload, radix: 36, uppercase: true)
   while encoded.count < 9 { encoded = "0" + encoded }
-  return "X-HM://\(encoded)\(setupID ?? PairSetupHandler.setupID)"
+  return "X-HM://\(encoded)\(setupID)"
 }
 
 /// Generate a crisp QR code `UIImage` from a string using CoreImage.

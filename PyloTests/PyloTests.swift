@@ -610,6 +610,34 @@ struct SetupURITests {
     let uri = hapSetupURI(setupCode: "not-a-number", setupID: "T3ST")
     #expect(uri.isEmpty)
   }
+
+  @Test("Returns empty string for invalid setup ID")
+  func invalidSetupID() {
+    #expect(hapSetupURI(setupCode: "111-22-333", setupID: "").isEmpty)
+    #expect(hapSetupURI(setupCode: "111-22-333", setupID: "AB").isEmpty)
+    #expect(hapSetupURI(setupCode: "111-22-333", setupID: "ABCDE").isEmpty)
+  }
+}
+
+// MARK: - Preview Factory Tests
+
+@Suite("Preview Factory")
+@MainActor
+struct PreviewFactoryTests {
+
+  @Test("Preview view model initializes without crash")
+  func previewFactory() {
+    let vm = HAPViewModel.preview(running: true)
+    #expect(vm.setupCode == "123-45-678")
+  }
+
+  @Test("Preview view model generates QR URI without crash")
+  func previewQRCode() {
+    let vm = HAPViewModel.preview(running: true)
+    let uri = hapSetupURI(setupCode: vm.setupCode, setupID: vm.setupID)
+    #expect(vm.setupID.count == 4)
+    #expect(uri.hasPrefix("X-HM://"))
+  }
 }
 
 // MARK: - VideoMotionDetector Thread Safety Tests
