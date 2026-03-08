@@ -241,12 +241,10 @@ public nonisolated final class HAPConnection: @unchecked Sendable {
         return
       }
 
-      // If the connection is already closing, don't issue another receive
-      // that would hang waiting for payload bytes that will never arrive.
-      if isComplete {
-        self.cancel()
-        return
-      }
+      // Don't check isComplete here — the payload bytes may already be
+      // buffered in the kernel even when the peer sent FIN alongside the
+      // length prefix. The inner payload callback handles isComplete
+      // correctly (processes data first, then checks).
 
       let totalLength = frameLength + 16  // + Poly1305 auth tag
 
