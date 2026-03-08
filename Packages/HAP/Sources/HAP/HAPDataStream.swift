@@ -214,7 +214,12 @@ public nonisolated final class HAPDataStream: @unchecked Sendable {
     oldConn?.cancel()
 
     // Build response TLV (flat format matching HAP-NodeJS)
-    let listenPort = port ?? 0
+    guard let listenPort = port else {
+      logger.error("SetupDataStreamTransport: HDS listener not ready (port unavailable)")
+      var error = TLV8.Builder()
+      error.add(0x01, byte: 0x01)  // Status: Generic Error
+      return error.build()
+    }
 
     var transportParams = TLV8.Builder()
     transportParams.add(0x01, uint16: UInt16(listenPort))  // TCP listening port
