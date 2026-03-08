@@ -111,8 +111,11 @@ public nonisolated final class HAPServer: @unchecked Sendable {
   }
 
   public func start() {
-    configureListener()
-    listener.start(queue: queue)
+    queue.async { [weak self] in
+      guard let self else { return }
+      self.configureListener()
+      self.listener.start(queue: self.queue)
+    }
   }
 
   /// Sets up Bonjour service, state handler, and connection handler on the

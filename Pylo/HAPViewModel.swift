@@ -267,6 +267,7 @@ final class HAPViewModel: ObservableObject {
     // onListenerStateChange callback suppresses .waiting when the listener
     // was previously ready (wasListenerReady), so the UI won't flash the
     // "denied" screen. Here we actively verify and restart if stuck.
+    guard server != nil else { return }
     server?.recheckListenerState()
     recheckTask?.cancel()
     recheckTask = Task { @MainActor [weak self] in
@@ -566,6 +567,8 @@ final class HAPViewModel: ObservableObject {
     startGeneration += 1
     startTask?.cancel()
     startTask = nil
+    recheckTask?.cancel()
+    recheckTask = nil
     isStarting = false
     batteryMonitor?.stop()
     batteryMonitor = nil
