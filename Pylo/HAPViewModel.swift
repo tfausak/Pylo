@@ -254,6 +254,11 @@ final class HAPViewModel: ObservableObject {
       if microphoneEnabled { microphoneEnabled = false }
       isRestoring = false
     }
+
+    // Re-check listener state — the NWListener may have recovered from
+    // .waiting (e.g. after returning from background) without firing the
+    // stateUpdateHandler again, leaving isNetworkDenied stuck on true.
+    server?.recheckListenerState()
   }
 
   /// Restores persisted preferences so the configure screen shows saved state.
