@@ -122,8 +122,16 @@ struct ContentView: View {
     .onChange(of: scenePhase) { newPhase in
       if newPhase == .active {
         viewModel.recheckPermissions()
-      } else if newPhase == .background {
-        viewModel.handleBackgrounding()
+        resetDimTimer()
+      } else {
+        // Cancel the dim timer when leaving foreground to prevent it
+        // from firing while backgrounded and causing unnecessary work.
+        dimTask?.cancel()
+        dimTask = nil
+        isScreenDimmed = false
+        if newPhase == .background {
+          viewModel.handleBackgrounding()
+        }
       }
     }
     .onChange(of: viewModel.hasPairings) { paired in
