@@ -36,8 +36,8 @@ struct PairingView: View {
     .padding()
     .task(id: viewModel.setupCode) {
       let code = viewModel.setupCode
-      let image = await Task.detached {
-        await generateQRCode(from: hapSetupURI(setupCode: code))
+      let image = await Task.detached(priority: .userInitiated) {
+        generateQRCode(from: hapSetupURI(setupCode: code))
       }.value
       qrImage = image
     }
