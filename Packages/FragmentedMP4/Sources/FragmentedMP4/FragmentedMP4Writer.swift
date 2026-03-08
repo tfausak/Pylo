@@ -875,6 +875,7 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
   }
 
   private static func buildAvcC(sps: Data, pps: Data) -> Data {
+    precondition(sps.count >= 4, "SPS must be at least 4 bytes (profile/level extraction)")
     var p = Data()
     p.append(1)  // configurationVersion
     p.append(sps[1])  // AVCProfileIndication
