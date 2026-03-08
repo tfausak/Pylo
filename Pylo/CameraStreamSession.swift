@@ -424,9 +424,11 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
       captureSession = nil
     } else {
       // stopRunning() is synchronous — it blocks until the session fully
-      // stops delivering frames. Calling it directly (rather than async)
-      // ensures the VTCompressionSession won't receive new frames after
-      // we invalidate it below.
+      // stops delivering frames. Called here on the HAP server queue
+      // (never the main thread), which satisfies Apple's threading
+      // requirement. Unlike MonitoringCaptureSession, we don't use a
+      // dedicated sessionQueue because CameraStreamSession's lifecycle
+      // is fully controlled by the HAP server queue.
       captureSession?.stopRunning()
       captureSession = nil
     }
