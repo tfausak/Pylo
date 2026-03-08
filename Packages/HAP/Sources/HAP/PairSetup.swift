@@ -252,8 +252,8 @@ public nonisolated enum PairSetupHandler {
   {
     // Validate method is 0x00 (pair setup without MFi). HAP §5.6.1 requires
     // this field; reject with .unknown if missing or not the expected value.
-    if let methodData = tlv[.method], methodData.first != 0x00 {
-      logger.warning("Unsupported pair-setup method: \(methodData.first.map(String.init) ?? "nil")")
+    guard let methodData = tlv[.method], methodData.first == 0x00 else {
+      logger.warning("Missing or unsupported pair-setup method")
       return errorResponse(state: 0x02, error: .unknown)
     }
 
