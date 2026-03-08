@@ -62,7 +62,7 @@ final class HAPViewModel: ObservableObject {
   @Published var isPaired = false
   @Published var statusMessage = "Tap Start to begin"
   @Published var setupCode = ""
-  private(set) var setupID = ""
+  internal var setupID = ""
   @Published var isMotionDetected = false
   @Published var isMotionAvailable = false
   @Published var hasCamera = false
@@ -926,7 +926,10 @@ nonisolated func hapSetupURI(
   -> String
 {
   let digits = setupCode.filter(\.isWholeNumber)
-  guard let code = UInt64(digits) else { return "" }
+  guard let code = UInt64(digits),
+    setupID.count == 4,
+    setupID.allSatisfy(\.isASCII)
+  else { return "" }
   let flags: UInt64 = 2  // IP accessory
   var payload: UInt64 = 0
   payload |= code

@@ -610,6 +610,13 @@ struct SetupURITests {
     let uri = hapSetupURI(setupCode: "not-a-number", setupID: "T3ST")
     #expect(uri.isEmpty)
   }
+
+  @Test("Returns empty string for invalid setup ID")
+  func invalidSetupID() {
+    #expect(hapSetupURI(setupCode: "111-22-333", setupID: "").isEmpty)
+    #expect(hapSetupURI(setupCode: "111-22-333", setupID: "AB").isEmpty)
+    #expect(hapSetupURI(setupCode: "111-22-333", setupID: "ABCDE").isEmpty)
+  }
 }
 
 // MARK: - Preview Factory Tests
@@ -628,7 +635,8 @@ struct PreviewFactoryTests {
   func previewQRCode() {
     let vm = HAPViewModel.preview(running: true)
     let uri = hapSetupURI(setupCode: vm.setupCode, setupID: vm.setupID)
-    #expect(!uri.isEmpty)
+    #expect(vm.setupID.count == 4)
+    #expect(uri.hasPrefix("X-HM://"))
   }
 }
 
