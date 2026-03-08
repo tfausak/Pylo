@@ -767,14 +767,20 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     snapshotFrameCounter += 1
     if snapshotFrameCounter >= snapshotInterval, let callback = onSnapshotFrame {
       snapshotFrameCounter = 0
-      nonisolated(unsafe) let pixelBuffer = pixelBuffer
+      // Eagerly render the pixel buffer to a CGImage while it's still pinned
+      // to captureQueue. CIImage(cvPixelBuffer:) defers access, so handing it
+      // to a global queue risks reading the buffer after VTCompressionSession
+      // has recycled it. createCGImage forces an immediate copy.
       let ctx = snapshotCIContext
-      DispatchQueue.global(qos: .utility).async {
-        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-        if let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-          let jpeg = ctx.jpegRepresentation(of: ciImage, colorSpace: colorSpace, options: [:])
-        {
-          callback(jpeg)
+      let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+      if let cgImage = ctx.createCGImage(ciImage, from: ciImage.extent) {
+        DispatchQueue.global(qos: .utility).async {
+          if let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+            let jpeg = ctx.jpegRepresentation(
+              of: CIImage(cgImage: cgImage), colorSpace: colorSpace, options: [:])
+          {
+            callback(jpeg)
+          }
         }
       }
     }
