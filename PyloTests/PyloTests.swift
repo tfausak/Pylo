@@ -612,6 +612,26 @@ struct SetupURITests {
   }
 }
 
+// MARK: - Preview Factory Tests
+
+@Suite("Preview Factory")
+@MainActor
+struct PreviewFactoryTests {
+
+  @Test("Preview view model initializes without crash")
+  func previewFactory() {
+    let vm = HAPViewModel.preview(running: true)
+    #expect(vm.setupCode == "123-45-678")
+  }
+
+  @Test("Preview view model generates QR URI without crash")
+  func previewQRCode() {
+    let vm = HAPViewModel.preview(running: true)
+    let uri = hapSetupURI(setupCode: vm.setupCode, setupID: vm.setupID)
+    #expect(!uri.isEmpty)
+  }
+}
+
 // MARK: - VideoMotionDetector Thread Safety Tests
 
 @Suite("VideoMotionDetector Thread Safety")
