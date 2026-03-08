@@ -39,6 +39,7 @@ struct PairingView: View {
       let image = await Task.detached(priority: .userInitiated) {
         generateQRCode(from: hapSetupURI(setupCode: code))
       }.value
+      guard !Task.isCancelled else { return }
       qrImage = image
     }
   }
