@@ -128,7 +128,19 @@ public nonisolated final class HAPConnection: @unchecked Sendable {
   /// Buffer for accumulating decrypted frame data into complete HTTP requests
   private var decryptedBuffer = Data()
 
+  /// Set when the remote end closes the connection while an async response
+  /// (e.g. snapshot) is still in flight. Checked in receiveNextRequest() so
+  /// the connection is cancelled after the response is sent rather than before.
+  private var remoteCloseReceived = false
+
   private func receiveNextRequest() {
+    // If the remote closed while an async response was in flight, cancel now
+    // that the response has been sent.
+    if remoteCloseReceived {
+      cancel()
+      return
+    }
+
     // Apply deferred encryption context from pair-verify (M4 was sent plaintext).
     // Discard any residual plaintext bytes — the encrypted path reads fresh.
     if let pending = pendingEncryptionContext {
@@ -241,12 +253,10 @@ public nonisolated final class HAPConnection: @unchecked Sendable {
         return
       }
 
-      // If the connection is already closing, don't issue another receive
-      // that would hang waiting for payload bytes that will never arrive.
-      if isComplete {
-        self.cancel()
-        return
-      }
+      // Don't check isComplete here — the payload bytes may already be
+      // buffered in the kernel even when the peer sent FIN alongside the
+      // length prefix. The inner payload callback handles isComplete
+      // correctly (processes data first, then checks).
 
       let totalLength = frameLength + 16  // + Poly1305 auth tag
 
@@ -316,8 +326,12 @@ public nonisolated final class HAPConnection: @unchecked Sendable {
           }
         }
 
-        // Detect clean remote shutdown (same as outer callback and receivePlaintextHTTP)
-        if isComplete {
+        // Detect clean remote shutdown (same as outer callback and receivePlaintextHTTP).
+        // When an async response (e.g. snapshot) is pending, defer cancellation so the
+        // response can be sent first — receiveNextRequest() checks remoteCloseReceived.
+        if isComplete && asyncResponsePending {
+          self.remoteCloseReceived = true
+        } else if isComplete {
           self.cancel()
         } else if !asyncResponsePending {
           self.receiveNextRequest()
@@ -490,7 +504,7 @@ public nonisolated final class HAPConnection: @unchecked Sendable {
   private func handlePrepare(_ request: HTTPRequest) -> HTTPResponse {
     guard let body = request.body,
       let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
-      let ttl = json["ttl"] as? Int,
+      let ttl = json["ttl"] as? Int, ttl > 0,
       let pidNumber = json["pid"] as? NSNumber
     else {
       let errBody = try? JSONSerialization.data(withJSONObject: ["status": -70410])

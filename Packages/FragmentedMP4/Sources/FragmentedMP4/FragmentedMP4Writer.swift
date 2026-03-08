@@ -232,10 +232,11 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
         let currentAudio = _writerState.withLock { $0.includeAudioTrack }
         let rebuilt = buildInitSegment(videoFormat: fmt, includeAudio: currentAudio)
         _writerState.withLock { state in
-          if state.videoFormatDescription == nil {
-            state.videoFormatDescription = fmt
-            state.initSegment = rebuilt
-          }
+          guard state.videoFormatDescription == nil,
+            state.includeAudioTrack == currentAudio
+          else { return }
+          state.videoFormatDescription = fmt
+          state.initSegment = rebuilt
         }
       }
     }
@@ -875,6 +876,11 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
   }
 
   private static func buildAvcC(sps: Data, pps: Data) -> Data {
+    guard sps.count >= 4 else {
+      Logger(subsystem: logSubsystem, category: "fMP4Writer")
+        .error("buildAvcC: SPS too short (\(sps.count) bytes), need at least 4")
+      return Data()
+    }
     var p = Data()
     p.append(1)  // configurationVersion
     p.append(sps[1])  // AVCProfileIndication

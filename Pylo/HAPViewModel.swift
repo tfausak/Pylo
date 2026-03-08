@@ -1,7 +1,6 @@
 import AVFoundation
 import Combine
 import CoreImage.CIFilterBuiltins
-import CoreMotion
 import FragmentedMP4
 import HAP
 import SwiftUI
@@ -65,7 +64,7 @@ final class HAPViewModel: ObservableObject {
   @Published var isMotionAvailable = false
   @Published var hasCamera = false
   @Published var hasTorch = false
-  @Published var hasAccelerometer = CMMotionManager().isAccelerometerAvailable
+  @Published var hasAccelerometer = false
   @Published var isCameraStreaming = false
   @Published var hasPairings = false
   @Published var isNetworkDenied = false
@@ -186,6 +185,7 @@ final class HAPViewModel: ObservableObject {
   var isRestoring = false
 
   private var startTask: Task<Void, Never>?
+  private var recheckTask: Task<Void, Never>?
   private var startGeneration = 0
   private var server: HAPServer?
   private var motionMonitor: MotionMonitor?
@@ -262,10 +262,11 @@ final class HAPViewModel: ObservableObject {
     // may still be in .waiting when the app first returns to foreground
     // and recover shortly after without firing stateUpdateHandler.
     server?.recheckListenerState()
-    for delay in [0.5, 1.5, 3.0] {
-      Task { @MainActor [weak self] in
+    recheckTask?.cancel()
+    recheckTask = Task { @MainActor [weak self] in
+      for delay in [0.5, 1.5, 3.0] {
         try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-        guard let self, self.isNetworkDenied else { return }
+        guard let self, self.isNetworkDenied, !Task.isCancelled else { return }
         self.server?.recheckListenerState()
       }
     }
@@ -395,6 +396,7 @@ final class HAPViewModel: ObservableObject {
       self.fragmentWriter = setup.fmp4Writer
       self.dataStreamHandler = setup.dataStream
       self.isMotionAvailable = setup.isMotionAvailable
+      self.hasAccelerometer = setup.isMotionAvailable
 
       // Wire state-change callbacks that update published UI state
       var enabledAccessories: [any HAPAccessoryProtocol] = []
@@ -486,21 +488,22 @@ final class HAPViewModel: ObservableObject {
         setup.motionSensor.batteryState = sharedBatteryState
         setup.lightSensor.batteryState = sharedBatteryState
 
+        let batteryAIDs = enabledAccessories.map(\.aid)
         battery.onBatteryChange = { [weak server = setup.server] state in
           sharedBatteryState.update(
             level: state.level,
             chargingState: state.chargingState,
             statusLowBattery: state.statusLowBattery)
           guard let server else { return }
-          for accessory in enabledAccessories {
+          for aid in batteryAIDs {
             server.notifySubscribers(
-              aid: accessory.aid, iid: BatteryIID.batteryLevel,
+              aid: aid, iid: BatteryIID.batteryLevel,
               value: .int(state.level))
             server.notifySubscribers(
-              aid: accessory.aid, iid: BatteryIID.chargingState,
+              aid: aid, iid: BatteryIID.chargingState,
               value: .int(state.chargingState))
             server.notifySubscribers(
-              aid: accessory.aid, iid: BatteryIID.statusLowBattery,
+              aid: aid, iid: BatteryIID.statusLowBattery,
               value: .int(state.statusLowBattery))
           }
         }
@@ -876,7 +879,7 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
 ///   bits 27–30: accessory category (4 bits)
 ///   bits 31–34: status flags (4 bits, 2 = IP)
 ///   bits 35–44: reserved / version (0)
-func hapSetupURI(
+nonisolated func hapSetupURI(
   setupCode: String, category: Int = HAPAccessoryCategory.bridge.rawValue,
   setupID: String? = nil
 )
@@ -899,8 +902,9 @@ func hapSetupURI(
 /// Generate a crisp QR code `UIImage` from a string using CoreImage.
 /// Called from a detached Task (off MainActor). UIImage(cgImage:) is safe
 /// to construct from any thread — only UIView/layer operations require main.
-private let _qrContext = CIContext()
-func generateQRCode(from string: String) -> UIImage? {
+/// CIContext is thread-safe and expensive to create — reuse a single instance.
+nonisolated private let _qrContext = CIContext()
+nonisolated func generateQRCode(from string: String) -> UIImage? {
   let context = _qrContext
   let filter = CIFilter.qrCodeGenerator()
   filter.message = Data(string.utf8)

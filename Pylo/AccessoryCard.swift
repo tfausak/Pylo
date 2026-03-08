@@ -35,7 +35,7 @@ struct AccessoryCard<Content: View>: View {
       .padding()
 
       // Expanded content when toggle is on
-      if isOn {
+      if isOn, !blocked {
         Divider()
           .padding(.horizontal)
         content()
