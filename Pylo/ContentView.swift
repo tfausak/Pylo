@@ -101,8 +101,8 @@ struct ContentView: View {
       }
     }
     .animation(.default, value: isScreenDimmed)
-    .onChange(of: viewModel.isRunning) { _ in
-      if viewModel.isRunning {
+    .onChange(of: viewModel.isRunning) { running in
+      if running {
         resetDimTimer()
       } else {
         dimTask?.cancel()
@@ -119,15 +119,15 @@ struct ContentView: View {
     .onChange(of: viewModel.screenSaverDelay) { _ in
       if viewModel.isRunning { resetDimTimer() }
     }
-    .onChange(of: scenePhase) { _ in
-      if scenePhase == .active {
+    .onChange(of: scenePhase) { newPhase in
+      if newPhase == .active {
         viewModel.recheckPermissions()
-      } else if scenePhase == .background {
+      } else if newPhase == .background {
         viewModel.handleBackgrounding()
       }
     }
-    .onChange(of: viewModel.hasPairings) { _ in
-      if !viewModel.hasPairings {
+    .onChange(of: viewModel.hasPairings) { paired in
+      if !paired {
         dimTask?.cancel()
         dimTask = nil
         isScreenDimmed = false
