@@ -262,6 +262,8 @@ final class HAPViewModel: ObservableObject {
       isRestoring = false
     }
 
+    updateIdleTimer()
+
     // Re-check listener state. NWListener enters .waiting when the app is
     // backgrounded and may not auto-recover to .ready on foreground. The
     // onListenerStateChange callback suppresses .waiting when the listener
