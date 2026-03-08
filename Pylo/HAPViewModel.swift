@@ -187,6 +187,13 @@ final class HAPViewModel: ObservableObject {
   private var startTask: Task<Void, Never>?
   private var recheckTask: Task<Void, Never>?
   private var startGeneration = 0
+  /// Whether the listener has been `.ready` at least once during this server
+  /// session. Used to suppress the "network denied" screen when NWListener
+  /// enters `.waiting` during normal background suspension (not actual denial).
+  private var wasListenerReady = false
+  /// Tracks the actual listener state independently of the UI-facing
+  /// `isNetworkDenied`, which may be suppressed during background transitions.
+  private var listenerActuallyReady = false
   private var server: HAPServer?
   private var motionMonitor: MotionMonitor?
   private var batteryMonitor: BatteryMonitor?
@@ -255,20 +262,31 @@ final class HAPViewModel: ObservableObject {
       isRestoring = false
     }
 
-    // Re-check listener state — the NWListener may have recovered from
-    // .waiting (e.g. after returning from background) without firing the
-    // stateUpdateHandler again, leaving isNetworkDenied stuck on true.
-    // Check immediately and again after short delays, since the listener
-    // may still be in .waiting when the app first returns to foreground
-    // and recover shortly after without firing stateUpdateHandler.
+    // Re-check listener state. NWListener enters .waiting when the app is
+    // backgrounded and may not auto-recover to .ready on foreground. The
+    // onListenerStateChange callback suppresses .waiting when the listener
+    // was previously ready (wasListenerReady), so the UI won't flash the
+    // "denied" screen. Here we actively verify and restart if stuck.
     server?.recheckListenerState()
     recheckTask?.cancel()
     recheckTask = Task { @MainActor [weak self] in
-      for delay in [0.5, 1.5, 3.0] {
+      // Poll with increasing delays, giving the listener time to recover.
+      for delay in [0.5, 1.0, 2.0, 4.0] {
         try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-        guard let self, self.isNetworkDenied, !Task.isCancelled else { return }
+        guard let self, !Task.isCancelled else { return }
+        if self.listenerActuallyReady { return }
         self.server?.recheckListenerState()
       }
+      guard let self else { return }
+      // Listener is still not ready after ~7.5s. Cancel and create a fresh
+      // NWListener — the old one is stuck in .waiting from suspension.
+      guard !Task.isCancelled, !self.listenerActuallyReady else { return }
+      self.server?.restartListener()
+      // Give the new listener time to start and fire stateUpdateHandler.
+      try? await Task.sleep(nanoseconds: 2_000_000_000)
+      guard !Task.isCancelled, !self.listenerActuallyReady else { return }
+      // Still not ready even after restart — genuinely denied.
+      withAnimation { self.isNetworkDenied = true }
     }
   }
 
@@ -459,7 +477,19 @@ final class HAPViewModel: ObservableObject {
 
       setup.server.onListenerStateChange = { [weak self] ready in
         Task { @MainActor [weak self] in
-          withAnimation { self?.isNetworkDenied = !ready }
+          guard let self else { return }
+          self.listenerActuallyReady = ready
+          if ready {
+            self.wasListenerReady = true
+            withAnimation { self.isNetworkDenied = false }
+          } else if !self.wasListenerReady {
+            // Only show "network denied" if the listener has NEVER been ready.
+            // This means it's a genuine permission denial at initial startup.
+            // If wasListenerReady is true, this .waiting is from background
+            // suspension — don't show the denied screen; recheckPermissions()
+            // will handle recovery on foreground.
+            withAnimation { self.isNetworkDenied = true }
+          }
         }
       }
 
@@ -552,6 +582,8 @@ final class HAPViewModel: ObservableObject {
     cameraAccessory = nil
     server?.stop()
     server = nil
+    wasListenerReady = false
+    listenerActuallyReady = false
     withAnimation {
       isRunning = false
       isWaitingForHomeApp = false
