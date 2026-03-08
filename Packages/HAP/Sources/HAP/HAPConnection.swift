@@ -128,7 +128,19 @@ public nonisolated final class HAPConnection: @unchecked Sendable {
   /// Buffer for accumulating decrypted frame data into complete HTTP requests
   private var decryptedBuffer = Data()
 
+  /// Set when the remote end closes the connection while an async response
+  /// (e.g. snapshot) is still in flight. Checked in receiveNextRequest() so
+  /// the connection is cancelled after the response is sent rather than before.
+  private var remoteCloseReceived = false
+
   private func receiveNextRequest() {
+    // If the remote closed while an async response was in flight, cancel now
+    // that the response has been sent.
+    if remoteCloseReceived {
+      cancel()
+      return
+    }
+
     // Apply deferred encryption context from pair-verify (M4 was sent plaintext).
     // Discard any residual plaintext bytes — the encrypted path reads fresh.
     if let pending = pendingEncryptionContext {
@@ -314,8 +326,12 @@ public nonisolated final class HAPConnection: @unchecked Sendable {
           }
         }
 
-        // Detect clean remote shutdown (same as outer callback and receivePlaintextHTTP)
-        if isComplete {
+        // Detect clean remote shutdown (same as outer callback and receivePlaintextHTTP).
+        // When an async response (e.g. snapshot) is pending, defer cancellation so the
+        // response can be sent first — receiveNextRequest() checks remoteCloseReceived.
+        if isComplete && asyncResponsePending {
+          self.remoteCloseReceived = true
+        } else if isComplete {
           self.cancel()
         } else if !asyncResponsePending {
           self.receiveNextRequest()
