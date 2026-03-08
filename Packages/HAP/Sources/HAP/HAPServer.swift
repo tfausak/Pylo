@@ -192,7 +192,13 @@ public nonisolated final class HAPServer: @unchecked Sendable {
       switch self.listener.state {
       case .ready:
         self.onListenerStateChange?(true)
-      case .failed, .waiting:
+      case .waiting:
+        self.onListenerStateChange?(false)
+      case .failed(let error):
+        self.logger.error("Listener failed (recheck): \(error)")
+        self.listener.cancel()
+        self.onListenerStateChange?(false)
+      case .cancelled:
         self.onListenerStateChange?(false)
       default:
         break
