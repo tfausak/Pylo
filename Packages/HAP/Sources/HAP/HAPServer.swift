@@ -22,7 +22,7 @@ import os
 
 public nonisolated final class HAPServer: @unchecked Sendable {
 
-  private let listener: NWListener
+  private var listener: NWListener
   private let logger = Logger(subsystem: logSubsystem, category: "Server")
   private let queue = DispatchQueue(label: "\(logSubsystem).server")
   private let queueKey = DispatchSpecificKey<Bool>()
@@ -111,7 +111,16 @@ public nonisolated final class HAPServer: @unchecked Sendable {
   }
 
   public func start() {
-    // Configure Bonjour advertisement.
+    queue.async { [weak self] in
+      guard let self else { return }
+      self.configureListener()
+      self.listener.start(queue: self.queue)
+    }
+  }
+
+  /// Sets up Bonjour service, state handler, and connection handler on the
+  /// current listener. Shared by `start()` and `restartListener()`.
+  private func configureListener() {
     let txtItems = bonjourTXTRecord()
     let txtRecord = createTXTRecord(from: txtItems)
     listener.service = NWListener.Service(
@@ -143,8 +152,6 @@ public nonisolated final class HAPServer: @unchecked Sendable {
     listener.newConnectionHandler = { [weak self] connection in
       self?.handleNewConnection(connection)
     }
-
-    listener.start(queue: queue)
   }
 
   /// Look up the pair-verify shared secret from any active verified connection.
@@ -203,6 +210,35 @@ public nonisolated final class HAPServer: @unchecked Sendable {
       default:
         break
       }
+    }
+  }
+
+  /// Cancel the current listener and create a fresh one. Use this when the
+  /// listener is stuck in `.waiting` after returning from the background —
+  /// NWListener doesn't always auto-recover from suspension.
+  public func restartListener() {
+    queue.async { [weak self] in
+      guard let self else { return }
+      // No need to restart if already ready.
+      if case .ready = self.listener.state {
+        self.onListenerStateChange?(true)
+        return
+      }
+
+      self.logger.info("Restarting listener")
+      self.listener.cancel()
+
+      let params = NWParameters.tcp
+      params.includePeerToPeer = true
+      guard let newListener = try? NWListener(using: params) else {
+        self.logger.error("Failed to create new listener for restart")
+        self.onListenerStateChange?(false)
+        return
+      }
+
+      self.listener = newListener
+      self.configureListener()
+      self.listener.start(queue: self.queue)
     }
   }
 
