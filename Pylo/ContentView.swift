@@ -6,6 +6,7 @@ struct ContentView: View {
   @State private var showUnpairConfirmation = false
   @State private var isScreenDimmed = false
   @State private var dimTask: Task<Void, Never>?
+  @State private var isDimTimerResetPending = false
 
   var body: some View {
     ZStack {
@@ -60,7 +61,12 @@ struct ContentView: View {
       .navigationViewStyle(.stack)
       .simultaneousGesture(
         DragGesture(minimumDistance: 0)
-          .onChanged { _ in resetDimTimer() }
+          .onChanged { _ in
+            guard !isDimTimerResetPending else { return }
+            isDimTimerResetPending = true
+            resetDimTimer()
+          }
+          .onEnded { _ in isDimTimerResetPending = false }
       )
       .confirmationDialog(
         "Unpair",
@@ -103,6 +109,9 @@ struct ContentView: View {
         dimTask = nil
         isScreenDimmed = false
       }
+    }
+    .onChange(of: viewModel.keepScreenAwake) { _ in
+      resetDimTimer()
     }
     .onChange(of: viewModel.screenSaverEnabled) { _ in
       if viewModel.isRunning { resetDimTimer() }
