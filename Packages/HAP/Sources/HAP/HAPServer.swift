@@ -182,6 +182,24 @@ public nonisolated final class HAPServer: @unchecked Sendable {
     }
   }
 
+  /// Re-fires the `onListenerStateChange` callback with the current listener state.
+  /// Call this when the app returns to the foreground to reconcile the UI with the
+  /// actual listener state (e.g. the listener may have recovered from `.waiting`
+  /// while the app was in the background without firing the state handler again).
+  public func recheckListenerState() {
+    queue.async { [weak self] in
+      guard let self else { return }
+      switch self.listener.state {
+      case .ready:
+        self.onListenerStateChange?(true)
+      case .failed, .waiting:
+        self.onListenerStateChange?(false)
+      default:
+        break
+      }
+    }
+  }
+
   public func stop() {
     dataStream?.stop()
     dataStream = nil
