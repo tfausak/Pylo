@@ -58,6 +58,10 @@ struct ContentView: View {
         .animation(.default, value: viewModel.isWaitingForHomeApp)
       }
       .navigationViewStyle(.stack)
+      .simultaneousGesture(
+        DragGesture(minimumDistance: 0)
+          .onChanged { _ in resetDimTimer() }
+      )
       .confirmationDialog(
         "Unpair",
         isPresented: $showUnpairConfirmation,
@@ -99,9 +103,6 @@ struct ContentView: View {
         dimTask = nil
         isScreenDimmed = false
       }
-    }
-    .onChange(of: viewModel.keepScreenAwake) { _ in
-      if viewModel.isRunning { resetDimTimer() }
     }
     .onChange(of: viewModel.screenSaverEnabled) { _ in
       if viewModel.isRunning { resetDimTimer() }
