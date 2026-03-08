@@ -232,10 +232,11 @@ public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
         let currentAudio = _writerState.withLock { $0.includeAudioTrack }
         let rebuilt = buildInitSegment(videoFormat: fmt, includeAudio: currentAudio)
         _writerState.withLock { state in
-          if state.videoFormatDescription == nil {
-            state.videoFormatDescription = fmt
-            state.initSegment = rebuilt
-          }
+          guard state.videoFormatDescription == nil,
+            state.includeAudioTrack == currentAudio
+          else { return }
+          state.videoFormatDescription = fmt
+          state.initSegment = rebuilt
         }
       }
     }
