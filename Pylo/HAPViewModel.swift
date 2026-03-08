@@ -186,6 +186,7 @@ final class HAPViewModel: ObservableObject {
   var isRestoring = false
 
   private var startTask: Task<Void, Never>?
+  private var recheckTask: Task<Void, Never>?
   private var startGeneration = 0
   private var server: HAPServer?
   private var motionMonitor: MotionMonitor?
@@ -262,10 +263,11 @@ final class HAPViewModel: ObservableObject {
     // may still be in .waiting when the app first returns to foreground
     // and recover shortly after without firing stateUpdateHandler.
     server?.recheckListenerState()
-    for delay in [0.5, 1.5, 3.0] {
-      Task { @MainActor [weak self] in
+    recheckTask?.cancel()
+    recheckTask = Task { @MainActor [weak self] in
+      for delay in [0.5, 1.5, 3.0] {
         try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-        guard let self, self.isNetworkDenied else { return }
+        guard let self, self.isNetworkDenied, !Task.isCancelled else { return }
         self.server?.recheckListenerState()
       }
     }
