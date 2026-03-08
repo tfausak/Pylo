@@ -122,6 +122,7 @@ struct ContentView: View {
     .onChange(of: scenePhase) { newPhase in
       if newPhase == .active {
         viewModel.recheckPermissions()
+        resetDimTimer()
       } else if newPhase == .background {
         viewModel.handleBackgrounding()
       }
