@@ -878,7 +878,7 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
 ///   bits 27–30: accessory category (4 bits)
 ///   bits 31–34: status flags (4 bits, 2 = IP)
 ///   bits 35–44: reserved / version (0)
-func hapSetupURI(
+nonisolated func hapSetupURI(
   setupCode: String, category: Int = HAPAccessoryCategory.bridge.rawValue,
   setupID: String? = nil
 )
@@ -901,8 +901,9 @@ func hapSetupURI(
 /// Generate a crisp QR code `UIImage` from a string using CoreImage.
 /// Called from a detached Task (off MainActor). UIImage(cgImage:) is safe
 /// to construct from any thread — only UIView/layer operations require main.
-private let _qrContext = CIContext()
-func generateQRCode(from string: String) -> UIImage? {
+/// CIContext is thread-safe and expensive to create — reuse a single instance.
+nonisolated private let _qrContext = CIContext()
+nonisolated func generateQRCode(from string: String) -> UIImage? {
   let context = _qrContext
   let filter = CIFilter.qrCodeGenerator()
   filter.message = Data(string.utf8)
