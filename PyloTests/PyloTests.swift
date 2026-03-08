@@ -1,3 +1,4 @@
+import AudioToolbox
 import CryptoKit
 import Foundation
 import HAP
@@ -648,5 +649,80 @@ struct VideoMotionDetectorThreadSafetyTests {
   func cachedSnapshotNil() {
     let camera = HAPCameraAccessory(aid: 3)
     #expect(camera.cachedSnapshot(maxAgeSeconds: 10) == nil)
+  }
+}
+
+// MARK: - Audio Resampling Tests
+
+@Suite("Audio Resampling")
+struct AudioResamplingTests {
+
+  @Test("Resample 44.1kHz mono to 16kHz does not crash")
+  func resample44100to16000() {
+    // 1024 frames of 16-bit mono at 44.1kHz
+    let frameCount = 1024
+    let samples = (0..<frameCount).map { i in Int16(sin(Double(i) / 10.0) * 10000) }
+    let data = samples.withUnsafeBytes { Data($0) }
+    let asbd = AudioStreamBasicDescription(
+      mSampleRate: 44100,
+      mFormatID: kAudioFormatLinearPCM,
+      mFormatFlags: kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked,
+      mBytesPerPacket: 2,
+      mFramesPerPacket: 1,
+      mBytesPerFrame: 2,
+      mChannelsPerFrame: 1,
+      mBitsPerChannel: 16,
+      mReserved: 0
+    )
+    let result = convertToFloat32At16kHz(data, sourceASBD: asbd)
+    // Output should be non-empty and have fewer frames than input (16kHz < 44.1kHz)
+    let outputFrames = result.count / MemoryLayout<Float>.size
+    #expect(outputFrames > 0)
+    #expect(outputFrames < frameCount)
+  }
+
+  @Test("Resample 48kHz stereo to 16kHz does not crash")
+  func resample48000stereoTo16000() {
+    // 960 frames of 16-bit stereo at 48kHz
+    let frameCount = 960
+    let sampleCount = frameCount * 2
+    let samples = (0..<sampleCount).map { _ in Int16.random(in: -1000...1000) }
+    let data = samples.withUnsafeBytes { Data($0) }
+    let asbd = AudioStreamBasicDescription(
+      mSampleRate: 48000,
+      mFormatID: kAudioFormatLinearPCM,
+      mFormatFlags: kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked,
+      mBytesPerPacket: 4,
+      mFramesPerPacket: 1,
+      mBytesPerFrame: 4,
+      mChannelsPerFrame: 2,
+      mBitsPerChannel: 16,
+      mReserved: 0
+    )
+    let result = convertToFloat32At16kHz(data, sourceASBD: asbd)
+    let outputFrames = result.count / MemoryLayout<Float>.size
+    #expect(outputFrames > 0)
+    #expect(outputFrames < frameCount)
+  }
+
+  @Test("16kHz mono input passes through without resampling")
+  func noResampleNeeded() {
+    let frameCount = 480
+    var floats = (0..<frameCount).map { Float($0) / Float(frameCount) }
+    let data = floats.withUnsafeBytes { Data($0) }
+    let asbd = AudioStreamBasicDescription(
+      mSampleRate: 16000,
+      mFormatID: kAudioFormatLinearPCM,
+      mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked,
+      mBytesPerPacket: 4,
+      mFramesPerPacket: 1,
+      mBytesPerFrame: 4,
+      mChannelsPerFrame: 1,
+      mBitsPerChannel: 32,
+      mReserved: 0
+    )
+    let result = convertToFloat32At16kHz(data, sourceASBD: asbd)
+    // Same sample rate — output should match input exactly
+    #expect(result.count == data.count)
   }
 }

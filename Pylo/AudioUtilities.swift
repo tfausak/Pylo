@@ -94,9 +94,11 @@ nonisolated func convertToFloat32At16kHz(
       var start: Float = 0
       var step = Float(1.0 / ratio)
       vDSP_vramp(&start, &step, buf.baseAddress!, 1, vDSP_Length(outputCount))
-      // Clamp to valid range so vlint doesn't read out of bounds
+      // Clamp to valid range so vlint doesn't read out of bounds.
+      // vDSP_vlint reads both floor(B[n]) and floor(B[n])+1 for interpolation,
+      // so the maximum control value must be count-2 (not count-1).
       var lo: Float = 0
-      var hi = Float(monoFloat.count - 1)
+      var hi = Float(max(monoFloat.count - 2, 0))
       vDSP_vclip(buf.baseAddress!, 1, &lo, &hi, buf.baseAddress!, 1, vDSP_Length(outputCount))
       count = outputCount
     }
