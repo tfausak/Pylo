@@ -488,7 +488,7 @@ public nonisolated final class HAPConnection: @unchecked Sendable {
   private func handlePrepare(_ request: HTTPRequest) -> HTTPResponse {
     guard let body = request.body,
       let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
-      let ttl = json["ttl"] as? Int,
+      let ttl = json["ttl"] as? Int, ttl > 0,
       let pidNumber = json["pid"] as? NSNumber
     else {
       let errBody = try? JSONSerialization.data(withJSONObject: ["status": -70410])
