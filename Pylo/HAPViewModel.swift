@@ -262,13 +262,11 @@ final class HAPViewModel: ObservableObject {
     // may still be in .waiting when the app first returns to foreground
     // and recover shortly after without firing stateUpdateHandler.
     server?.recheckListenerState()
-    if isNetworkDenied {
-      for delay in [0.5, 1.5, 3.0] {
-        Task { @MainActor [weak self] in
-          try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-          guard let self, self.isNetworkDenied else { return }
-          self.server?.recheckListenerState()
-        }
+    for delay in [0.5, 1.5, 3.0] {
+      Task { @MainActor [weak self] in
+        try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+        guard let self, self.isNetworkDenied else { return }
+        self.server?.recheckListenerState()
       }
     }
   }
@@ -279,9 +277,7 @@ final class HAPViewModel: ObservableObject {
   /// stops showing a frozen/dead feed.
   @MainActor
   func handleBackgrounding() {
-    if isCameraStreaming {
-      cameraAccessory?.stopStreaming()
-    }
+    cameraAccessory?.stopStreaming()
   }
 
   /// Restores persisted preferences so the configure screen shows saved state.
