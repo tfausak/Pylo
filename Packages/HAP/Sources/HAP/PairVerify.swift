@@ -141,7 +141,7 @@ public nonisolated enum PairVerifyHandler {
     do {
 
       // Decrypt the sub-TLV
-      guard encryptedData.count > 16 else {
+      guard encryptedData.count >= 16 else {
         return errorResponse(state: 0x04, .authentication)
       }
       let ciphertext = encryptedData[encryptedData.startIndex..<encryptedData.endIndex - 16]

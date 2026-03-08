@@ -393,7 +393,7 @@ public nonisolated enum PairSetupHandler {
       )
 
       // Decrypt
-      guard encryptedData.count > 16 else {
+      guard encryptedData.count >= 16 else {
         return errorResponse(state: 0x06, error: .authentication)
       }
       let ciphertext = encryptedData[encryptedData.startIndex..<encryptedData.endIndex - 16]
