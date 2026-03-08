@@ -1,7 +1,6 @@
 import AVFoundation
 import Combine
 import CoreImage.CIFilterBuiltins
-import CoreMotion
 import FragmentedMP4
 import HAP
 import SwiftUI
@@ -65,7 +64,7 @@ final class HAPViewModel: ObservableObject {
   @Published var isMotionAvailable = false
   @Published var hasCamera = false
   @Published var hasTorch = false
-  @Published var hasAccelerometer = CMMotionManager().isAccelerometerAvailable
+  @Published var hasAccelerometer = false
   @Published var isCameraStreaming = false
   @Published var hasPairings = false
   @Published var isNetworkDenied = false
@@ -397,6 +396,7 @@ final class HAPViewModel: ObservableObject {
       self.fragmentWriter = setup.fmp4Writer
       self.dataStreamHandler = setup.dataStream
       self.isMotionAvailable = setup.isMotionAvailable
+      self.hasAccelerometer = setup.isMotionAvailable
 
       // Wire state-change callbacks that update published UI state
       var enabledAccessories: [any HAPAccessoryProtocol] = []
