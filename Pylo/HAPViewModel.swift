@@ -488,21 +488,22 @@ final class HAPViewModel: ObservableObject {
         setup.motionSensor.batteryState = sharedBatteryState
         setup.lightSensor.batteryState = sharedBatteryState
 
+        let batteryAIDs = enabledAccessories.map(\.aid)
         battery.onBatteryChange = { [weak server = setup.server] state in
           sharedBatteryState.update(
             level: state.level,
             chargingState: state.chargingState,
             statusLowBattery: state.statusLowBattery)
           guard let server else { return }
-          for accessory in enabledAccessories {
+          for aid in batteryAIDs {
             server.notifySubscribers(
-              aid: accessory.aid, iid: BatteryIID.batteryLevel,
+              aid: aid, iid: BatteryIID.batteryLevel,
               value: .int(state.level))
             server.notifySubscribers(
-              aid: accessory.aid, iid: BatteryIID.chargingState,
+              aid: aid, iid: BatteryIID.chargingState,
               value: .int(state.chargingState))
             server.notifySubscribers(
-              aid: accessory.aid, iid: BatteryIID.statusLowBattery,
+              aid: aid, iid: BatteryIID.statusLowBattery,
               value: .int(state.statusLowBattery))
           }
         }
