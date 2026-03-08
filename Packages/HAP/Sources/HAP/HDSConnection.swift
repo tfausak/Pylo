@@ -171,7 +171,11 @@ public nonisolated final class HDSConnection: @unchecked Sendable {
 
   /// Send an encrypted HDS frame.
   private func sendFrame(_ plaintext: Data) {
-    guard let writeKey else { return }
+    guard let writeKey else {
+      logger.error("HDS sendFrame: writeKey not set, dropping \(plaintext.count)-byte frame")
+      cancel()
+      return
+    }
 
     let nonce = nonces.withLock { state -> ChaChaPoly.Nonce in
       let n = Self.makeHDSNonce(counter: state.write)
