@@ -708,7 +708,7 @@ struct AudioResamplingTests {
   @Test("16kHz mono input passes through without resampling")
   func noResampleNeeded() {
     let frameCount = 480
-    var floats = (0..<frameCount).map { Float($0) / Float(frameCount) }
+    let floats = (0..<frameCount).map { Float($0) / Float(frameCount) }
     let data = floats.withUnsafeBytes { Data($0) }
     let asbd = AudioStreamBasicDescription(
       mSampleRate: 16000,
