@@ -225,6 +225,11 @@ public nonisolated final class HAPServer: @unchecked Sendable {
     } else {
       snapshot = queue.sync(execute: snapshotBlock)
     }
+    // Clear the pair-setup busy flag before cancelling connections.
+    // removeConnection's queue.async block would find nil in the
+    // already-cleared dict and skip the isPairSetupInProgress reset,
+    // leaving it permanently true after stop()+start().
+    PairSetupHandler.isPairSetupInProgress = false
     listener.cancel()
     for conn in snapshot {
       conn.cancel()
