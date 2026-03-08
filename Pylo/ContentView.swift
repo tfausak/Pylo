@@ -122,6 +122,8 @@ struct ContentView: View {
     .onChange(of: scenePhase) { _ in
       if scenePhase == .active {
         viewModel.recheckPermissions()
+      } else if scenePhase == .background {
+        viewModel.handleBackgrounding()
       }
     }
     .onChange(of: viewModel.hasPairings) { _ in

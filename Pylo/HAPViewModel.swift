@@ -258,7 +258,26 @@ final class HAPViewModel: ObservableObject {
     // Re-check listener state — the NWListener may have recovered from
     // .waiting (e.g. after returning from background) without firing the
     // stateUpdateHandler again, leaving isNetworkDenied stuck on true.
+    // Check immediately and again after short delays, since the listener
+    // may still be in .waiting when the app first returns to foreground
+    // and recover shortly after without firing stateUpdateHandler.
     server?.recheckListenerState()
+    for delay in [0.5, 1.5, 3.0] {
+      Task { @MainActor [weak self] in
+        try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+        guard let self, self.isNetworkDenied else { return }
+        self.server?.recheckListenerState()
+      }
+    }
+  }
+
+  /// Stop the active camera stream when the app is backgrounded.
+  /// iOS invalidates hardware codec sessions (VTCompressionSession) on suspend,
+  /// so the stream is effectively dead. Notify HomeKit immediately so Home.app
+  /// stops showing a frozen/dead feed.
+  @MainActor
+  func handleBackgrounding() {
+    cameraAccessory?.stopStreaming()
   }
 
   /// Restores persisted preferences so the configure screen shows saved state.
