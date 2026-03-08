@@ -161,7 +161,7 @@ struct ContentView: View {
       Image(systemName: running ? "checkmark.circle.fill" : "bolt.fill")
         .foregroundStyle(running ? .green : .orange)
         .accessibilityHidden(true)
-      Text(running ? "Running" : "Starting")
+      Text(running ? "Running" : viewModel.isStarting ? "Starting" : "Stopped")
         .font(.subheadline)
         .foregroundStyle(.secondary)
     }
