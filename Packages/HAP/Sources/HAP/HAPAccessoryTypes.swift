@@ -322,6 +322,143 @@ public nonisolated final class HAPBridgeInfo: HAPAccessoryProtocol, @unchecked S
   }
 }
 
+// MARK: - Siren Accessory
+
+/// Standalone siren accessory for the bridge.
+/// Uses the HAP Switch service — when turned on, the siren plays; when off, it stops.
+public nonisolated final class HAPSirenAccessory: HAPAccessoryProtocol, @unchecked Sendable {
+
+  public let aid: Int
+  public let name: String
+  public let model: String
+  public let manufacturer: String
+  public let serialNumber: String
+  public let firmwareRevision: String
+
+  private let _onStateChange = Locked<
+    (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
+  >(initialState: nil)
+  public var onStateChange: (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)? {
+    get { _onStateChange.withLock { $0 } }
+    set { _onStateChange.withLock { $0 = newValue } }
+  }
+
+  /// Shared battery state — nil means no battery, omit battery service.
+  private let _batteryState = Locked<BatteryState?>(initialState: nil)
+  public var batteryState: BatteryState? {
+    get { _batteryState.withLock { $0 } }
+    set { _batteryState.withLock { $0 = newValue } }
+  }
+
+  /// Called when HomeKit writes to the On characteristic.
+  /// The app wires this to start/stop the siren player.
+  private let _onSirenActivate = Locked<((Bool) -> Void)?>(initialState: nil)
+  public var onSirenActivate: ((Bool) -> Void)? {
+    get { _onSirenActivate.withLock { $0 } }
+    set { _onSirenActivate.withLock { $0 = newValue } }
+  }
+
+  private let _isOn = Locked(initialState: false)
+  public var isOn: Bool {
+    _isOn.withLock { $0 }
+  }
+
+  public static let iidSwitchService = 8
+  public static let iidOn = 9
+
+  private static let uuidSwitch = "49"  // Switch service
+  private static let uuidOn = "25"  // On characteristic (same as lightbulb)
+
+  public init(
+    aid: Int,
+    name: String = "Pylo Siren",
+    model: String = "iPhone Siren",
+    manufacturer: String = "Pylo",
+    serialNumber: String = "000001",
+    firmwareRevision: String = "0.1.0"
+  ) {
+    self.aid = aid
+    self.name = name
+    self.model = model
+    self.manufacturer = manufacturer
+    self.serialNumber = serialNumber
+    self.firmwareRevision = firmwareRevision
+  }
+
+  /// Update the siren state programmatically (e.g. when stopped externally).
+  public func updateOn(_ on: Bool) {
+    _isOn.withLock { $0 = on }
+    onStateChange?(aid, Self.iidOn, .bool(on))
+  }
+
+  public func readCharacteristic(iid: Int) -> HAPValue? {
+    switch iid {
+    case AccessoryInfoIID.manufacturer: return .string(manufacturer)
+    case AccessoryInfoIID.model: return .string(model)
+    case AccessoryInfoIID.name: return .string(name)
+    case AccessoryInfoIID.serialNumber: return .string(serialNumber)
+    case AccessoryInfoIID.firmwareRevision: return .string(firmwareRevision)
+    case ProtocolInfoIID.version: return .string(hapProtocolVersion)
+    case Self.iidOn: return .bool(isOn)
+    case BatteryIID.batteryLevel: return batteryState.map { .int($0.level) }
+    case BatteryIID.chargingState: return batteryState.map { .int($0.chargingState) }
+    case BatteryIID.statusLowBattery: return batteryState.map { .int($0.statusLowBattery) }
+    default: return nil
+    }
+  }
+
+  @discardableResult
+  public func writeCharacteristic(iid: Int, value: HAPValue, sharedSecret: SharedSecret? = nil)
+    -> Bool
+  {
+    switch iid {
+    case AccessoryInfoIID.identify:
+      identify()
+      return true
+    case Self.iidOn:
+      if case .bool(let on) = value {
+        _isOn.withLock { $0 = on }
+        onSirenActivate?(on)
+        onStateChange?(aid, Self.iidOn, .bool(on))
+        return true
+      }
+      // HomeKit sometimes sends 0/1 as int
+      if case .int(let v) = value {
+        let on = v != 0
+        _isOn.withLock { $0 = on }
+        onSirenActivate?(on)
+        onStateChange?(aid, Self.iidOn, .bool(on))
+        return true
+      }
+      return false
+    default:
+      return false
+    }
+  }
+
+  public func identify() {}
+
+  public func toJSON() -> [String: Any] {
+    var services: [[String: Any]] = [
+      accessoryInformationServiceJSON(),
+      protocolInformationServiceJSON(),
+      [
+        "iid": Self.iidSwitchService,
+        "type": Self.uuidSwitch,
+        "characteristics": [
+          [
+            "iid": Self.iidOn,
+            "type": Self.uuidOn, "format": "bool",
+            "perms": ["pr", "pw", "ev"], "value": isOn,
+          ]
+        ],
+      ],
+    ]
+    services.append(batteryServiceJSON(state: batteryState))
+    return ["aid": aid, "services": services]
+  }
+}
+
 // MARK: - Motion Sensor Accessory
 
 /// Standalone motion sensor accessory for the bridge.
