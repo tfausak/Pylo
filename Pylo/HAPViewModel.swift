@@ -14,15 +14,18 @@ struct AccessoryConfig: Equatable {
   var selectedCameraID: String?
   var motionEnabled: Bool
   var microphoneEnabled: Bool
+  var occupancyEnabled: Bool
 
   init(
     flashlightEnabled: Bool, selectedCameraID: String?,
-    motionEnabled: Bool, microphoneEnabled: Bool
+    motionEnabled: Bool, microphoneEnabled: Bool,
+    occupancyEnabled: Bool
   ) {
     self.flashlightEnabled = flashlightEnabled
     self.selectedCameraID = selectedCameraID
     self.motionEnabled = motionEnabled
     self.microphoneEnabled = microphoneEnabled
+    self.occupancyEnabled = occupancyEnabled
   }
 
   init(from vm: HAPViewModel) {
@@ -30,6 +33,7 @@ struct AccessoryConfig: Equatable {
     selectedCameraID = vm.selectedStreamCamera?.id
     motionEnabled = vm.motionEnabled
     microphoneEnabled = vm.microphoneEnabled
+    occupancyEnabled = vm.occupancyEnabled
   }
 }
 
@@ -117,6 +121,20 @@ final class HAPViewModel: ObservableObject {
       cameraAccessory?.microphoneEnabled = microphoneEnabled
     }
   }
+  @Published var occupancyEnabled: Bool = false {
+    didSet {
+      guard !isRestoring, occupancyEnabled != oldValue else { return }
+      UserDefaults.standard.set(occupancyEnabled, forKey: "occupancyEnabled")
+    }
+  }
+  @Published var occupancyCooldown: OccupancyCooldown = .fiveMinutes {
+    didSet {
+      guard !isRestoring, occupancyCooldown != oldValue else { return }
+      UserDefaults.standard.set(occupancyCooldown.rawValue, forKey: "occupancyCooldown")
+      occupancySensor?.cooldown = occupancyCooldown.duration
+    }
+  }
+  @Published var isOccupancyDetected = false
   @Published var videoQuality: VideoQuality = .medium {
     didSet {
       guard !isRestoring, videoQuality != oldValue else { return }
@@ -205,6 +223,7 @@ final class HAPViewModel: ObservableObject {
   private var monitoringSession: MonitoringCaptureSession?
   private var fragmentWriter: FragmentedMP4Writer?
   private var dataStreamHandler: HAPDataStream?
+  private var occupancySensor: OccupancySensor?
 
   // MARK: - Permissions
 
@@ -329,6 +348,14 @@ final class HAPViewModel: ObservableObject {
     if UserDefaults.standard.object(forKey: "microphoneEnabled") != nil {
       microphoneEnabled = UserDefaults.standard.bool(forKey: "microphoneEnabled")
     }
+    if UserDefaults.standard.object(forKey: "occupancyEnabled") != nil {
+      occupancyEnabled = UserDefaults.standard.bool(forKey: "occupancyEnabled")
+    }
+    if let savedCooldown = UserDefaults.standard.string(forKey: "occupancyCooldown"),
+      let cooldown = OccupancyCooldown(rawValue: savedCooldown)
+    {
+      occupancyCooldown = cooldown
+    }
     keepScreenAwake = UserDefaults.standard.bool(forKey: "keepScreenAwake")
     screenSaverEnabled = UserDefaults.standard.bool(forKey: "screenSaverEnabled")
     let savedDelay = UserDefaults.standard.double(forKey: "screenSaverDelay")
@@ -377,7 +404,9 @@ final class HAPViewModel: ObservableObject {
       motionEnabled: motionEnabled,
       motionThreshold: motionSensitivity.threshold,
       minimumBitrate: videoQuality.minimumBitrate,
-      microphoneEnabled: microphoneEnabled
+      microphoneEnabled: microphoneEnabled,
+      occupancyEnabled: occupancyEnabled && selectedStreamCamera != nil,
+      occupancyCooldown: occupancyCooldown.duration
     )
 
     let myGeneration = startGeneration
@@ -421,6 +450,7 @@ final class HAPViewModel: ObservableObject {
       self.dataStreamHandler = setup.dataStream
       self.isMotionAvailable = setup.isMotionAvailable
       self.hasAccelerometer = setup.isMotionAvailable
+      self.occupancySensor = setup.occupancyDetector
 
       // Wire state-change callbacks that update published UI state
       var enabledAccessories: [any HAPAccessoryProtocol] = []
@@ -481,6 +511,22 @@ final class HAPViewModel: ObservableObject {
         enabledAccessories.append(setup.lightSensor)
       }
 
+      if config.occupancyEnabled {
+        setup.occupancySensor.onStateChange = {
+          [weak self, weak server = setup.server] aid, iid, value in
+          server?.notifySubscribers(aid: aid, iid: iid, value: value)
+          Task { @MainActor [weak self] in
+            guard let self else { return }
+            if iid == HAPOccupancySensorAccessory.iidOccupancyDetected,
+              case .int(let val) = value
+            {
+              self.isOccupancyDetected = val != 0
+            }
+          }
+        }
+        enabledAccessories.append(setup.occupancySensor)
+      }
+
       setup.server.onListenerStateChange = { [weak self] ready in
         Task { @MainActor [weak self] in
           guard let self else { return }
@@ -523,6 +569,7 @@ final class HAPViewModel: ObservableObject {
         setup.camera.batteryState = sharedBatteryState
         setup.motionSensor.batteryState = sharedBatteryState
         setup.lightSensor.batteryState = sharedBatteryState
+        setup.occupancySensor.batteryState = sharedBatteryState
 
         let batteryAIDs = enabledAccessories.map(\.aid)
         battery.onBatteryChange = { [weak server = setup.server] state in
@@ -585,6 +632,7 @@ final class HAPViewModel: ObservableObject {
     monitoringSession = nil
     dataStreamHandler?.stop()
     dataStreamHandler = nil
+    occupancySensor = nil
     lightbulbAccessory?.cancelIdentify()
     lightbulbAccessory = nil
     cameraAccessory = nil
@@ -636,6 +684,8 @@ private struct StartConfig: Sendable {
   let motionThreshold: Double
   let minimumBitrate: Int
   let microphoneEnabled: Bool
+  let occupancyEnabled: Bool
+  let occupancyCooldown: TimeInterval
 }
 
 /// Objects created off MainActor, returned to MainActor for callback wiring and UI updates.
@@ -645,12 +695,14 @@ private struct ServerSetup: @unchecked Sendable {
   let camera: HAPCameraAccessory
   let motionSensor: HAPMotionSensorAccessory
   let lightSensor: HAPLightSensorAccessory
+  let occupancySensor: HAPOccupancySensorAccessory
   let server: HAPServer
   let fmp4Writer: FragmentedMP4Writer?
   let dataStream: HAPDataStream?
   let monitoringSession: MonitoringCaptureSession?
   let motionMonitor: MotionMonitor
   let ambientLightDetector: AmbientLightDetector?
+  let occupancyDetector: OccupancySensor?
   let isMotionAvailable: Bool
 }
 
@@ -684,6 +736,12 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
   let motionSensor = HAPMotionSensorAccessory(
     aid: 5, name: "Pylo Motion Sensor", model: "\(device) Motion Sensor", manufacturer: "Pylo",
     serialNumber: config.serial + "-motion", firmwareRevision: fw
+  )
+
+  let occupancySensor = HAPOccupancySensorAccessory(
+    aid: 6, name: "Pylo Occupancy Sensor", model: "\(device) Occupancy Sensor",
+    manufacturer: "Pylo",
+    serialNumber: config.serial + "-occupancy", firmwareRevision: fw
   )
 
   // File I/O and Keychain reads — the main motivation for running off MainActor
@@ -776,6 +834,18 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     enabledAccessories.append(lightSensor)
   }
 
+  // Occupancy sensor — uses Vision framework person detection on camera frames
+  var occupancyDetector: OccupancySensor?
+  if config.occupancyEnabled {
+    let detector = OccupancySensor()
+    detector.cooldown = config.occupancyCooldown
+    detector.onOccupancyChange = { [weak occupancySensor] detected in
+      occupancySensor?.updateOccupancyDetected(detected)
+    }
+    occupancyDetector = detector
+    enabledAccessories.append(occupancySensor)
+  }
+
   if config.motionEnabled { enabledAccessories.append(motionSensor) }
 
   // NWListener creation — also benefits from being off MainActor
@@ -828,13 +898,24 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     }
 
     camera.onMonitoringCaptureNeeded = {
-      [weak monitoring, weak camera] needed, existingSession in
+      [weak monitoring, weak camera, weak occupancyDetector] needed, existingSession in
       guard let camera else { return }
       if needed {
         monitoring?.videoMotionDetector = camera.videoMotionDetector
         monitoring?.ambientLightDetector = camera.ambientLightDetector
+        monitoring?.occupancySensor = occupancyDetector
         monitoring?.audioRecordingEnabled =
           camera.recordingAudioActive != 0 && camera.microphoneEnabled
+        if let device = camera.resolvedCamera {
+          monitoring?.start(camera: device, existingSession: existingSession)
+        }
+      } else if occupancyDetector != nil {
+        // HKSV disarmed but occupancy sensor still needs frames — restart
+        // monitoring without HKSV-specific features (motion detection, audio).
+        monitoring?.stop()
+        camera.videoMotionDetector?.reset()
+        monitoring?.occupancySensor = occupancyDetector
+        monitoring?.audioRecordingEnabled = false
         if let device = camera.resolvedCamera {
           monitoring?.start(camera: device, existingSession: existingSession)
         }
@@ -844,10 +925,14 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
       }
     }
 
-    // Auto-start monitoring if recordingActive was restored from a previous session
-    if camera.recordingActive != 0, camera.streamSession == nil {
+    // Auto-start monitoring if recordingActive was restored from a previous session,
+    // or if occupancy sensor is enabled (needs camera frames for person detection).
+    if camera.streamSession == nil,
+      camera.recordingActive != 0 || occupancyDetector != nil
+    {
       monitoring.videoMotionDetector = camera.videoMotionDetector
       monitoring.ambientLightDetector = camera.ambientLightDetector
+      monitoring.occupancySensor = occupancyDetector
       monitoring.audioRecordingEnabled =
         camera.recordingAudioActive != 0 && camera.microphoneEnabled
       if let device = camera.resolvedCamera {
@@ -870,24 +955,28 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
 
   // Hand off the monitoring session's AVCaptureSession to the stream session
   // for reuse, avoiding the ~500ms cold-start of creating a new one.
-  camera.onMonitoringSessionHandoff = { [weak monitoringSession, weak camera] in
+  camera.onMonitoringSessionHandoff = {
+    [weak monitoringSession, weak camera, weak occupancyDetector] in
     camera?.videoMotionDetector?.reset()
+    occupancyDetector?.reset()
     return monitoringSession?.handoff()
   }
 
   // Pause/resume the monitoring session around snapshot captures
   // so only one AVCaptureSession is active at a time (iOS limitation).
-  camera.onSnapshotWillCapture = { [weak monitoringSession, weak camera] in
+  camera.onSnapshotWillCapture = { [weak monitoringSession, weak camera, weak occupancyDetector] in
     monitoringSession?.stop()
     camera?.videoMotionDetector?.reset()
+    occupancyDetector?.reset()
   }
-  camera.onSnapshotDidCapture = { [weak monitoringSession, weak camera] in
+  camera.onSnapshotDidCapture = { [weak monitoringSession, weak camera, weak occupancyDetector] in
     // Resume monitoring if recording armed + no live stream
     if let camera, camera.recordingActive != 0, camera.streamSession == nil,
       let device = camera.resolvedCamera
     {
       monitoringSession?.videoMotionDetector = camera.videoMotionDetector
       monitoringSession?.ambientLightDetector = camera.ambientLightDetector
+      monitoringSession?.occupancySensor = occupancyDetector
       monitoringSession?.audioRecordingEnabled =
         camera.recordingAudioActive != 0 && camera.microphoneEnabled
       monitoringSession?.start(camera: device)
@@ -903,10 +992,12 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
   return ServerSetup(
     bridge: bridge, lightbulb: lightbulb, camera: camera,
     motionSensor: motionSensor, lightSensor: lightSensor,
+    occupancySensor: occupancySensor,
     server: server, fmp4Writer: fmp4Writer, dataStream: dataStream,
     monitoringSession: monitoringSession,
     motionMonitor: motionMonitor,
     ambientLightDetector: ambientLightDetector,
+    occupancyDetector: occupancyDetector,
     isMotionAvailable: motionMonitor.isAvailable
   )
 }

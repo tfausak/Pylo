@@ -37,6 +37,8 @@ nonisolated enum HKServiceUUID {
   static let lightSensor = "84"
   // HMServiceTypeBattery
   static let battery = "96"
+  // HMServiceTypeOccupancySensor
+  static let occupancySensor = "86"
 }
 
 // MARK: - Characteristic UUIDs
@@ -100,6 +102,11 @@ nonisolated enum HKCharacteristicUUID {
   // HMCharacteristicTypeCurrentLightLevel
   static let currentAmbientLightLevel = "6B"
 
+  // Occupancy Sensor
+
+  // HMCharacteristicTypeOccupancyDetected
+  static let occupancyDetected = "71"
+
   // Battery
 
   // HMCharacteristicTypeBatteryLevel
@@ -134,6 +141,7 @@ func verifyHomeKitUUIDs() {
     check(HKServiceUUID.motionSensor, HMServiceTypeMotionSensor, "motionSensor")
     check(HKServiceUUID.lightSensor, HMServiceTypeLightSensor, "lightSensor")
     check(HKServiceUUID.battery, HMServiceTypeBattery, "battery")
+    check(HKServiceUUID.occupancySensor, HMServiceTypeOccupancySensor, "occupancySensor")
 
     // Characteristics
     check(HKCharacteristicUUID.identify, HMCharacteristicTypeIdentify, "identify")
@@ -172,5 +180,8 @@ func verifyHomeKitUUIDs() {
     check(
       HKCharacteristicUUID.statusLowBattery, HMCharacteristicTypeStatusLowBattery,
       "statusLowBattery")
+    check(
+      HKCharacteristicUUID.occupancyDetected, HMCharacteristicTypeOccupancyDetected,
+      "occupancyDetected")
   #endif
 }

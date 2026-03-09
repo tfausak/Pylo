@@ -10,6 +10,8 @@ extension HAPViewModel {
     motionEnabled: Bool = true,
     motionDetected: Bool = false,
     cameraStreaming: Bool = false,
+    occupancyEnabled: Bool = false,
+    occupancyDetected: Bool = false,
     needsRestart: Bool = false,
     screenSaverEnabled: Bool = false,
     screenSaverDelay: TimeInterval = 60,
@@ -29,6 +31,8 @@ extension HAPViewModel {
     vm.hasTorch = true
     vm.hasAccelerometer = true
     vm.isCameraStreaming = cameraStreaming
+    vm.occupancyEnabled = occupancyEnabled
+    vm.isOccupancyDetected = occupancyDetected
     vm.screenSaverEnabled = screenSaverEnabled
     vm.screenSaverDelay = screenSaverDelay
     vm.keepScreenAwake = keepScreenAwake
@@ -47,7 +51,8 @@ extension HAPViewModel {
           flashlightEnabled: !flashlightEnabled,
           selectedCameraID: vm.selectedStreamCamera?.id,
           motionEnabled: motionEnabled,
-          microphoneEnabled: vm.microphoneEnabled
+          microphoneEnabled: vm.microphoneEnabled,
+          occupancyEnabled: occupancyEnabled
         )
       } else {
         vm.startedConfig = AccessoryConfig(from: vm)
