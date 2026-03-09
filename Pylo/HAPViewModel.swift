@@ -970,8 +970,9 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     occupancyDetector?.reset()
   }
   camera.onSnapshotDidCapture = { [weak monitoringSession, weak camera, weak occupancyDetector] in
-    // Resume monitoring if recording armed + no live stream
-    if let camera, camera.recordingActive != 0, camera.streamSession == nil,
+    // Resume monitoring if recording armed or occupancy sensor needs frames + no live stream
+    if let camera, camera.streamSession == nil,
+      camera.recordingActive != 0 || occupancyDetector != nil,
       let device = camera.resolvedCamera
     {
       monitoringSession?.videoMotionDetector = camera.videoMotionDetector
