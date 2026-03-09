@@ -6,7 +6,7 @@ import os
 /// Designed to piggyback on existing capture sessions — reads `AVCaptureDevice.iso`
 /// and `.exposureDuration` rather than running a separate capture pipeline.
 /// Caller is responsible for throttling (e.g., calling every Nth frame).
-nonisolated final class AmbientLightDetector {
+final class AmbientLightDetector {
 
   private let _onLuxChange = Locked<((Float) -> Void)?>(initialState: nil)
   var onLuxChange: ((Float) -> Void)? {

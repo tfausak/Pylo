@@ -6,7 +6,7 @@ import CoreVideo
 
 /// Reusable delegate that forwards pixel buffers to a closure.
 /// Used by both CameraStreamSession and MonitoringCaptureSession.
-nonisolated final class VideoCaptureDelegate: NSObject,
+final class VideoCaptureDelegate: NSObject,
   AVCaptureVideoDataOutputSampleBufferDelegate
 {
   let handler: (CVPixelBuffer, CMTime) -> Void
@@ -29,7 +29,7 @@ nonisolated final class VideoCaptureDelegate: NSObject,
 
 /// Reusable delegate that forwards audio sample buffers to a closure.
 /// Used by both CameraStreamSession and MonitoringCaptureSession.
-nonisolated final class AudioCaptureDelegate: NSObject,
+final class AudioCaptureDelegate: NSObject,
   AVCaptureAudioDataOutputSampleBufferDelegate
 {
   let handler: (CMSampleBuffer) -> Void

@@ -106,7 +106,7 @@ extension HAPCameraAccessory {
 
 // MARK: - Frame Grabber (for silent snapshots)
 
-nonisolated final class FrameGrabber: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
+final class FrameGrabber: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
   private let semaphore = DispatchSemaphore(value: 0)
   /// CGImage copied from the pixel buffer inside the delegate callback, so
   /// the backing CVPixelBuffer can be safely recycled by AVFoundation.

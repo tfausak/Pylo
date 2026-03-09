@@ -25,6 +25,7 @@ struct AccessoryConfig: Equatable {
     self.microphoneEnabled = microphoneEnabled
   }
 
+  @MainActor
   init(from vm: HAPViewModel) {
     flashlightEnabled = vm.flashlightEnabled
     selectedCameraID = vm.selectedStreamCamera?.id

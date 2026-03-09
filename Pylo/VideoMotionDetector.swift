@@ -5,7 +5,7 @@ import os
 /// Detects motion by comparing consecutive video frames using vImage.
 /// Downscales each frame to a small grayscale thumbnail and computes the
 /// sum of squared differences against the previous frame.
-nonisolated final class VideoMotionDetector {
+final class VideoMotionDetector {
 
   private let _onMotionChange = Locked<((Bool) -> Void)?>(initialState: nil)
   var onMotionChange: ((Bool) -> Void)? {

@@ -11,7 +11,7 @@ import os
 /// All mutable state is accessed exclusively on `queue` (the HDS serial dispatch queue).
 /// The only public methods callable from other queues are `cancel()` (thread-safe via
 /// NWConnection) and `finishRecording(completion:)` which dispatches to `queue`.
-public nonisolated final class HDSConnection: @unchecked Sendable {
+public final class HDSConnection: @unchecked Sendable {
 
   private let connection: NWConnection
   private let queue: DispatchQueue

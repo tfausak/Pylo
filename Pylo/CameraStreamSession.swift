@@ -11,7 +11,7 @@ import os
 
 /// Holds all state for a single streaming session: addresses, ports, SRTP keys, and the
 /// video capture + RTP pipeline.
-nonisolated final class CameraStreamSession: @unchecked Sendable {
+final class CameraStreamSession: @unchecked Sendable {
 
   let sessionID: Data
   let controllerAddress: String
@@ -544,7 +544,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
         do {
           let audioSession = AVAudioSession.sharedInstance()
           try audioSession.setCategory(
-            .playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
+            .playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth])
           try audioSession.setPreferredSampleRate(16000)
           try audioSession.setActive(true)
         } catch {

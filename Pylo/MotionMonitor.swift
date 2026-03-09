@@ -3,7 +3,7 @@ import os
 
 /// Monitors device motion using the accelerometer and reports motion detected / not detected.
 /// At rest the accelerometer reads ~1g; significant deviation from that indicates movement.
-nonisolated final class MotionMonitor: @unchecked Sendable {
+final class MotionMonitor: @unchecked Sendable {
 
   /// Callback for motion state changes.
   /// Protected by a lock: written from @MainActor, read from motionQueue.

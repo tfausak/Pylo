@@ -4,7 +4,7 @@ import os
 
 // MARK: - Keychain Helper
 
-nonisolated enum KeychainHelper {
+enum KeychainHelper {
 
   private static let service = Bundle.main.bundleIdentifier!
   private static let signingKeyAccount = "device-signing-key"
@@ -79,7 +79,7 @@ nonisolated enum KeychainHelper {
 
 /// Concrete `KeyStore` implementation backed by the iOS Keychain.
 /// Set this on `PairSetupHandler.keyStore` before starting the server.
-nonisolated struct KeychainKeyStore: KeyStore {
+struct KeychainKeyStore: KeyStore {
   @discardableResult
   func save(key: String, data: Data) -> Bool {
     KeychainHelper.save(key: key, data: data)

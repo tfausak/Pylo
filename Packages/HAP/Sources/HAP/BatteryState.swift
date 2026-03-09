@@ -4,7 +4,7 @@ import os
 /// Shared mutable container for battery state, referenced by all accessories.
 /// Thread-safe: written on the main thread by BatteryMonitor, read on the
 /// HAP server queue by accessory characteristic handlers.
-public nonisolated final class BatteryState: @unchecked Sendable {
+public final class BatteryState: @unchecked Sendable {
   private struct State: Sendable {
     var level: Int = 0
     var chargingState: Int = 0

@@ -36,7 +36,7 @@ struct CameraOption: Identifiable, Hashable, Sendable {
 
 /// HAP camera sub-accessory exposing CameraRTPStreamManagement.
 /// Handles the full pipeline: TLV8 negotiation -> video capture -> H.264 -> RTP -> SRTP -> UDP.
-nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotProvider,
+final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotProvider,
   @unchecked Sendable
 {
 
@@ -657,7 +657,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
 /// on MainActor and caches the value atomically for any-thread reads.
 /// Shared by HAPCameraAccessory and MonitoringCaptureSession to avoid duplicate observers.
 #if os(iOS)
-  nonisolated enum DeviceOrientationCache {
+  enum DeviceOrientationCache {
     private static let state = Locked(
       initialState: Int(UIDeviceOrientation.portrait.rawValue)
     )

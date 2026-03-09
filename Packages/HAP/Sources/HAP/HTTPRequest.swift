@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Minimal HTTP Request
 
-public nonisolated struct HTTPRequest: Sendable {
+public struct HTTPRequest: Sendable {
   public let method: String
   public let path: String
   public let headers: [String: String]

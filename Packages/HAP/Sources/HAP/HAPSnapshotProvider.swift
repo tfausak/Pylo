@@ -2,7 +2,7 @@ import Foundation
 
 /// Protocol for accessories that can capture snapshots (used by HAPConnection
 /// for POST /resource without depending on HAPCameraAccessory directly).
-public nonisolated protocol HAPSnapshotProvider: HAPAccessoryProtocol, Sendable {
+public protocol HAPSnapshotProvider: HAPAccessoryProtocol, Sendable {
   var hksvEnabled: Bool { get }
   var periodicSnapshotsActive: Bool { get }
   var eventSnapshotsActive: Bool { get }

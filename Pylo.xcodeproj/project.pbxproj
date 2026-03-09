@@ -370,13 +370,15 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 6BNF6ECP6F;
+				DEVELOPMENT_TEAM = LMMY392DLM;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Pylo/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSCameraUsageDescription = "The camera is used for HomeKit video streaming, snapshots, ambient light sensing, and flashlight control.";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Used to advertise as a HomeKit accessory.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Local network access is used to advertise and communicate as a HomeKit accessory.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "The microphone is used to stream audio to HomeKit controllers.";
+				INFOPLIST_KEY_NSMotionUsageDescription = "Motion data is used for HomeKit motion sensor reporting.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -387,7 +389,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.1;
-				PRODUCT_BUNDLE_IDENTIFIER = me.fausak.taylor.Pylo;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kylewhirl.Pylo;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -408,13 +410,15 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 6BNF6ECP6F;
+				DEVELOPMENT_TEAM = LMMY392DLM;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Pylo/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSCameraUsageDescription = "The camera is used for HomeKit video streaming, snapshots, ambient light sensing, and flashlight control.";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Used to advertise as a HomeKit accessory.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Local network access is used to advertise and communicate as a HomeKit accessory.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "The microphone is used to stream audio to HomeKit controllers.";
+				INFOPLIST_KEY_NSMotionUsageDescription = "Motion data is used for HomeKit motion sensor reporting.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -425,7 +429,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.1;
-				PRODUCT_BUNDLE_IDENTIFIER = me.fausak.taylor.Pylo;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kylewhirl.Pylo;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;

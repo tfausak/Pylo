@@ -3,7 +3,7 @@ import Foundation
 // MARK: - AU Header (RFC 3640)
 
 /// RFC 3640 AU header helpers for AAC-ELD framing used by HomeKit.
-public nonisolated enum AUHeader {
+public enum AUHeader {
 
   /// Prepend a 4-byte RFC 3640 AU header section to raw AAC data.
   /// Layout: 2-byte AU-headers-length (0x0010 = one 16-bit AU header)

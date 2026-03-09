@@ -10,7 +10,7 @@ import os
 /// Implements the HomeKit Data Stream protocol for HKSV video transfer.
 /// HDS runs on a separate TCP connection with its own ChaCha20-Poly1305 encryption,
 /// derived from the HAP pair-verify shared secret.
-public nonisolated final class HAPDataStream: @unchecked Sendable {
+public final class HAPDataStream: @unchecked Sendable {
 
   private let logger = Logger(subsystem: logSubsystem, category: "DataStream")
 

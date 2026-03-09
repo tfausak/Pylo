@@ -20,7 +20,7 @@ private func hapShortUUID(_ fullUUID: String) -> String {
 
 // MARK: - Service UUIDs
 
-nonisolated enum HKServiceUUID {
+enum HKServiceUUID {
   // HMServiceTypeAccessoryInformation
   static let accessoryInformation = "3E"
   // HMServiceTypeLightbulb
@@ -41,7 +41,7 @@ nonisolated enum HKServiceUUID {
 
 // MARK: - Characteristic UUIDs
 
-nonisolated enum HKCharacteristicUUID {
+enum HKCharacteristicUUID {
   // Accessory Information
 
   // HMCharacteristicTypeIdentify

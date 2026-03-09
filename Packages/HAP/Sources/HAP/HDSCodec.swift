@@ -5,7 +5,21 @@ import Foundation
 /// Binary codec for HDS (HomeKit Data Stream) messages.
 /// This implements the DataStream serialization format used by HomeKit hubs
 /// for the HDS protocol. It uses different tag values from Apple's OPack format.
-public nonisolated enum HDSCodec {
+public enum HDSCodec {
+
+  private static func readUInt32LE(from data: Data, at offset: Int) -> UInt32 {
+    let b0 = UInt32(data[offset])
+    let b1 = UInt32(data[offset + 1]) << 8
+    let b2 = UInt32(data[offset + 2]) << 16
+    let b3 = UInt32(data[offset + 3]) << 24
+    return b0 | b1 | b2 | b3
+  }
+
+  private static func readUInt64LE(from data: Data, at offset: Int) -> UInt64 {
+    let lower = UInt64(readUInt32LE(from: data, at: offset))
+    let upper = UInt64(readUInt32LE(from: data, at: offset + 4)) << 32
+    return lower | upper
+  }
 
   // MARK: - Encode
 
@@ -184,15 +198,7 @@ public nonisolated enum HDSCodec {
 
     case 0x06:  // DATE (float64 seconds since 2001-01-01)
       guard offset + 8 <= data.count else { return nil }
-      let bits =
-        UInt64(data[offset])
-        | UInt64(data[offset + 1]) << 8
-        | UInt64(data[offset + 2]) << 16
-        | UInt64(data[offset + 3]) << 24
-        | UInt64(data[offset + 4]) << 32
-        | UInt64(data[offset + 5]) << 40
-        | UInt64(data[offset + 6]) << 48
-        | UInt64(data[offset + 7]) << 56
+      let bits = readUInt64LE(from: data, at: offset)
       offset += 8
       let v = Double(bitPattern: bits)
       tracked.append(v)
@@ -235,15 +241,7 @@ public nonisolated enum HDSCodec {
 
     case 0x33:  // Int64 LE
       guard offset + 8 <= data.count else { return nil }
-      let raw =
-        UInt64(data[offset])
-        | UInt64(data[offset + 1]) << 8
-        | UInt64(data[offset + 2]) << 16
-        | UInt64(data[offset + 3]) << 24
-        | UInt64(data[offset + 4]) << 32
-        | UInt64(data[offset + 5]) << 40
-        | UInt64(data[offset + 6]) << 48
-        | UInt64(data[offset + 7]) << 56
+      let raw = readUInt64LE(from: data, at: offset)
       let v = Int(Int64(bitPattern: raw))
       offset += 8
       tracked.append(v)
@@ -263,15 +261,7 @@ public nonisolated enum HDSCodec {
 
     case 0x36:  // Float64 LE
       guard offset + 8 <= data.count else { return nil }
-      let bits =
-        UInt64(data[offset])
-        | UInt64(data[offset + 1]) << 8
-        | UInt64(data[offset + 2]) << 16
-        | UInt64(data[offset + 3]) << 24
-        | UInt64(data[offset + 4]) << 32
-        | UInt64(data[offset + 5]) << 40
-        | UInt64(data[offset + 6]) << 48
-        | UInt64(data[offset + 7]) << 56
+      let bits = readUInt64LE(from: data, at: offset)
       offset += 8
       let v = Double(bitPattern: bits)
       tracked.append(v)

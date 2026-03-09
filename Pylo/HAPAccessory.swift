@@ -6,7 +6,7 @@ import os
 
 // MARK: - HAP Accessory
 
-nonisolated final class HAPAccessory: HAPAccessoryProtocol, @unchecked Sendable {
+final class HAPAccessory: HAPAccessoryProtocol, @unchecked Sendable {
 
   let name: String
   let model: String

@@ -11,7 +11,7 @@ import os
 /// Runs whenever HKSV recording is armed but no live stream is active. Captures video,
 /// runs motion detection, and encodes H.264 for the fMP4 pre-buffer — but performs no
 /// RTP/SRTP/UDP/audio networking.
-nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
+final class MonitoringCaptureSession: @unchecked Sendable {
 
   /// Optional video motion detector — called every `motionFrameInterval` frames.
   /// Protected: written from server queue, read from captureQueue.
@@ -157,7 +157,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
         do {
           let audioSession = AVAudioSession.sharedInstance()
           try audioSession.setCategory(
-            .playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
+            .playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth])
           try audioSession.setPreferredSampleRate(16000)
           try audioSession.setActive(true)
         } catch {

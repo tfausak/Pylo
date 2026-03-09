@@ -2,24 +2,9 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!--
-		UIBackgroundModes: audio was removed intentionally.
-		Apple rejects apps under Guideline 2.5.4 that declare the audio
-		background mode without providing audible content to the user while
-		backgrounded. Pylo only captures/streams audio during an active
-		HomeKit session, which does not qualify. Do not re-add this key.
-	-->
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_hap._tcp</string>
 	</array>
-	<key>NSCameraUsageDescription</key>
-	<string>The camera is used for HomeKit video streaming, snapshots, ambient light sensing, and flashlight control.</string>
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>Local network access is used to advertise and communicate as a HomeKit accessory.</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>The microphone is used to stream audio to HomeKit controllers.</string>
-	<key>NSMotionUsageDescription</key>
-	<string>Motion data is used for HomeKit motion sensor reporting.</string>
 </dict>
 </plist>
