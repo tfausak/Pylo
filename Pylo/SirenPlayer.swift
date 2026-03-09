@@ -1,5 +1,4 @@
 import AVFAudio
-import MediaPlayer
 import os
 
 /// Generates a two-tone alarm siren via AVAudioEngine.
@@ -26,8 +25,7 @@ nonisolated final class SirenPlayer: @unchecked Sendable {
   private struct State {
     var isPlaying = false
     var engine: AVAudioEngine?
-    var savedVolume: Float?
-    var sampleTime: Float = 0
+    var phases: UnsafeMutablePointer<Float>?
   }
 
   private let _state = Locked(initialState: State())
@@ -45,42 +43,47 @@ nonisolated final class SirenPlayer: @unchecked Sendable {
         return
       }
 
-      // Configure audio session for playback
+      // Configure audio session for playback. Use .playAndRecord with
+      // .mixWithOthers to coexist with the camera's AVCaptureSession audio.
       do {
         let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playback, options: [.mixWithOthers])
+        try session.setCategory(
+          .playAndRecord, mode: .default,
+          options: [.defaultToSpeaker, .mixWithOthers])
         try session.setActive(true)
       } catch {
         logger.error("Failed to configure audio session: \(error)")
       }
 
-      // Save current volume and set to max
-      let currentVolume = AVAudioSession.sharedInstance().outputVolume
-      _state.withLock { $0.savedVolume = currentVolume }
-      DispatchQueue.main.async { Self.setSystemVolume(1.0) }
-
       let format = AVAudioFormat(standardFormatWithSampleRate: Double(sampleRate), channels: 1)!
-      let sourceNode = AVAudioSourceNode(format: format) {
-        [weak self] _, _, frameCount, bufferList in
-        guard let self else { return noErr }
-        let ablPointer = UnsafeMutableAudioBufferListPointer(bufferList)
-        let sampleTime = self._state.withLock { state -> Float in
-          let t = state.sampleTime
-          state.sampleTime = t + Float(frameCount)
-          return t
-        }
 
-        let freqLow = Self.frequencyLow
-        let freqHigh = Self.frequencyHigh
-        let oscRate = Self.oscillationRate
+      // Two phase accumulators accessed exclusively on the audio render
+      // thread — no lock needed since render callbacks are serialized.
+      // [0] = tone phase, [1] = oscillation (sweep) phase
+      let phases = UnsafeMutablePointer<Float>.allocate(capacity: 2)
+      phases.initialize(repeating: 0, count: 2)
+
+      let freqLow = Self.frequencyLow
+      let freqHigh = Self.frequencyHigh
+      let oscRate = Self.oscillationRate
+      let twoPi: Float = 2.0 * .pi
+
+      let sourceNode = AVAudioSourceNode(format: format) {
+        _, _, frameCount, bufferList in
+        let ablPointer = UnsafeMutableAudioBufferListPointer(bufferList)
 
         for frame in 0..<Int(frameCount) {
-          let t = (sampleTime + Float(frame)) / sampleRate
-          // Oscillate between low and high frequency using a smooth sine envelope
-          let blend = (sin(2.0 * .pi * oscRate * t) + 1.0) / 2.0
+          // Advance oscillation phase to get smooth frequency sweep
+          phases[1] += twoPi * oscRate / sampleRate
+          if phases[1] > twoPi { phases[1] -= twoPi }
+          let blend = (sin(phases[1]) + 1.0) / 2.0
           let frequency = freqLow + (freqHigh - freqLow) * blend
-          let phase = 2.0 * .pi * frequency * t
-          let sample = sin(phase) * 0.8  // 80% amplitude to avoid clipping
+
+          // Accumulate tone phase to avoid discontinuities from varying frequency
+          phases[0] += twoPi * frequency / sampleRate
+          if phases[0] > twoPi { phases[0] -= twoPi }
+
+          let sample = sin(phases[0]) * 0.8  // 80% amplitude to avoid clipping
 
           for buffer in ablPointer {
             let ptr = buffer.mData?.assumingMemoryBound(to: Float.self)
@@ -98,13 +101,14 @@ nonisolated final class SirenPlayer: @unchecked Sendable {
         try engine.start()
       } catch {
         logger.error("Failed to start audio engine: \(error)")
+        phases.deallocate()
         return
       }
 
       _state.withLock {
         $0.engine = engine
+        $0.phases = phases
         $0.isPlaying = true
-        $0.sampleTime = 0
       }
       logger.info("Siren started")
       onActiveChange?(true)
@@ -115,36 +119,21 @@ nonisolated final class SirenPlayer: @unchecked Sendable {
     audioQueue.async { [self] in
       guard _state.withLock({ $0.isPlaying }) else { return }
 
-      let (engine, savedVolume) = _state.withLock { state -> (AVAudioEngine?, Float?) in
+      let (engine, phases) = _state.withLock {
+        state -> (AVAudioEngine?, UnsafeMutablePointer<Float>?) in
         let e = state.engine
-        let v = state.savedVolume
+        let p = state.phases
         state.engine = nil
+        state.phases = nil
         state.isPlaying = false
-        state.sampleTime = 0
-        state.savedVolume = nil
-        return (e, v)
+        return (e, p)
       }
 
       engine?.stop()
-
-      // Restore previous volume
-      if let savedVolume {
-        DispatchQueue.main.async { Self.setSystemVolume(savedVolume) }
-      }
+      phases?.deallocate()
 
       logger.info("Siren stopped")
       onActiveChange?(false)
-    }
-  }
-
-  // MARK: - Volume Control
-
-  /// Set system volume using MPVolumeView's hidden slider.
-  @MainActor
-  private static func setSystemVolume(_ volume: Float) {
-    let volumeView = MPVolumeView()
-    if let slider = volumeView.subviews.first(where: { $0 is UISlider }) as? UISlider {
-      slider.value = volume
     }
   }
 }
