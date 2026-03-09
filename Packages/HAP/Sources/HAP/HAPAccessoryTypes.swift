@@ -431,6 +431,117 @@ public nonisolated final class HAPMotionSensorAccessory: HAPAccessoryProtocol, @
   }
 }
 
+// MARK: - Smoke Sensor Accessory
+
+/// Standalone smoke sensor accessory for the bridge.
+/// Uses the HAP Smoke Sensor service with SmokeDetected characteristic (0=clear, 1=detected).
+public nonisolated final class HAPSmokeSensorAccessory: HAPAccessoryProtocol, @unchecked Sendable {
+
+  public let aid: Int
+  public let name: String
+  public let model: String
+  public let manufacturer: String
+  public let serialNumber: String
+  public let firmwareRevision: String
+
+  private let _onStateChange = Locked<
+    (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
+  >(initialState: nil)
+  public var onStateChange: (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)? {
+    get { _onStateChange.withLock { $0 } }
+    set { _onStateChange.withLock { $0 = newValue } }
+  }
+
+  /// Shared battery state — nil means no battery, omit battery service.
+  private let _batteryState = Locked<BatteryState?>(initialState: nil)
+  public var batteryState: BatteryState? {
+    get { _batteryState.withLock { $0 } }
+    set { _batteryState.withLock { $0 = newValue } }
+  }
+
+  private let _isSmokeDetected = Locked(initialState: false)
+  public var isSmokeDetected: Bool {
+    _isSmokeDetected.withLock { $0 }
+  }
+
+  public static let iidSmokeSensorService = 8
+  public static let iidSmokeDetected = 9
+
+  private static let uuidSmokeSensor = "87"  // HMServiceTypeSmokeSensor
+  private static let uuidSmokeDetected = "76"  // HMCharacteristicTypeSmokeDetected
+
+  public init(
+    aid: Int,
+    name: String = "Pylo Smoke Sensor",
+    model: String = "iPhone Smoke Sensor",
+    manufacturer: String = "Pylo",
+    serialNumber: String = "000001",
+    firmwareRevision: String = "0.1.0"
+  ) {
+    self.aid = aid
+    self.name = name
+    self.model = model
+    self.manufacturer = manufacturer
+    self.serialNumber = serialNumber
+    self.firmwareRevision = firmwareRevision
+  }
+
+  public func updateSmokeDetected(_ detected: Bool) {
+    _isSmokeDetected.withLock { $0 = detected }
+    onStateChange?(aid, Self.iidSmokeDetected, .int(detected ? 1 : 0))
+  }
+
+  public func readCharacteristic(iid: Int) -> HAPValue? {
+    switch iid {
+    case AccessoryInfoIID.manufacturer: return .string(manufacturer)
+    case AccessoryInfoIID.model: return .string(model)
+    case AccessoryInfoIID.name: return .string(name)
+    case AccessoryInfoIID.serialNumber: return .string(serialNumber)
+    case AccessoryInfoIID.firmwareRevision: return .string(firmwareRevision)
+    case ProtocolInfoIID.version: return .string(hapProtocolVersion)
+    case Self.iidSmokeDetected: return .int(isSmokeDetected ? 1 : 0)
+    case BatteryIID.batteryLevel: return batteryState.map { .int($0.level) }
+    case BatteryIID.chargingState: return batteryState.map { .int($0.chargingState) }
+    case BatteryIID.statusLowBattery: return batteryState.map { .int($0.statusLowBattery) }
+    default: return nil
+    }
+  }
+
+  @discardableResult
+  public func writeCharacteristic(iid: Int, value: HAPValue, sharedSecret: SharedSecret? = nil)
+    -> Bool
+  {
+    if iid == AccessoryInfoIID.identify {
+      identify()
+      return true
+    }
+    return false
+  }
+
+  public func identify() {}
+
+  public func toJSON() -> [String: Any] {
+    var services: [[String: Any]] = [
+      accessoryInformationServiceJSON(),
+      protocolInformationServiceJSON(),
+      [
+        "iid": Self.iidSmokeSensorService,
+        "type": Self.uuidSmokeSensor,
+        "characteristics": [
+          [
+            "iid": Self.iidSmokeDetected,
+            "type": Self.uuidSmokeDetected, "format": "uint8",
+            "perms": ["pr", "ev"], "value": isSmokeDetected ? 1 : 0,
+            "minValue": 0, "maxValue": 1,
+          ]
+        ],
+      ],
+    ]
+    services.append(batteryServiceJSON(state: batteryState))
+    return ["aid": aid, "services": services]
+  }
+}
+
 // MARK: - Light Sensor Accessory
 
 /// Standalone ambient light sensor accessory for the bridge.

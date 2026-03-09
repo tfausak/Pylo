@@ -14,15 +14,18 @@ struct AccessoryConfig: Equatable {
   var selectedCameraID: String?
   var motionEnabled: Bool
   var microphoneEnabled: Bool
+  var soundDetectionEnabled: Bool
 
   init(
     flashlightEnabled: Bool, selectedCameraID: String?,
-    motionEnabled: Bool, microphoneEnabled: Bool
+    motionEnabled: Bool, microphoneEnabled: Bool,
+    soundDetectionEnabled: Bool
   ) {
     self.flashlightEnabled = flashlightEnabled
     self.selectedCameraID = selectedCameraID
     self.motionEnabled = motionEnabled
     self.microphoneEnabled = microphoneEnabled
+    self.soundDetectionEnabled = soundDetectionEnabled
   }
 
   init(from vm: HAPViewModel) {
@@ -30,6 +33,7 @@ struct AccessoryConfig: Equatable {
     selectedCameraID = vm.selectedStreamCamera?.id
     motionEnabled = vm.motionEnabled
     microphoneEnabled = vm.microphoneEnabled
+    soundDetectionEnabled = vm.soundDetectionEnabled
   }
 }
 
@@ -124,6 +128,14 @@ final class HAPViewModel: ObservableObject {
       cameraAccessory?.minimumBitrate = videoQuality.minimumBitrate
     }
   }
+  @Published var soundDetectionEnabled: Bool = false {
+    didSet {
+      guard !isRestoring, soundDetectionEnabled != oldValue else { return }
+      UserDefaults.standard.set(soundDetectionEnabled, forKey: "soundDetectionEnabled")
+    }
+  }
+  @Published var isSmokeDetected = false
+
   // NOTE: iOS does not offer a background mode suitable for a HAP server.
   // The app cannot run indefinitely in the background, so keeping the screen
   // awake (opt-in) is the best available workaround to stay reachable.
@@ -205,6 +217,7 @@ final class HAPViewModel: ObservableObject {
   private var monitoringSession: MonitoringCaptureSession?
   private var fragmentWriter: FragmentedMP4Writer?
   private var dataStreamHandler: HAPDataStream?
+  private var soundClassifier: SoundClassifier?
 
   // MARK: - Permissions
 
@@ -329,6 +342,9 @@ final class HAPViewModel: ObservableObject {
     if UserDefaults.standard.object(forKey: "microphoneEnabled") != nil {
       microphoneEnabled = UserDefaults.standard.bool(forKey: "microphoneEnabled")
     }
+    if UserDefaults.standard.object(forKey: "soundDetectionEnabled") != nil {
+      soundDetectionEnabled = UserDefaults.standard.bool(forKey: "soundDetectionEnabled")
+    }
     keepScreenAwake = UserDefaults.standard.bool(forKey: "keepScreenAwake")
     screenSaverEnabled = UserDefaults.standard.bool(forKey: "screenSaverEnabled")
     let savedDelay = UserDefaults.standard.double(forKey: "screenSaverDelay")
@@ -377,7 +393,8 @@ final class HAPViewModel: ObservableObject {
       motionEnabled: motionEnabled,
       motionThreshold: motionSensitivity.threshold,
       minimumBitrate: videoQuality.minimumBitrate,
-      microphoneEnabled: microphoneEnabled
+      microphoneEnabled: microphoneEnabled,
+      soundDetectionEnabled: soundDetectionEnabled
     )
 
     let myGeneration = startGeneration
@@ -481,6 +498,25 @@ final class HAPViewModel: ObservableObject {
         enabledAccessories.append(setup.lightSensor)
       }
 
+      if config.soundDetectionEnabled {
+        setup.smokeSensor.onStateChange = {
+          [weak self, weak server = setup.server] aid, iid, value in
+          server?.notifySubscribers(aid: aid, iid: iid, value: value)
+          Task { @MainActor [weak self] in
+            guard let self else { return }
+            if iid == HAPSmokeSensorAccessory.iidSmokeDetected,
+              case .int(let v) = value
+            {
+              self.isSmokeDetected = v != 0
+            }
+          }
+        }
+
+        enabledAccessories.append(setup.smokeSensor)
+      }
+
+      self.soundClassifier = setup.soundClassifier
+
       setup.server.onListenerStateChange = { [weak self] ready in
         Task { @MainActor [weak self] in
           guard let self else { return }
@@ -523,6 +559,7 @@ final class HAPViewModel: ObservableObject {
         setup.camera.batteryState = sharedBatteryState
         setup.motionSensor.batteryState = sharedBatteryState
         setup.lightSensor.batteryState = sharedBatteryState
+        setup.smokeSensor.batteryState = sharedBatteryState
 
         let batteryAIDs = enabledAccessories.map(\.aid)
         battery.onBatteryChange = { [weak server = setup.server] state in
@@ -559,6 +596,9 @@ final class HAPViewModel: ObservableObject {
       if config.motionEnabled {
         setup.motionMonitor.start()
       }
+      if config.soundDetectionEnabled {
+        setup.soundClassifier?.start()
+      }
       updateIdleTimer()
     }
   }
@@ -585,6 +625,8 @@ final class HAPViewModel: ObservableObject {
     monitoringSession = nil
     dataStreamHandler?.stop()
     dataStreamHandler = nil
+    soundClassifier?.stop()
+    soundClassifier = nil
     lightbulbAccessory?.cancelIdentify()
     lightbulbAccessory = nil
     cameraAccessory = nil
@@ -636,6 +678,7 @@ private struct StartConfig: Sendable {
   let motionThreshold: Double
   let minimumBitrate: Int
   let microphoneEnabled: Bool
+  let soundDetectionEnabled: Bool
 }
 
 /// Objects created off MainActor, returned to MainActor for callback wiring and UI updates.
@@ -645,12 +688,14 @@ private struct ServerSetup: @unchecked Sendable {
   let camera: HAPCameraAccessory
   let motionSensor: HAPMotionSensorAccessory
   let lightSensor: HAPLightSensorAccessory
+  let smokeSensor: HAPSmokeSensorAccessory
   let server: HAPServer
   let fmp4Writer: FragmentedMP4Writer?
   let dataStream: HAPDataStream?
   let monitoringSession: MonitoringCaptureSession?
   let motionMonitor: MotionMonitor
   let ambientLightDetector: AmbientLightDetector?
+  let soundClassifier: SoundClassifier?
   let isMotionAvailable: Bool
 }
 
@@ -684,6 +729,11 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
   let motionSensor = HAPMotionSensorAccessory(
     aid: 5, name: "Pylo Motion Sensor", model: "\(device) Motion Sensor", manufacturer: "Pylo",
     serialNumber: config.serial + "-motion", firmwareRevision: fw
+  )
+
+  let smokeSensor = HAPSmokeSensorAccessory(
+    aid: 6, name: "Pylo Smoke Sensor", model: "\(device) Smoke Sensor", manufacturer: "Pylo",
+    serialNumber: config.serial + "-smoke", firmwareRevision: fw
   )
 
   // File I/O and Keychain reads — the main motivation for running off MainActor
@@ -777,6 +827,17 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
   }
 
   if config.motionEnabled { enabledAccessories.append(motionSensor) }
+
+  // Sound classifier for smoke detection — uses AVAudioEngine independently
+  var soundClassifier: SoundClassifier?
+  if config.soundDetectionEnabled {
+    let classifier = SoundClassifier()
+    classifier.onSmokeDetected = { [weak smokeSensor] detected in
+      smokeSensor?.updateSmokeDetected(detected)
+    }
+    soundClassifier = classifier
+    enabledAccessories.append(smokeSensor)
+  }
 
   // NWListener creation — also benefits from being off MainActor
   let server = try HAPServer(
@@ -903,10 +964,12 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
   return ServerSetup(
     bridge: bridge, lightbulb: lightbulb, camera: camera,
     motionSensor: motionSensor, lightSensor: lightSensor,
+    smokeSensor: smokeSensor,
     server: server, fmp4Writer: fmp4Writer, dataStream: dataStream,
     monitoringSession: monitoringSession,
     motionMonitor: motionMonitor,
     ambientLightDetector: ambientLightDetector,
+    soundClassifier: soundClassifier,
     isMotionAvailable: motionMonitor.isAvailable
   )
 }

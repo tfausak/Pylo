@@ -218,6 +218,18 @@ struct ContentView: View {
           motionContent
         }
 
+        // Sound Detection
+        AccessoryCard(
+          icon: "flame.fill",
+          title: "Smoke Sensor",
+          isOn: soundDetectionEnabled,
+          blocked: viewModel.microphonePermissionDenied,
+          blockedMessage: viewModel.microphonePermissionDenied
+            ? "Permission denied" : nil
+        ) {
+          soundDetectionContent
+        }
+
         // Display
         AccessoryCard(
           icon: "display",
@@ -355,6 +367,16 @@ struct ContentView: View {
     }
   }
 
+  @ViewBuilder
+  private var soundDetectionContent: some View {
+    HStack {
+      Text("Status")
+        .foregroundStyle(.secondary)
+      Spacer()
+      Text(viewModel.isSmokeDetected ? "Smoke Detected" : "Clear")
+    }
+  }
+
   private static func openSettings() {
     if let url = URL(string: UIApplication.openSettingsURLString) {
       UIApplication.shared.open(url)
@@ -426,6 +448,25 @@ struct ContentView: View {
           }
         } else {
           viewModel.microphoneEnabled = false
+        }
+      }
+    )
+  }
+
+  private var soundDetectionEnabled: Binding<Bool> {
+    Binding(
+      get: { viewModel.soundDetectionEnabled },
+      set: { enabled in
+        if enabled {
+          Task {
+            guard await viewModel.requestMicrophonePermission() else {
+              viewModel.permissionAlert = .microphone
+              return
+            }
+            viewModel.soundDetectionEnabled = true
+          }
+        } else {
+          viewModel.soundDetectionEnabled = false
         }
       }
     )
