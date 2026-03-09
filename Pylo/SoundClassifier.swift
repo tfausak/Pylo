@@ -5,6 +5,10 @@ import os
 /// Classifies ambient sound using Apple's built-in sound classifier to detect
 /// smoke alarm sounds. Uses AVAudioEngine for microphone input, independent
 /// from the camera's AVCaptureSession audio pipeline.
+///
+/// All mutable instance state (engine, analyzer, cooldownItem) is accessed
+/// exclusively on `analysisQueue`. The SNResultsObserving callbacks are
+/// re-dispatched to `analysisQueue` to maintain this invariant.
 nonisolated final class SoundClassifier: NSObject, SNResultsObserving, @unchecked Sendable {
 
   var onSmokeDetected: ((Bool) -> Void)? {
@@ -45,10 +49,13 @@ nonisolated final class SoundClassifier: NSObject, SNResultsObserving, @unchecke
   }
 
   private let _state = Locked(initialState: State())
+
+  /// Serial queue that owns all mutable instance state (engine, analyzer,
+  /// cooldownItem). SNResultsObserving callbacks are re-dispatched here.
   private let analysisQueue = DispatchQueue(
     label: "\(Bundle.main.bundleIdentifier!).sound-classifier", qos: .utility)
 
-  // Managed on analysisQueue only
+  // All accessed exclusively on analysisQueue
   private var engine: AVAudioEngine?
   private var analyzer: SNAudioStreamAnalyzer?
   private var request: SNClassifySoundRequest?
@@ -61,6 +68,22 @@ nonisolated final class SoundClassifier: NSObject, SNResultsObserving, @unchecke
   func start() {
     analysisQueue.async { [self] in
       guard !_state.withLock({ $0.isRunning }) else { return }
+
+      // Configure audio session so the microphone is available even when
+      // the camera isn't active. Use .mixWithOthers to coexist with the
+      // camera's AVCaptureSession audio pipeline.
+      #if os(iOS)
+        do {
+          let audioSession = AVAudioSession.sharedInstance()
+          try audioSession.setCategory(
+            .playAndRecord, mode: .default,
+            options: [.defaultToSpeaker, .allowBluetoothHFP, .mixWithOthers])
+          try audioSession.setActive(true)
+        } catch {
+          logger.error("AVAudioSession setup error: \(error)")
+          return
+        }
+      #endif
 
       let audioEngine = AVAudioEngine()
       let inputNode = audioEngine.inputNode
@@ -85,11 +108,14 @@ nonisolated final class SoundClassifier: NSObject, SNResultsObserving, @unchecke
       }
 
       self.analyzer = streamAnalyzer
+      self.engine = audioEngine
 
+      // Capture a local reference for the tap closure so it doesn't access
+      // `self.analyzer` from the audio thread.
+      let analyzerRef = streamAnalyzer
       inputNode.installTap(onBus: 0, bufferSize: 8192, format: inputFormat) {
-        [weak self] buffer, time in
-        self?.analyzer?.analyze(
-          buffer, atAudioFramePosition: time.sampleTime)
+        buffer, time in
+        analyzerRef.analyze(buffer, atAudioFramePosition: time.sampleTime)
       }
 
       do {
@@ -98,11 +124,11 @@ nonisolated final class SoundClassifier: NSObject, SNResultsObserving, @unchecke
         logger.error("Failed to start audio engine: \(error)")
         inputNode.removeTap(onBus: 0)
         self.analyzer = nil
+        self.engine = nil
         self.request = nil
         return
       }
 
-      self.engine = audioEngine
       _state.withLock { $0.isRunning = true }
       logger.info("Sound classifier started")
     }
@@ -158,7 +184,9 @@ nonisolated final class SoundClassifier: NSObject, SNResultsObserving, @unchecke
       Self.smokeIdentifiers.contains(c.identifier) && c.confidence >= threshold
     }
 
-    if smokeDetected {
+    // Dispatch to analysisQueue so cooldownItem access is serialized.
+    guard smokeDetected else { return }
+    analysisQueue.async { [self] in
       let shouldNotify = _state.withLock { state -> Bool in
         state.lastDetectionTime = Date()
         if !state.isDetected {
