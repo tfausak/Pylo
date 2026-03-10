@@ -575,11 +575,13 @@ struct HAPContactSensorTests {
     let sensor = HAPContactSensorAccessory(aid: AccessoryID.contactSensor)
     sensor.updateContactState(near: true)
     #expect(sensor.contactState == 0)
-    #expect(sensor.readCharacteristic(iid: HAPContactSensorAccessory.iidContactSensorState) == .int(0))
+    #expect(
+      sensor.readCharacteristic(iid: HAPContactSensorAccessory.iidContactSensorState) == .int(0))
 
     sensor.updateContactState(near: false)
     #expect(sensor.contactState == 1)
-    #expect(sensor.readCharacteristic(iid: HAPContactSensorAccessory.iidContactSensorState) == .int(1))
+    #expect(
+      sensor.readCharacteristic(iid: HAPContactSensorAccessory.iidContactSensorState) == .int(1))
   }
 
   @Test("Update fires state change callback")
