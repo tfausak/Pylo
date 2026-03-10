@@ -28,19 +28,21 @@ struct ContentView: View {
         }
         .safeAreaInset(edge: .bottom) {
           if viewModel.needsRestart {
-            Button {
-              viewModel.restart()
-            } label: {
-              Text("Restart to Apply")
-                .font(.subheadline.weight(.medium))
-                .frame(maxWidth: .infinity)
-                .padding(12)
-                .background(.orange, in: .rect(cornerRadius: 12))
-                .foregroundStyle(.white)
-            }
-            .padding(.horizontal)
-            .padding(.bottom, 4)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
+            Text("Restart to Apply")
+              .font(.subheadline.weight(.medium))
+              .frame(maxWidth: .infinity)
+              .padding(12)
+              .background(.orange, in: .rect(cornerRadius: 12))
+              .foregroundStyle(.white)
+              .contentShape(Rectangle())
+              .onTapGesture {
+                resetDimTimer()
+                viewModel.restart()
+              }
+              .accessibilityAddTraits(.isButton)
+              .padding(.horizontal)
+              .padding(.bottom, 4)
+              .transition(.move(edge: .bottom).combined(with: .opacity))
           } else if viewModel.isWaitingForHomeApp {
             HStack(spacing: 8) {
               ProgressView()
