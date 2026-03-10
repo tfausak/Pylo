@@ -218,19 +218,6 @@ final class HAPViewModel: ObservableObject {
       updateIdleTimer()
     }
   }
-  @Published var screenSaverEnabled: Bool = true {
-    didSet {
-      guard !isRestoring, screenSaverEnabled != oldValue else { return }
-      UserDefaults.standard.set(screenSaverEnabled, forKey: "screenSaverEnabled")
-    }
-  }
-  @Published var screenSaverDelay: TimeInterval = 60 {
-    didSet {
-      guard !isRestoring, screenSaverDelay != oldValue else { return }
-      UserDefaults.standard.set(screenSaverDelay, forKey: "screenSaverDelay")
-    }
-  }
-
   /// Whether camera permission has been expressly denied or restricted.
   @Published var cameraPermissionDenied = false
 
@@ -441,12 +428,6 @@ final class HAPViewModel: ObservableObject {
     if UserDefaults.standard.object(forKey: "keepScreenAwake") != nil {
       keepScreenAwake = UserDefaults.standard.bool(forKey: "keepScreenAwake")
     }
-    if UserDefaults.standard.object(forKey: "screenSaverEnabled") != nil {
-      screenSaverEnabled = UserDefaults.standard.bool(forKey: "screenSaverEnabled")
-    }
-    let savedDelay = UserDefaults.standard.double(forKey: "screenSaverDelay")
-    if savedDelay > 0 { screenSaverDelay = savedDelay }
-
     // Discover available cameras and restore stream camera selection
     let cameras = CameraOption.availableCameras()
     availableCameras = cameras

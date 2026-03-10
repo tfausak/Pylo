@@ -3,170 +3,43 @@ import SwiftUI
 struct ContentView: View {
   @ObservedObject var viewModel: HAPViewModel
   @Environment(\.scenePhase) private var scenePhase
-  @State private var showUnpairConfirmation = false
-  @State private var isScreenDimmed = false
-  @State private var dimTask: Task<Void, Never>?
-  @State private var isDimTimerResetPending = false
 
   var body: some View {
-    ZStack {
-      NavigationView {
-        Group {
-          if viewModel.isNetworkDenied {
-            networkDeniedBody
-          } else if viewModel.hasPairings {
-            pairedBody
-          } else {
-            PairingView(viewModel: viewModel)
-          }
+    Group {
+      if viewModel.isNetworkDenied {
+        networkDeniedBody
+      } else if viewModel.hasPairings {
+        if viewModel.isRunning {
+          RunningView(viewModel: viewModel)
+        } else {
+          configBody
         }
-        .navigationTitle("Pylo")
-        .toolbar {
-          ToolbarItem(placement: .navigationBarTrailing) {
-            statusIndicator
-          }
-        }
-        .safeAreaInset(edge: .bottom) {
-          if viewModel.needsRestart {
-            Text("Restart to Apply")
-              .font(.subheadline.weight(.medium))
-              .frame(maxWidth: .infinity)
-              .padding(12)
-              .background(.orange, in: .rect(cornerRadius: 12))
-              .foregroundStyle(.white)
-              .contentShape(Rectangle())
-              .onTapGesture {
-                resetDimTimer()
-                viewModel.restart()
-              }
-              .accessibilityAddTraits(.isButton)
-              .padding(.horizontal)
-              .padding(.bottom, 4)
-              .transition(.move(edge: .bottom).combined(with: .opacity))
-          } else if viewModel.isWaitingForHomeApp {
-            HStack(spacing: 8) {
-              ProgressView()
-              Text("Updating Home…")
-                .font(.subheadline.weight(.medium))
-            }
-            .frame(maxWidth: .infinity)
-            .padding(12)
-            .background(.secondary.opacity(0.2), in: .rect(cornerRadius: 12))
-            .padding(.horizontal)
-            .padding(.bottom, 4)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
-          }
-        }
-        .animation(.default, value: viewModel.needsRestart)
-        .animation(.default, value: viewModel.isWaitingForHomeApp)
-      }
-      .navigationViewStyle(.stack)
-      .onTapGesture {
-        resetDimTimer()
-      }
-      .simultaneousGesture(
-        DragGesture(minimumDistance: 10)
-          .onChanged { _ in
-            guard !isDimTimerResetPending else { return }
-            isDimTimerResetPending = true
-            resetDimTimer()
-          }
-          .onEnded { _ in isDimTimerResetPending = false }
-      )
-      .confirmationDialog(
-        "Unpair",
-        isPresented: $showUnpairConfirmation,
-        titleVisibility: .visible
-      ) {
-        Button("Unpair", role: .destructive) {
-          viewModel.resetPairings()
-        }
-      } message: {
-        Text(
-          "This will remove all HomeKit pairings. You will need to re-add this bridge in the Home app."
-        )
-      }
-      .alert(
-        viewModel.permissionAlert?.title ?? "",
-        isPresented: permissionAlertPresented
-      ) {
-        Button("Open Settings") { Self.openSettings() }
-        Button("Cancel", role: .cancel) {}
-      } message: {
-        Text(viewModel.permissionAlert?.message ?? "")
-      }
-
-      if isScreenDimmed {
-        Color.black
-          .ignoresSafeArea()
-          .accessibilityLabel("Screen dimmed")
-          .accessibilityHint("Tap to wake")
-          .accessibilityAddTraits(.isButton)
-          .onTapGesture { resetDimTimer() }
-      }
-    }
-    .animation(.default, value: isScreenDimmed)
-    .onChange(of: viewModel.isRunning) { running in
-      if running {
-        resetDimTimer()
       } else {
-        dimTask?.cancel()
-        dimTask = nil
-        isScreenDimmed = false
+        PairingView(viewModel: viewModel)
       }
-    }
-    .onChange(of: viewModel.keepScreenAwake) { _ in
-      resetDimTimer()
-    }
-    .onChange(of: viewModel.screenSaverEnabled) { _ in
-      if viewModel.isRunning { resetDimTimer() }
-    }
-    .onChange(of: viewModel.screenSaverDelay) { _ in
-      if viewModel.isRunning { resetDimTimer() }
     }
     .onChange(of: scenePhase) { newPhase in
       if newPhase == .active {
         viewModel.recheckPermissions()
-        resetDimTimer()
-      } else {
-        // Cancel the dim timer when leaving foreground to prevent it
-        // from firing while backgrounded and causing unnecessary work.
-        dimTask?.cancel()
-        dimTask = nil
-        isScreenDimmed = false
-        if newPhase == .background {
-          viewModel.handleBackgrounding()
-        }
-      }
-    }
-    .onChange(of: viewModel.hasPairings) { paired in
-      if !paired {
-        dimTask?.cancel()
-        dimTask = nil
-        isScreenDimmed = false
-      } else if viewModel.isRunning {
-        resetDimTimer()
+      } else if newPhase == .background {
+        viewModel.handleBackgrounding()
       }
     }
   }
 
-  // MARK: - Status Indicator
+  // MARK: - Config Body (brief state while server starts)
 
-  @ViewBuilder
-  private var statusIndicator: some View {
-    let isRunning = viewModel.isRunning
-
-    if viewModel.hasPairings {
-      Menu {
-        Button("Unpair", role: .destructive) {
-          showUnpairConfirmation = true
+  private var configBody: some View {
+    NavigationView {
+      ConfigCardsView(viewModel: viewModel)
+        .navigationTitle("Pylo")
+        .toolbar {
+          ToolbarItem(placement: .navigationBarTrailing) {
+            statusLabel(running: false)
+          }
         }
-      } label: {
-        statusLabel(running: isRunning)
-      }
-    } else {
-      statusLabel(running: isRunning)
     }
+    .navigationViewStyle(.stack)
   }
 
   private func statusLabel(running: Bool) -> some View {
@@ -180,9 +53,47 @@ struct ContentView: View {
     }
   }
 
-  // MARK: - Paired Body
+  // MARK: - Network Denied
 
-  private var pairedBody: some View {
+  private var networkDeniedBody: some View {
+    NavigationView {
+      VStack(spacing: 16) {
+        Spacer()
+        Image(systemName: "wifi.exclamationmark")
+          .font(.system(size: 56))
+          .foregroundStyle(.secondary)
+        Text("Local Network Access Required")
+          .font(.title3.weight(.semibold))
+        Text(
+          "Pylo needs local network access to communicate with the Home app. Enable it in Settings."
+        )
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+        .multilineTextAlignment(.center)
+        Button("Open Settings") { Self.openSettings() }
+          .buttonStyle(.borderedProminent)
+        Spacer()
+      }
+      .padding()
+      .navigationTitle("Pylo")
+    }
+    .navigationViewStyle(.stack)
+  }
+
+  static func openSettings() {
+    if let url = URL(string: UIApplication.openSettingsURLString) {
+      UIApplication.shared.open(url)
+    }
+  }
+}
+
+// MARK: - Config Cards View
+
+struct ConfigCardsView: View {
+  @ObservedObject var viewModel: HAPViewModel
+  @State private var showUnpairConfirmation = false
+
+  var body: some View {
     ScrollView {
       VStack(spacing: 12) {
         // Camera
@@ -196,6 +107,18 @@ struct ContentView: View {
             : viewModel.cameraPermissionDenied ? "Permission denied" : nil
         ) {
           cameraContent
+        }
+
+        // Doorbell
+        AccessoryCard(
+          icon: "bell.fill",
+          title: "Doorbell",
+          isOn: $viewModel.doorbellEnabled,
+          blocked: viewModel.selectedStreamCamera == nil,
+          blockedMessage: viewModel.selectedStreamCamera == nil
+            ? "Requires camera" : nil
+        ) {
+          doorbellContent
         }
 
         // Flashlight
@@ -270,40 +193,83 @@ struct ContentView: View {
           sirenContent
         }
 
-        // Display
-        AccessoryCard(
-          icon: "display",
-          title: "Keep Display On",
-          isOn: $viewModel.keepScreenAwake
-        ) {
-          displayContent
-        }
+        // Keep Display On
+        Toggle("Keep Display On", isOn: $viewModel.keepScreenAwake)
+          .padding()
+          .background(
+            Color(UIColor.secondarySystemGroupedBackground),
+            in: RoundedRectangle(cornerRadius: 12)
+          )
       }
       .padding()
     }
-  }
-
-  // MARK: - Network Denied
-
-  private var networkDeniedBody: some View {
-    VStack(spacing: 16) {
-      Spacer()
-      Image(systemName: "wifi.exclamationmark")
-        .font(.system(size: 56))
-        .foregroundStyle(.secondary)
-      Text("Local Network Access Required")
-        .font(.title3.weight(.semibold))
-      Text(
-        "Pylo needs local network access to communicate with the Home app. Enable it in Settings."
-      )
-      .font(.subheadline)
-      .foregroundStyle(.secondary)
-      .multilineTextAlignment(.center)
-      Button("Open Settings") { Self.openSettings() }
-        .buttonStyle(.borderedProminent)
-      Spacer()
+    .safeAreaInset(edge: .bottom) {
+      if viewModel.needsRestart {
+        Text("Restart to Apply")
+          .font(.subheadline.weight(.medium))
+          .frame(maxWidth: .infinity)
+          .padding(12)
+          .background(.orange, in: .rect(cornerRadius: 12))
+          .foregroundStyle(.white)
+          .contentShape(Rectangle())
+          .onTapGesture {
+            viewModel.restart()
+          }
+          .accessibilityAddTraits(.isButton)
+          .padding(.horizontal)
+          .padding(.bottom, 4)
+          .transition(.move(edge: .bottom).combined(with: .opacity))
+      } else if viewModel.isWaitingForHomeApp {
+        HStack(spacing: 8) {
+          ProgressView()
+          Text("Updating Home…")
+            .font(.subheadline.weight(.medium))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(12)
+        .background(.secondary.opacity(0.2), in: .rect(cornerRadius: 12))
+        .padding(.horizontal)
+        .padding(.bottom, 4)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+      }
     }
-    .padding()
+    .animation(.default, value: viewModel.needsRestart)
+    .animation(.default, value: viewModel.isWaitingForHomeApp)
+    .confirmationDialog(
+      "Unpair",
+      isPresented: $showUnpairConfirmation,
+      titleVisibility: .visible
+    ) {
+      Button("Unpair", role: .destructive) {
+        viewModel.resetPairings()
+      }
+    } message: {
+      Text(
+        "This will remove all HomeKit pairings. You will need to re-add this bridge in the Home app."
+      )
+    }
+    .alert(
+      viewModel.permissionAlert?.title ?? "",
+      isPresented: permissionAlertPresented
+    ) {
+      Button("Open Settings") { ContentView.openSettings() }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text(viewModel.permissionAlert?.message ?? "")
+    }
+    .toolbar {
+      ToolbarItem(placement: .navigationBarLeading) {
+        if viewModel.hasPairings {
+          Menu {
+            Button("Unpair", role: .destructive) {
+              showUnpairConfirmation = true
+            }
+          } label: {
+            Image(systemName: "ellipsis.circle")
+          }
+        }
+      }
+    }
   }
 
   // MARK: - Card Contents
@@ -344,6 +310,16 @@ struct ContentView: View {
       Toggle("Microphone", isOn: microphoneEnabled)
         .tint(viewModel.microphonePermissionDenied ? Color.secondary : nil)
         .disabled(viewModel.microphonePermissionDenied)
+    }
+  }
+
+  @ViewBuilder
+  private var doorbellContent: some View {
+    HStack {
+      Text("Status")
+        .foregroundStyle(.secondary)
+      Spacer()
+      Text("Ready")
     }
   }
 
@@ -462,40 +438,12 @@ struct ContentView: View {
   }
 
   @ViewBuilder
-  private var displayContent: some View {
-    VStack(spacing: 12) {
-      Toggle("Screen Saver", isOn: $viewModel.screenSaverEnabled)
-      if viewModel.screenSaverEnabled {
-        HStack {
-          Text("Delay")
-            .foregroundStyle(.secondary)
-          Spacer()
-          Picker("Delay", selection: $viewModel.screenSaverDelay) {
-            Text("1 min").tag(TimeInterval(60))
-            Text("2 min").tag(TimeInterval(120))
-            Text("5 min").tag(TimeInterval(300))
-            Text("10 min").tag(TimeInterval(600))
-          }
-          .labelsHidden()
-          .pickerStyle(.menu)
-        }
-      }
-    }
-  }
-
-  @ViewBuilder
   private var sirenContent: some View {
     HStack {
       Text("Status")
         .foregroundStyle(.secondary)
       Spacer()
       Text(viewModel.isSirenActive ? "Sounding" : "Off")
-    }
-  }
-
-  private static func openSettings() {
-    if let url = URL(string: UIApplication.openSettingsURLString) {
-      UIApplication.shared.open(url)
     }
   }
 
@@ -637,31 +585,6 @@ struct ContentView: View {
         $0.name.localizedCaseInsensitiveContains("back")
       }
       ?? viewModel.availableCameras.first
-  }
-
-  // MARK: - Screen Dimming
-
-  private func resetDimTimer() {
-    dimTask?.cancel()
-    isScreenDimmed = false
-    guard viewModel.isRunning, viewModel.hasPairings, viewModel.keepScreenAwake,
-      viewModel.screenSaverEnabled
-    else {
-      return
-    }
-    dimTask = Task {
-      // Task.sleep throws CancellationError when the task is cancelled,
-      // cleanly preventing the stale isScreenDimmed write.
-      let delaySeconds = viewModel.screenSaverDelay
-      guard delaySeconds.isFinite, delaySeconds > 0 else { return }
-      guard
-        (try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000)))
-          != nil
-      else {
-        return
-      }
-      isScreenDimmed = true
-    }
   }
 }
 

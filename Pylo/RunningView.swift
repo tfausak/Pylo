@@ -108,11 +108,20 @@ struct RunningView: View {
   }
 }
 
-// Temporary placeholder — replaced in Task 5
 struct ConfigView: View {
   @ObservedObject var viewModel: HAPViewModel
   @Environment(\.dismiss) private var dismiss
+
   var body: some View {
-    Text("Config").onTapGesture { dismiss() }
+    NavigationView {
+      ConfigCardsView(viewModel: viewModel)
+        .navigationTitle("Settings")
+        .toolbar {
+          ToolbarItem(placement: .navigationBarLeading) {
+            Button("Done") { dismiss() }
+          }
+        }
+    }
+    .navigationViewStyle(.stack)
   }
 }

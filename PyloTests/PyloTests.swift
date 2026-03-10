@@ -703,7 +703,9 @@ struct CameraDoorbellTests {
   @Test("ProgrammableSwitchEvent is not writable")
   func eventNotWritable() {
     let cam = makeCamera()
-    #expect(cam.writeCharacteristic(iid: HAPCameraAccessory.iidProgrammableSwitchEvent, value: .int(0)) == false)
+    #expect(
+      cam.writeCharacteristic(iid: HAPCameraAccessory.iidProgrammableSwitchEvent, value: .int(0))
+        == false)
   }
 
   @Test("triggerDoorbell fires onStateChange with single press event")
@@ -740,7 +742,9 @@ struct CameraDoorbellTests {
     let doorbellService = services.first { ($0["type"] as? String) == HKServiceUUID.doorbell }
     #expect(doorbellService != nil)
     let chars = doorbellService!["characteristics"] as! [[String: Any]]
-    let eventChar = chars.first { ($0["type"] as? String) == HKCharacteristicUUID.programmableSwitchEvent }
+    let eventChar = chars.first {
+      ($0["type"] as? String) == HKCharacteristicUUID.programmableSwitchEvent
+    }
     #expect(eventChar != nil)
     let perms = eventChar!["perms"] as! [String]
     #expect(perms.contains("pr"))
