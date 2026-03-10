@@ -15,9 +15,9 @@ extension HAPViewModel {
     occupancyEnabled: Bool = false,
     occupancyDetected: Bool = false,
     needsRestart: Bool = false,
-    screenSaverEnabled: Bool = false,
+    screenSaverEnabled: Bool = true,
     screenSaverDelay: TimeInterval = 60,
-    keepScreenAwake: Bool = false,
+    keepScreenAwake: Bool = true,
     sirenEnabled: Bool = false,
     sirenActive: Bool = false
   ) -> HAPViewModel {
