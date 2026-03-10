@@ -33,6 +33,13 @@ nonisolated final class HAPAccessory: HAPAccessoryProtocol, @unchecked Sendable 
     }
   }
 
+  /// Update the on/off state programmatically and notify HomeKit subscribers.
+  func updateOn(_ on: Bool) {
+    lightState.withLock { $0.isOn = on }
+    applyTorchState()
+    onStateChange?(aid, Self.iidOn, .bool(on))
+  }
+
   private(set) var brightness: Int {
     get { lightState.withLock { $0.brightness } }
     set {

@@ -16,11 +16,13 @@ struct AccessoryConfig: Equatable {
   var microphoneEnabled: Bool
   var contactEnabled: Bool
   var occupancyEnabled: Bool
+  var sirenEnabled: Bool
 
   init(
     flashlightEnabled: Bool, selectedCameraID: String?,
     motionEnabled: Bool, microphoneEnabled: Bool,
-    contactEnabled: Bool, occupancyEnabled: Bool
+    contactEnabled: Bool, occupancyEnabled: Bool,
+    sirenEnabled: Bool
   ) {
     self.flashlightEnabled = flashlightEnabled
     self.selectedCameraID = selectedCameraID
@@ -28,6 +30,7 @@ struct AccessoryConfig: Equatable {
     self.microphoneEnabled = microphoneEnabled
     self.contactEnabled = contactEnabled
     self.occupancyEnabled = occupancyEnabled
+    self.sirenEnabled = sirenEnabled
   }
 
   init(from vm: HAPViewModel) {
@@ -37,6 +40,7 @@ struct AccessoryConfig: Equatable {
     microphoneEnabled = vm.microphoneEnabled
     contactEnabled = vm.contactEnabled
     occupancyEnabled = vm.occupancyEnabled
+    sirenEnabled = vm.sirenEnabled
   }
 }
 
@@ -159,6 +163,14 @@ final class HAPViewModel: ObservableObject {
       cameraAccessory?.minimumBitrate = videoQuality.minimumBitrate
     }
   }
+  @Published var sirenEnabled: Bool = false {
+    didSet {
+      guard !isRestoring, sirenEnabled != oldValue else { return }
+      UserDefaults.standard.set(sirenEnabled, forKey: "sirenEnabled")
+    }
+  }
+  @Published var isSirenActive = false
+
   // NOTE: iOS does not offer a background mode suitable for a HAP server.
   // The app cannot run indefinitely in the background, so keeping the screen
   // awake (opt-in) is the best available workaround to stay reachable.
@@ -242,6 +254,7 @@ final class HAPViewModel: ObservableObject {
   private var dataStreamHandler: HAPDataStream?
   private var proximitySensor: ProximitySensor?
   private var occupancySensor: OccupancySensor?
+  private var sirenPlayer: SirenPlayer?
 
   // MARK: - Permissions
 
@@ -377,6 +390,9 @@ final class HAPViewModel: ObservableObject {
     {
       occupancyCooldown = cooldown
     }
+    if UserDefaults.standard.object(forKey: "sirenEnabled") != nil {
+      sirenEnabled = UserDefaults.standard.bool(forKey: "sirenEnabled")
+    }
     keepScreenAwake = UserDefaults.standard.bool(forKey: "keepScreenAwake")
     screenSaverEnabled = UserDefaults.standard.bool(forKey: "screenSaverEnabled")
     let savedDelay = UserDefaults.standard.double(forKey: "screenSaverDelay")
@@ -428,7 +444,8 @@ final class HAPViewModel: ObservableObject {
       microphoneEnabled: microphoneEnabled,
       contactEnabled: contactEnabled,
       occupancyEnabled: occupancyEnabled && selectedStreamCamera != nil,
-      occupancyCooldown: occupancyCooldown.duration
+      occupancyCooldown: occupancyCooldown.duration,
+      sirenEnabled: sirenEnabled
     )
 
     let myGeneration = startGeneration
@@ -565,6 +582,22 @@ final class HAPViewModel: ObservableObject {
         enabledAccessories.append(setup.occupancySensor)
       }
 
+      if config.sirenEnabled {
+        setup.siren.onStateChange = {
+          [weak self, weak server = setup.server] aid, iid, value in
+          server?.notifySubscribers(aid: aid, iid: iid, value: value)
+          Task { @MainActor [weak self] in
+            guard let self else { return }
+            if iid == HAPSirenAccessory.iidOn, case .bool(let on) = value {
+              self.isSirenActive = on
+            }
+          }
+        }
+        enabledAccessories.append(setup.siren)
+      }
+
+      self.sirenPlayer = setup.sirenPlayer
+
       setup.server.onListenerStateChange = { [weak self] ready in
         Task { @MainActor [weak self] in
           guard let self else { return }
@@ -609,6 +642,7 @@ final class HAPViewModel: ObservableObject {
         setup.lightSensor.batteryState = sharedBatteryState
         setup.contactSensor.batteryState = sharedBatteryState
         setup.occupancySensor.batteryState = sharedBatteryState
+        setup.siren.batteryState = sharedBatteryState
 
         let batteryAIDs = enabledAccessories.map(\.aid)
         battery.onBatteryChange = { [weak server = setup.server] state in
@@ -689,6 +723,8 @@ final class HAPViewModel: ObservableObject {
     proximitySensor?.stop()
     proximitySensor = nil
     occupancySensor = nil
+    sirenPlayer?.stop()
+    sirenPlayer = nil
     lightbulbAccessory?.cancelIdentify()
     lightbulbAccessory = nil
     cameraAccessory = nil
@@ -743,6 +779,7 @@ private struct StartConfig: Sendable {
   let contactEnabled: Bool
   let occupancyEnabled: Bool
   let occupancyCooldown: TimeInterval
+  let sirenEnabled: Bool
 }
 
 /// Objects created off MainActor, returned to MainActor for callback wiring and UI updates.
@@ -754,6 +791,7 @@ private struct ServerSetup: @unchecked Sendable {
   let lightSensor: HAPLightSensorAccessory
   let contactSensor: HAPContactSensorAccessory
   let occupancySensor: HAPOccupancySensorAccessory
+  let siren: HAPSirenAccessory
   let server: HAPServer
   let fmp4Writer: FragmentedMP4Writer?
   let dataStream: HAPDataStream?
@@ -761,6 +799,7 @@ private struct ServerSetup: @unchecked Sendable {
   let motionMonitor: MotionMonitor
   let ambientLightDetector: AmbientLightDetector?
   let occupancyDetector: OccupancySensor?
+  let sirenPlayer: SirenPlayer?
   let isMotionAvailable: Bool
 }
 
@@ -808,6 +847,12 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     aid: AccessoryID.occupancySensor, name: "Pylo Occupancy Sensor",
     model: "\(device) Occupancy Sensor", manufacturer: "Pylo",
     serialNumber: config.serial + "-occupancy", firmwareRevision: fw
+  )
+
+  let siren = HAPSirenAccessory(
+    aid: AccessoryID.siren, name: "Pylo Siren", model: "\(device) Siren",
+    manufacturer: "Pylo",
+    serialNumber: config.serial + "-siren", firmwareRevision: fw
   )
 
   // File I/O and Keychain reads — the main motivation for running off MainActor
@@ -914,6 +959,21 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
 
   if config.motionEnabled { enabledAccessories.append(motionSensor) }
   if config.contactEnabled { enabledAccessories.append(contactSensor) }
+
+  // Siren player — uses AVAudioEngine to generate alarm tone
+  var sirenPlayer: SirenPlayer?
+  if config.sirenEnabled {
+    let player = SirenPlayer()
+    player.onActiveChange = { [weak siren] active in
+      // Sync the HAP state if the siren stops externally
+      if !active { siren?.updateOn(false) }
+    }
+    siren.onSirenActivate = { [weak player] on in
+      if on { player?.start() } else { player?.stop() }
+    }
+    sirenPlayer = player
+    enabledAccessories.append(siren)
+  }
 
   // NWListener creation — also benefits from being off MainActor
   let server = try HAPServer(
@@ -1023,6 +1083,20 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     }
   }
 
+  // Stop the siren when camera streaming starts — the camera's voiceChat
+  // audio session mode kills the siren's AVAudioEngine and it can't recover.
+  camera.onStreamingStart = { [weak sirenPlayer, weak siren, weak lightbulb] in
+    // Camera streaming takes over the capture device, killing the torch.
+    if lightbulb?.isOn == true {
+      lightbulb?.updateOn(false)
+    }
+    // The camera's voiceChat audio session mode kills the siren's AVAudioEngine.
+    if sirenPlayer?.isPlaying == true {
+      sirenPlayer?.stop()
+      siren?.updateOn(false)
+    }
+  }
+
   // Hand off the monitoring session's AVCaptureSession to the stream session
   // for reuse, avoiding the ~500ms cold-start of creating a new one.
   camera.onMonitoringSessionHandoff = {
@@ -1066,11 +1140,13 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     motionSensor: motionSensor, lightSensor: lightSensor,
     contactSensor: contactSensor,
     occupancySensor: occupancySensor,
+    siren: siren,
     server: server, fmp4Writer: fmp4Writer, dataStream: dataStream,
     monitoringSession: monitoringSession,
     motionMonitor: motionMonitor,
     ambientLightDetector: ambientLightDetector,
     occupancyDetector: occupancyDetector,
+    sirenPlayer: sirenPlayer,
     isMotionAvailable: motionMonitor.isAvailable
   )
 }
