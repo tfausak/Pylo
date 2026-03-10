@@ -230,6 +230,18 @@ struct ContentView: View {
           soundDetectionContent
         }
 
+        // Contact Sensor
+        AccessoryCard(
+          icon: "sensor.tag.radiowaves.forward.fill",
+          title: "Contact Sensor",
+          isOn: $viewModel.contactEnabled,
+          blocked: !viewModel.hasProximity,
+          blockedMessage: !viewModel.hasProximity
+            ? "Not available on this device" : nil
+        ) {
+          contactContent
+        }
+
         // Display
         AccessoryCard(
           icon: "display",
@@ -304,6 +316,27 @@ struct ContentView: View {
       Toggle("Microphone", isOn: microphoneEnabled)
         .tint(viewModel.microphonePermissionDenied ? Color.secondary : nil)
         .disabled(viewModel.microphonePermissionDenied)
+      Toggle("Occupancy Sensor", isOn: $viewModel.occupancyEnabled)
+      if viewModel.occupancyEnabled {
+        HStack {
+          Text("Status")
+            .foregroundStyle(.secondary)
+          Spacer()
+          Text(viewModel.isOccupancyDetected ? "Occupied" : "Unoccupied")
+        }
+        HStack {
+          Text("Cooldown")
+            .foregroundStyle(.secondary)
+          Spacer()
+          Picker("Cooldown", selection: $viewModel.occupancyCooldown) {
+            ForEach(OccupancyCooldown.allCases) { cooldown in
+              Text(cooldown.rawValue).tag(cooldown)
+            }
+          }
+          .labelsHidden()
+          .pickerStyle(.menu)
+        }
+      }
     }
   }
 
@@ -342,6 +375,16 @@ struct ContentView: View {
         .labelsHidden()
         .pickerStyle(.menu)
       }
+    }
+  }
+
+  @ViewBuilder
+  private var contactContent: some View {
+    HStack {
+      Text("Status")
+        .foregroundStyle(.secondary)
+      Spacer()
+      Text(viewModel.isContactDetected ? "Closed" : "Open")
     }
   }
 
