@@ -843,7 +843,8 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
   )
 
   let smokeSensor = HAPSmokeSensorAccessory(
-    aid: AccessoryID.smokeSensor, name: "Pylo Smoke Sensor", model: "\(device) Smoke Sensor", manufacturer: "Pylo",
+    aid: AccessoryID.smokeSensor, name: "Pylo Smoke Sensor", model: "\(device) Smoke Sensor",
+    manufacturer: "Pylo",
     serialNumber: config.serial + "-smoke", firmwareRevision: fw
   )
 
