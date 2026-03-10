@@ -706,6 +706,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   // MARK: - H.264 Compression
 
   private func setupCompression(width: Int, height: Int, fps: Int, bitrate: Int) {
+    let refcon = Unmanaged.passUnretained(self).toOpaque()
     var session: VTCompressionSession?
     let status = VTCompressionSessionCreate(
       allocator: nil,
@@ -715,8 +716,8 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
       encoderSpecification: nil,
       imageBufferAttributes: nil,
       compressedDataAllocator: nil,
-      outputCallback: nil,
-      refcon: nil,
+      outputCallback: Self.compressionOutputCallback,
+      refcon: refcon,
       compressionSessionOut: &session
     )
 
@@ -798,24 +799,33 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
       presentationTimeStamp: pts,
       duration: .invalid,
       frameProperties: props,
-      infoFlagsOut: &flags,
-      outputHandler: { [weak self] status, _, sampleBuffer in
-        autoreleasepool {
-          if status != noErr {
-            self?.logger.error("Encode output error: \(status)")
-            return
-          }
-          guard let sampleBuffer, let self else { return }
-          // CMSampleBuffer is immutable after creation and safe to send across threads.
-          nonisolated(unsafe) let buffer = sampleBuffer
-          self.rtpQueue.async {
-            self.processEncodedFrame(buffer)
-          }
-        }
-      }
+      sourceFrameRefcon: nil,
+      infoFlagsOut: &flags
     )
     if status != noErr {
       logger.error("VTCompressionSessionEncodeFrame failed: \(status)")
+    }
+  }
+
+  /// VTCompressionSession output callback — called by the encoder for each compressed frame.
+  /// Uses a session-level callback instead of per-frame outputHandler closures to avoid
+  /// accumulating heap-allocated closure contexts that cause recursive deallocation
+  /// (stack overflow) when the session is invalidated after long-running capture.
+  private static let compressionOutputCallback: VTCompressionOutputCallback = {
+    refcon, _, status, _, sampleBuffer in
+    guard let refcon else { return }
+    let session = Unmanaged<CameraStreamSession>.fromOpaque(refcon).takeUnretainedValue()
+    autoreleasepool {
+      if status != noErr {
+        session.logger.error("Encode output error: \(status)")
+        return
+      }
+      guard let sampleBuffer else { return }
+      // CMSampleBuffer is immutable after creation and safe to send across threads.
+      nonisolated(unsafe) let buffer = sampleBuffer
+      session.rtpQueue.async {
+        session.processEncodedFrame(buffer)
+      }
     }
   }
 
