@@ -14,17 +14,19 @@ struct AccessoryConfig: Equatable {
   var selectedCameraID: String?
   var motionEnabled: Bool
   var microphoneEnabled: Bool
+  var contactEnabled: Bool
   var occupancyEnabled: Bool
 
   init(
     flashlightEnabled: Bool, selectedCameraID: String?,
     motionEnabled: Bool, microphoneEnabled: Bool,
-    occupancyEnabled: Bool
+    contactEnabled: Bool, occupancyEnabled: Bool
   ) {
     self.flashlightEnabled = flashlightEnabled
     self.selectedCameraID = selectedCameraID
     self.motionEnabled = motionEnabled
     self.microphoneEnabled = microphoneEnabled
+    self.contactEnabled = contactEnabled
     self.occupancyEnabled = occupancyEnabled
   }
 
@@ -33,6 +35,7 @@ struct AccessoryConfig: Equatable {
     selectedCameraID = vm.selectedStreamCamera?.id
     motionEnabled = vm.motionEnabled
     microphoneEnabled = vm.microphoneEnabled
+    contactEnabled = vm.contactEnabled
     occupancyEnabled = vm.occupancyEnabled
   }
 }
@@ -114,6 +117,20 @@ final class HAPViewModel: ObservableObject {
       motionMonitor?.threshold = motionSensitivity.threshold
     }
   }
+  @Published var contactEnabled: Bool = false {
+    didSet {
+      guard !isRestoring, contactEnabled != oldValue else { return }
+      UserDefaults.standard.set(contactEnabled, forKey: "contactEnabled")
+      if contactEnabled {
+        proximitySensor?.start()
+      } else {
+        proximitySensor?.stop()
+        isContactDetected = false
+      }
+    }
+  }
+  @Published var isContactDetected = false
+  @Published var hasProximity = false
   @Published var microphoneEnabled: Bool = false {
     didSet {
       guard !isRestoring, microphoneEnabled != oldValue else { return }
@@ -223,6 +240,7 @@ final class HAPViewModel: ObservableObject {
   private var monitoringSession: MonitoringCaptureSession?
   private var fragmentWriter: FragmentedMP4Writer?
   private var dataStreamHandler: HAPDataStream?
+  private var proximitySensor: ProximitySensor?
   private var occupancySensor: OccupancySensor?
 
   // MARK: - Permissions
@@ -348,6 +366,9 @@ final class HAPViewModel: ObservableObject {
     if UserDefaults.standard.object(forKey: "microphoneEnabled") != nil {
       microphoneEnabled = UserDefaults.standard.bool(forKey: "microphoneEnabled")
     }
+    if UserDefaults.standard.object(forKey: "contactEnabled") != nil {
+      contactEnabled = UserDefaults.standard.bool(forKey: "contactEnabled")
+    }
     if UserDefaults.standard.object(forKey: "occupancyEnabled") != nil {
       occupancyEnabled = UserDefaults.standard.bool(forKey: "occupancyEnabled")
     }
@@ -405,6 +426,7 @@ final class HAPViewModel: ObservableObject {
       motionThreshold: motionSensitivity.threshold,
       minimumBitrate: videoQuality.minimumBitrate,
       microphoneEnabled: microphoneEnabled,
+      contactEnabled: contactEnabled,
       occupancyEnabled: occupancyEnabled && selectedStreamCamera != nil,
       occupancyCooldown: occupancyCooldown.duration
     )
@@ -511,6 +533,22 @@ final class HAPViewModel: ObservableObject {
         enabledAccessories.append(setup.lightSensor)
       }
 
+      if config.contactEnabled {
+        setup.contactSensor.onStateChange = {
+          [weak self, weak server = setup.server] aid, iid, value in
+          server?.notifySubscribers(aid: aid, iid: iid, value: value)
+          Task { @MainActor [weak self] in
+            guard let self else { return }
+            if iid == HAPContactSensorAccessory.iidContactSensorState,
+              case .int(let val) = value
+            {
+              self.isContactDetected = val == 0
+            }
+          }
+        }
+        enabledAccessories.append(setup.contactSensor)
+      }
+
       if config.occupancyEnabled {
         setup.occupancySensor.onStateChange = {
           [weak self, weak server = setup.server] aid, iid, value in
@@ -569,6 +607,7 @@ final class HAPViewModel: ObservableObject {
         setup.camera.batteryState = sharedBatteryState
         setup.motionSensor.batteryState = sharedBatteryState
         setup.lightSensor.batteryState = sharedBatteryState
+        setup.contactSensor.batteryState = sharedBatteryState
         setup.occupancySensor.batteryState = sharedBatteryState
 
         let batteryAIDs = enabledAccessories.map(\.aid)
@@ -606,6 +645,21 @@ final class HAPViewModel: ObservableObject {
       if config.motionEnabled {
         setup.motionMonitor.start()
       }
+
+      // Proximity sensor — uses UIDevice which requires MainActor.
+      // Check availability even if disabled so the UI can show blocked state.
+      let proximity = ProximitySensor()
+      proximity.start()
+      self.hasProximity = proximity.isAvailable
+      if config.contactEnabled && proximity.isAvailable {
+        proximity.onContactChange = { [weak contactSensor = setup.contactSensor] near in
+          contactSensor?.updateContactState(near: near)
+        }
+        self.proximitySensor = proximity
+      } else {
+        proximity.stop()
+      }
+
       updateIdleTimer()
     }
   }
@@ -632,6 +686,8 @@ final class HAPViewModel: ObservableObject {
     monitoringSession = nil
     dataStreamHandler?.stop()
     dataStreamHandler = nil
+    proximitySensor?.stop()
+    proximitySensor = nil
     occupancySensor = nil
     lightbulbAccessory?.cancelIdentify()
     lightbulbAccessory = nil
@@ -684,6 +740,7 @@ private struct StartConfig: Sendable {
   let motionThreshold: Double
   let minimumBitrate: Int
   let microphoneEnabled: Bool
+  let contactEnabled: Bool
   let occupancyEnabled: Bool
   let occupancyCooldown: TimeInterval
 }
@@ -695,6 +752,7 @@ private struct ServerSetup: @unchecked Sendable {
   let camera: HAPCameraAccessory
   let motionSensor: HAPMotionSensorAccessory
   let lightSensor: HAPLightSensorAccessory
+  let contactSensor: HAPContactSensorAccessory
   let occupancySensor: HAPOccupancySensorAccessory
   let server: HAPServer
   let fmp4Writer: FragmentedMP4Writer?
@@ -719,28 +777,36 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
   )
 
   let lightbulb = HAPAccessory(
-    aid: 2, name: "Pylo Flashlight", model: "\(device) Light", manufacturer: "Pylo",
-    serialNumber: config.serial + "-light", firmwareRevision: fw
+    aid: AccessoryID.lightbulb, name: "Pylo Flashlight", model: "\(device) Light",
+    manufacturer: "Pylo", serialNumber: config.serial + "-light", firmwareRevision: fw
   )
 
   let camera = HAPCameraAccessory(
-    aid: 3, name: "Pylo Camera", model: "\(device) Camera", manufacturer: "Pylo",
-    serialNumber: config.serial + "-cam", firmwareRevision: fw
+    aid: AccessoryID.camera, name: "Pylo Camera", model: "\(device) Camera",
+    manufacturer: "Pylo", serialNumber: config.serial + "-cam", firmwareRevision: fw
   )
 
   let lightSensor = HAPLightSensorAccessory(
-    aid: 4, name: "Pylo Light Sensor", model: "\(device) Light Sensor", manufacturer: "Pylo",
+    aid: AccessoryID.lightSensor, name: "Pylo Light Sensor",
+    model: "\(device) Light Sensor", manufacturer: "Pylo",
     serialNumber: config.serial + "-light-sensor", firmwareRevision: fw
   )
 
   let motionSensor = HAPMotionSensorAccessory(
-    aid: 5, name: "Pylo Motion Sensor", model: "\(device) Motion Sensor", manufacturer: "Pylo",
+    aid: AccessoryID.motionSensor, name: "Pylo Motion Sensor",
+    model: "\(device) Motion Sensor", manufacturer: "Pylo",
     serialNumber: config.serial + "-motion", firmwareRevision: fw
   )
 
+  let contactSensor = HAPContactSensorAccessory(
+    aid: AccessoryID.contactSensor, name: "Pylo Contact Sensor",
+    model: "\(device) Contact Sensor", manufacturer: "Pylo",
+    serialNumber: config.serial + "-contact", firmwareRevision: fw
+  )
+
   let occupancySensor = HAPOccupancySensorAccessory(
-    aid: 6, name: "Pylo Occupancy Sensor", model: "\(device) Occupancy Sensor",
-    manufacturer: "Pylo",
+    aid: AccessoryID.occupancySensor, name: "Pylo Occupancy Sensor",
+    model: "\(device) Occupancy Sensor", manufacturer: "Pylo",
     serialNumber: config.serial + "-occupancy", firmwareRevision: fw
   )
 
@@ -847,6 +913,7 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
   }
 
   if config.motionEnabled { enabledAccessories.append(motionSensor) }
+  if config.contactEnabled { enabledAccessories.append(contactSensor) }
 
   // NWListener creation — also benefits from being off MainActor
   let server = try HAPServer(
@@ -997,6 +1064,7 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
   return ServerSetup(
     bridge: bridge, lightbulb: lightbulb, camera: camera,
     motionSensor: motionSensor, lightSensor: lightSensor,
+    contactSensor: contactSensor,
     occupancySensor: occupancySensor,
     server: server, fmp4Writer: fmp4Writer, dataStream: dataStream,
     monitoringSession: monitoringSession,

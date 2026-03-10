@@ -218,6 +218,18 @@ struct ContentView: View {
           motionContent
         }
 
+        // Contact Sensor
+        AccessoryCard(
+          icon: "sensor.tag.radiowaves.forward.fill",
+          title: "Contact Sensor",
+          isOn: $viewModel.contactEnabled,
+          blocked: !viewModel.hasProximity,
+          blockedMessage: !viewModel.hasProximity
+            ? "Not available on this device" : nil
+        ) {
+          contactContent
+        }
+
         // Display
         AccessoryCard(
           icon: "display",
@@ -351,6 +363,16 @@ struct ContentView: View {
         .labelsHidden()
         .pickerStyle(.menu)
       }
+    }
+  }
+
+  @ViewBuilder
+  private var contactContent: some View {
+    HStack {
+      Text("Status")
+        .foregroundStyle(.secondary)
+      Spacer()
+      Text(viewModel.isContactDetected ? "Closed" : "Open")
     }
   }
 

@@ -10,6 +10,8 @@ extension HAPViewModel {
     motionEnabled: Bool = true,
     motionDetected: Bool = false,
     cameraStreaming: Bool = false,
+    contactEnabled: Bool = false,
+    contactDetected: Bool = false,
     occupancyEnabled: Bool = false,
     occupancyDetected: Bool = false,
     needsRestart: Bool = false,
@@ -31,6 +33,9 @@ extension HAPViewModel {
     vm.hasTorch = true
     vm.hasAccelerometer = true
     vm.isCameraStreaming = cameraStreaming
+    vm.contactEnabled = contactEnabled
+    vm.isContactDetected = contactDetected
+    vm.hasProximity = true
     vm.occupancyEnabled = occupancyEnabled
     vm.isOccupancyDetected = occupancyDetected
     vm.screenSaverEnabled = screenSaverEnabled
@@ -52,6 +57,7 @@ extension HAPViewModel {
           selectedCameraID: vm.selectedStreamCamera?.id,
           motionEnabled: motionEnabled,
           microphoneEnabled: vm.microphoneEnabled,
+          contactEnabled: contactEnabled,
           occupancyEnabled: occupancyEnabled
         )
       } else {

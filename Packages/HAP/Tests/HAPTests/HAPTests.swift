@@ -559,6 +559,62 @@ struct HAPMotionSensorTests {
   }
 }
 
+// MARK: - Contact Sensor Tests
+
+@Suite("HAP Contact Sensor Accessory")
+struct HAPContactSensorTests {
+
+  @Test("Initial state is open (no contact)")
+  func initialState() {
+    let sensor = HAPContactSensorAccessory(aid: AccessoryID.contactSensor)
+    #expect(sensor.contactState == 1)
+  }
+
+  @Test("Update contact state")
+  func updateContact() {
+    let sensor = HAPContactSensorAccessory(aid: AccessoryID.contactSensor)
+    sensor.updateContactState(near: true)
+    #expect(sensor.contactState == 0)
+    #expect(
+      sensor.readCharacteristic(iid: HAPContactSensorAccessory.iidContactSensorState) == .int(0))
+
+    sensor.updateContactState(near: false)
+    #expect(sensor.contactState == 1)
+    #expect(
+      sensor.readCharacteristic(iid: HAPContactSensorAccessory.iidContactSensorState) == .int(1))
+  }
+
+  @Test("Update fires state change callback")
+  func updateCallback() {
+    let sensor = HAPContactSensorAccessory(aid: AccessoryID.contactSensor)
+    nonisolated(unsafe) var receivedAID: Int?
+    nonisolated(unsafe) var receivedIID: Int?
+    nonisolated(unsafe) var receivedValue: HAPValue?
+    sensor.onStateChange = { aid, iid, value in
+      receivedAID = aid
+      receivedIID = iid
+      receivedValue = value
+    }
+    sensor.updateContactState(near: true)
+    #expect(receivedAID == AccessoryID.contactSensor)
+    #expect(receivedIID == HAPContactSensorAccessory.iidContactSensorState)
+    #expect(receivedValue == .int(0))
+  }
+
+  @Test("toJSON has contact sensor and battery services")
+  func toJSONService() {
+    let sensor = HAPContactSensorAccessory(aid: AccessoryID.contactSensor)
+    let json = sensor.toJSON()
+    let services = json["services"] as! [[String: Any]]
+    #expect(services.count == 4)  // accessory info + protocol info + contact sensor + battery
+    #expect(services[1]["type"] as? String == "A2")  // protocol info
+    #expect(services[2]["type"] as? String == "80")  // contact sensor
+    let chars = services[2]["characteristics"] as! [[String: Any]]
+    #expect(chars[0]["format"] as? String == "uint8")
+    #expect(services[3]["type"] as? String == BatteryUUID.service)  // battery
+  }
+}
+
 // MARK: - Encryption Context Tests
 
 @Suite("Encryption Context")

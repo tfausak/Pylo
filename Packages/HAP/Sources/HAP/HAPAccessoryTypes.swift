@@ -2,6 +2,21 @@ import CryptoKit
 import Foundation
 import os
 
+// MARK: - Accessory IDs
+
+/// Central registry of accessory IDs (aids) used by the Pylo bridge.
+/// HAP requires aid=1 for the bridge; accessories use 2+.
+/// Add new entries here to avoid ID collisions across branches.
+public enum AccessoryID {
+  public static let bridge = 1
+  public static let lightbulb = 2
+  public static let camera = 3
+  public static let lightSensor = 4
+  public static let motionSensor = 5
+  public static let contactSensor = 6
+  public static let occupancySensor = 7
+}
+
 // MARK: - Accessory Category (Table 12-3 in HAP R2 spec)
 
 public nonisolated enum HAPAccessoryCategory: Int, Sendable {
@@ -422,6 +437,123 @@ public nonisolated final class HAPMotionSensorAccessory: HAPAccessoryProtocol, @
             "iid": Self.iidMotionDetected,
             "type": Self.uuidMotionDetected, "format": "bool",
             "perms": ["pr", "ev"], "value": isMotionDetected,
+          ]
+        ],
+      ],
+    ]
+    services.append(batteryServiceJSON(state: batteryState))
+    return ["aid": aid, "services": services]
+  }
+}
+
+// MARK: - Contact Sensor Accessory
+
+/// Standalone contact sensor accessory for the bridge.
+/// Uses the iPhone's proximity sensor to detect open/close state.
+public nonisolated final class HAPContactSensorAccessory: HAPAccessoryProtocol,
+  @unchecked Sendable
+{
+
+  public let aid: Int
+  public let name: String
+  public let model: String
+  public let manufacturer: String
+  public let serialNumber: String
+  public let firmwareRevision: String
+
+  private let _onStateChange = Locked<
+    (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
+  >(initialState: nil)
+  public var onStateChange: (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)? {
+    get { _onStateChange.withLock { $0 } }
+    set { _onStateChange.withLock { $0 = newValue } }
+  }
+
+  /// Shared battery state — nil means no battery, omit battery service.
+  private let _batteryState = Locked<BatteryState?>(initialState: nil)
+  public var batteryState: BatteryState? {
+    get { _batteryState.withLock { $0 } }
+    set { _batteryState.withLock { $0 = newValue } }
+  }
+
+  /// HAP ContactSensorState: 0 = contact detected (closed), 1 = contact not detected (open).
+  private let _contactState = Locked(initialState: 1)
+  public var contactState: Int {
+    _contactState.withLock { $0 }
+  }
+
+  public static let iidContactSensorService = 8
+  public static let iidContactSensorState = 9
+
+  private static let uuidContactSensor = "80"  // HMServiceTypeContactSensor
+  private static let uuidContactSensorState = "6A"  // HMCharacteristicTypeContactState
+
+  public init(
+    aid: Int,
+    name: String = "Pylo Contact Sensor",
+    model: String = "iPhone Contact Sensor",
+    manufacturer: String = "Pylo",
+    serialNumber: String = "000001",
+    firmwareRevision: String = "0.1.0"
+  ) {
+    self.aid = aid
+    self.name = name
+    self.model = model
+    self.manufacturer = manufacturer
+    self.serialNumber = serialNumber
+    self.firmwareRevision = firmwareRevision
+  }
+
+  /// Update contact state from proximity sensor.
+  /// `near` = true means contact detected (state 0), false means no contact (state 1).
+  public func updateContactState(near: Bool) {
+    let state = near ? 0 : 1
+    _contactState.withLock { $0 = state }
+    onStateChange?(aid, Self.iidContactSensorState, .int(state))
+  }
+
+  public func readCharacteristic(iid: Int) -> HAPValue? {
+    switch iid {
+    case AccessoryInfoIID.manufacturer: return .string(manufacturer)
+    case AccessoryInfoIID.model: return .string(model)
+    case AccessoryInfoIID.name: return .string(name)
+    case AccessoryInfoIID.serialNumber: return .string(serialNumber)
+    case AccessoryInfoIID.firmwareRevision: return .string(firmwareRevision)
+    case ProtocolInfoIID.version: return .string(hapProtocolVersion)
+    case Self.iidContactSensorState: return .int(contactState)
+    case BatteryIID.batteryLevel: return batteryState.map { .int($0.level) }
+    case BatteryIID.chargingState: return batteryState.map { .int($0.chargingState) }
+    case BatteryIID.statusLowBattery: return batteryState.map { .int($0.statusLowBattery) }
+    default: return nil
+    }
+  }
+
+  @discardableResult
+  public func writeCharacteristic(iid: Int, value: HAPValue, sharedSecret: SharedSecret? = nil)
+    -> Bool
+  {
+    if iid == AccessoryInfoIID.identify {
+      identify()
+      return true
+    }
+    return false
+  }
+
+  public func identify() {}
+
+  public func toJSON() -> [String: Any] {
+    var services: [[String: Any]] = [
+      accessoryInformationServiceJSON(),
+      protocolInformationServiceJSON(),
+      [
+        "iid": Self.iidContactSensorService,
+        "type": Self.uuidContactSensor,
+        "characteristics": [
+          [
+            "iid": Self.iidContactSensorState,
+            "type": Self.uuidContactSensorState, "format": "uint8",
+            "perms": ["pr", "ev"], "value": contactState,
+            "minValue": 0, "maxValue": 1,
           ]
         ],
       ],
