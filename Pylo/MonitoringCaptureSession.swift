@@ -55,6 +55,14 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     set { _audioRecordingEnabled.withLock { $0 = newValue } }
   }
 
+  /// When true, skips VTCompressionSession creation and H.264 encoding entirely.
+  /// Used when only sensors (ambient light, occupancy) need camera frames.
+  private let _sensorOnly = Locked(initialState: false)
+  var sensorOnly: Bool {
+    get { _sensorOnly.withLock { $0 } }
+    set { _sensorOnly.withLock { $0 = newValue } }
+  }
+
   let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "MonitoringCapture")
 
   /// Serial queue for AVCaptureSession start/stop — these are not thread-safe.
@@ -138,9 +146,9 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     }
     guard !alreadyRunning else { return }
 
-    let width = 1920
-    let height = 1080
-    let fps = 30
+    let width = sensorOnly ? 640 : 1920
+    let height = sensorOnly ? 480 : 1080
+    let fps = sensorOnly ? 10 : 30
     let bitrate = 2000  // kbps — match hub's SelectedCameraRecordingConfig
 
     // Configure camera frame rate
@@ -199,7 +207,9 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       if self.captureFrameCount % self.occupancyFrameInterval == 0 {
         self.occupancySensor?.processPixelBuffer(pixelBuffer)
       }
-      self.encodeFrame(pixelBuffer, pts: pts)
+      if !self.sensorOnly {
+        self.encodeFrame(pixelBuffer, pts: pts)
+      }
     }
     output.setSampleBufferDelegate(delegate, queue: captureQueue)
 
@@ -278,7 +288,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     } else {
       // Cold start — create a new AVCaptureSession from scratch
       session = AVCaptureSession()
-      session.sessionPreset = .hd1920x1080
+      session.sessionPreset = sensorOnly ? .vga640x480 : .hd1920x1080
 
       do {
         let input = try AVCaptureDeviceInput(device: camera)
@@ -346,6 +356,32 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
           connection.videoOrientation = orientation
         }
       }
+    }
+
+    // In sensor-only mode, skip H.264 encoding entirely — just deliver raw frames
+    // to sensor callbacks. This significantly reduces CPU/battery usage.
+    if sensorOnly {
+      let cancelled: Bool = mState.withLockUnchecked { (state: inout State) -> Bool in
+        guard state.captureSession != nil else { return true }
+        state.captureSession = session
+        state.compressionSession = nil
+        return false
+      }
+      if cancelled {
+        logger.info("Monitoring capture start aborted (stop() called concurrently)")
+        return
+      }
+      mState.withLock { $0.videoCaptureDelegate = delegate }
+
+      captureQueue.sync { [self] in
+        encodeFrameCount = 0
+        captureFrameCount = 0
+      }
+      if existingSession == nil {
+        sessionQueue.async { session.startRunning() }
+      }
+      logger.info("Monitoring capture started (sensor-only mode, no encoding)")
+      return
     }
 
     // Swap encoding dimensions when rotated 90°/270° — the capture connection

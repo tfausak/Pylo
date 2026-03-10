@@ -209,6 +209,32 @@ struct ContentView: View {
           flashlightContent
         }
 
+        // Light Sensor
+        AccessoryCard(
+          icon: "light.beacon.max",
+          title: "Light Sensor",
+          isOn: lightSensorEnabled,
+          blocked: !viewModel.hasCamera || viewModel.cameraPermissionDenied,
+          blockedMessage: !viewModel.hasCamera
+            ? "Not available on this device"
+            : viewModel.cameraPermissionDenied ? "Permission denied" : nil
+        ) {
+          lightSensorContent
+        }
+
+        // Occupancy Sensor
+        AccessoryCard(
+          icon: "person.fill.viewfinder",
+          title: "Occupancy Sensor",
+          isOn: occupancyEnabled,
+          blocked: !viewModel.hasCamera || viewModel.cameraPermissionDenied,
+          blockedMessage: !viewModel.hasCamera
+            ? "Not available on this device"
+            : viewModel.cameraPermissionDenied ? "Permission denied" : nil
+        ) {
+          occupancyContent
+        }
+
         // Motion Sensor
         AccessoryCard(
           icon: "figure.walk.motion",
@@ -316,27 +342,6 @@ struct ContentView: View {
       Toggle("Microphone", isOn: microphoneEnabled)
         .tint(viewModel.microphonePermissionDenied ? Color.secondary : nil)
         .disabled(viewModel.microphonePermissionDenied)
-      Toggle("Occupancy Sensor", isOn: $viewModel.occupancyEnabled)
-      if viewModel.occupancyEnabled {
-        HStack {
-          Text("Status")
-            .foregroundStyle(.secondary)
-          Spacer()
-          Text(viewModel.isOccupancyDetected ? "Occupied" : "Unoccupied")
-        }
-        HStack {
-          Text("Cooldown")
-            .foregroundStyle(.secondary)
-          Spacer()
-          Picker("Cooldown", selection: $viewModel.occupancyCooldown) {
-            ForEach(OccupancyCooldown.allCases) { cooldown in
-              Text(cooldown.rawValue).tag(cooldown)
-            }
-          }
-          .labelsHidden()
-          .pickerStyle(.menu)
-        }
-      }
     }
   }
 
@@ -351,6 +356,72 @@ struct ContentView: View {
           ? "On\(viewModel.brightness < 100 ? " · \(viewModel.brightness)%" : "")"
           : "Off"
       )
+    }
+  }
+
+  @ViewBuilder
+  private var lightSensorContent: some View {
+    VStack(spacing: 12) {
+      if viewModel.selectedStreamCamera != nil {
+        HStack {
+          Text("Camera")
+            .foregroundStyle(.secondary)
+          Spacer()
+          Text(viewModel.selectedStreamCamera?.name ?? "")
+        }
+      } else {
+        sensorCameraPicker
+      }
+    }
+  }
+
+  @ViewBuilder
+  private var occupancyContent: some View {
+    VStack(spacing: 12) {
+      HStack {
+        Text("Status")
+          .foregroundStyle(.secondary)
+        Spacer()
+        Text(viewModel.isOccupancyDetected ? "Occupied" : "Unoccupied")
+      }
+      HStack {
+        Text("Cooldown")
+          .foregroundStyle(.secondary)
+        Spacer()
+        Picker("Cooldown", selection: $viewModel.occupancyCooldown) {
+          ForEach(OccupancyCooldown.allCases) { cooldown in
+            Text(cooldown.rawValue).tag(cooldown)
+          }
+        }
+        .labelsHidden()
+        .pickerStyle(.menu)
+      }
+      if viewModel.selectedStreamCamera != nil {
+        HStack {
+          Text("Camera")
+            .foregroundStyle(.secondary)
+          Spacer()
+          Text(viewModel.selectedStreamCamera?.name ?? "")
+        }
+      } else {
+        sensorCameraPicker
+      }
+    }
+  }
+
+  @ViewBuilder
+  private var sensorCameraPicker: some View {
+    HStack {
+      Text("Camera")
+        .foregroundStyle(.secondary)
+      Spacer()
+      Picker("Camera", selection: sensorCameraBinding) {
+        ForEach(viewModel.availableCameras) { camera in
+          Text(camera.name).tag(camera)
+        }
+      }
+      .labelsHidden()
+      .pickerStyle(.menu)
     }
   }
 
@@ -504,6 +575,66 @@ struct ContentView: View {
       },
       set: { viewModel.selectedStreamCamera = $0 }
     )
+  }
+
+  private var lightSensorEnabled: Binding<Bool> {
+    Binding(
+      get: { viewModel.lightSensorEnabled },
+      set: { enabled in
+        if enabled {
+          Task {
+            guard await viewModel.requestCameraPermission() else {
+              viewModel.permissionAlert = .camera
+              return
+            }
+            viewModel.lightSensorEnabled = true
+            ensureSensorCamera()
+          }
+        } else {
+          viewModel.lightSensorEnabled = false
+        }
+      }
+    )
+  }
+
+  private var occupancyEnabled: Binding<Bool> {
+    Binding(
+      get: { viewModel.occupancyEnabled },
+      set: { enabled in
+        if enabled {
+          Task {
+            guard await viewModel.requestCameraPermission() else {
+              viewModel.permissionAlert = .camera
+              return
+            }
+            viewModel.occupancyEnabled = true
+            ensureSensorCamera()
+          }
+        } else {
+          viewModel.occupancyEnabled = false
+        }
+      }
+    )
+  }
+
+  private var sensorCameraBinding: Binding<CameraOption> {
+    Binding(
+      get: {
+        viewModel.sensorCamera ?? viewModel.availableCameras.first
+          ?? CameraOption(id: "", name: "None", fNumber: 0)
+      },
+      set: { viewModel.sensorCamera = $0 }
+    )
+  }
+
+  /// Ensures a sensor camera is selected when enabling a sensor without the camera accessory.
+  private func ensureSensorCamera() {
+    guard viewModel.selectedStreamCamera == nil, viewModel.sensorCamera == nil else { return }
+    viewModel.sensorCamera =
+      viewModel.availableCameras.first {
+        $0.name.localizedCaseInsensitiveContains("back")
+      }
+      ?? viewModel.availableCameras.first
   }
 
   // MARK: - Screen Dimming

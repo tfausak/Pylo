@@ -62,7 +62,9 @@ extension HAPViewModel {
           motionEnabled: motionEnabled,
           microphoneEnabled: vm.microphoneEnabled,
           contactEnabled: contactEnabled,
+          lightSensorEnabled: vm.lightSensorEnabled,
           occupancyEnabled: occupancyEnabled,
+          sensorCameraID: vm.sensorCamera?.id,
           sirenEnabled: sirenEnabled
         )
       } else {

@@ -15,13 +15,16 @@ struct AccessoryConfig: Equatable {
   var motionEnabled: Bool
   var microphoneEnabled: Bool
   var contactEnabled: Bool
+  var lightSensorEnabled: Bool
   var occupancyEnabled: Bool
+  var sensorCameraID: String?
   var sirenEnabled: Bool
 
   init(
     flashlightEnabled: Bool, selectedCameraID: String?,
     motionEnabled: Bool, microphoneEnabled: Bool,
-    contactEnabled: Bool, occupancyEnabled: Bool,
+    contactEnabled: Bool, lightSensorEnabled: Bool,
+    occupancyEnabled: Bool, sensorCameraID: String?,
     sirenEnabled: Bool
   ) {
     self.flashlightEnabled = flashlightEnabled
@@ -29,7 +32,9 @@ struct AccessoryConfig: Equatable {
     self.motionEnabled = motionEnabled
     self.microphoneEnabled = microphoneEnabled
     self.contactEnabled = contactEnabled
+    self.lightSensorEnabled = lightSensorEnabled
     self.occupancyEnabled = occupancyEnabled
+    self.sensorCameraID = sensorCameraID
     self.sirenEnabled = sirenEnabled
   }
 
@@ -39,7 +44,9 @@ struct AccessoryConfig: Equatable {
     motionEnabled = vm.motionEnabled
     microphoneEnabled = vm.microphoneEnabled
     contactEnabled = vm.contactEnabled
+    lightSensorEnabled = vm.lightSensorEnabled
     occupancyEnabled = vm.occupancyEnabled
+    sensorCameraID = vm.sensorCamera?.id
     sirenEnabled = vm.sirenEnabled
   }
 }
@@ -90,9 +97,23 @@ final class HAPViewModel: ObservableObject {
       if let selectedStreamCamera {
         UserDefaults.standard.set(selectedStreamCamera.id, forKey: "selectedStreamCameraID")
         cameraAccessory?.selectedCameraID = selectedStreamCamera.id
+        // Keep sensor camera in sync so sensors use the same camera
+        sensorCamera = selectedStreamCamera
       } else {
         UserDefaults.standard.set("none", forKey: "selectedStreamCameraID")
         cameraAccessory?.selectedCameraID = nil
+      }
+    }
+  }
+  /// Which camera device sensors use when the camera accessory is off.
+  /// Synced from selectedStreamCamera; persisted independently.
+  @Published var sensorCamera: CameraOption? {
+    didSet {
+      guard !isRestoring, oldValue?.id != sensorCamera?.id else { return }
+      if let sensorCamera {
+        UserDefaults.standard.set(sensorCamera.id, forKey: "sensorCameraID")
+      } else {
+        UserDefaults.standard.removeObject(forKey: "sensorCameraID")
       }
     }
   }
@@ -140,6 +161,12 @@ final class HAPViewModel: ObservableObject {
       guard !isRestoring, microphoneEnabled != oldValue else { return }
       UserDefaults.standard.set(microphoneEnabled, forKey: "microphoneEnabled")
       cameraAccessory?.microphoneEnabled = microphoneEnabled
+    }
+  }
+  @Published var lightSensorEnabled: Bool = false {
+    didSet {
+      guard !isRestoring, lightSensorEnabled != oldValue else { return }
+      UserDefaults.standard.set(lightSensorEnabled, forKey: "lightSensorEnabled")
     }
   }
   @Published var occupancyEnabled: Bool = false {
@@ -305,6 +332,8 @@ final class HAPViewModel: ObservableObject {
       isRestoring = true
       if flashlightEnabled { flashlightEnabled = false }
       if selectedStreamCamera != nil { selectedStreamCamera = nil }
+      if lightSensorEnabled { lightSensorEnabled = false }
+      if occupancyEnabled { occupancyEnabled = false }
       isRestoring = false
     }
     let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
@@ -382,6 +411,9 @@ final class HAPViewModel: ObservableObject {
     if UserDefaults.standard.object(forKey: "contactEnabled") != nil {
       contactEnabled = UserDefaults.standard.bool(forKey: "contactEnabled")
     }
+    if UserDefaults.standard.object(forKey: "lightSensorEnabled") != nil {
+      lightSensorEnabled = UserDefaults.standard.bool(forKey: "lightSensorEnabled")
+    }
     if UserDefaults.standard.object(forKey: "occupancyEnabled") != nil {
       occupancyEnabled = UserDefaults.standard.bool(forKey: "occupancyEnabled")
     }
@@ -418,6 +450,21 @@ final class HAPViewModel: ObservableObject {
       // explicitly enables via the toggle (which requests camera permission).
       selectedStreamCamera = nil
     }
+    // Restore sensor camera selection (used when camera accessory is off)
+    if let savedSensorID = UserDefaults.standard.string(forKey: "sensorCameraID") {
+      sensorCamera = cameras.first(where: { $0.id == savedSensorID })
+    } else if let selectedStreamCamera {
+      // Seed from camera selection on first run after upgrade
+      sensorCamera = selectedStreamCamera
+    }
+    // If sensors are enabled but no sensor camera resolved, auto-select the first
+    // available camera so sensors don't silently fail after upgrade or camera changes.
+    if sensorCamera == nil && (lightSensorEnabled || occupancyEnabled),
+      let fallback = cameras.first
+    {
+      sensorCamera = fallback
+      UserDefaults.standard.set(fallback.id, forKey: "sensorCameraID")
+    }
     hasPairings = UserDefaults.standard.bool(forKey: "hasPairings")
     isRestoring = false
 
@@ -443,8 +490,10 @@ final class HAPViewModel: ObservableObject {
       minimumBitrate: videoQuality.minimumBitrate,
       microphoneEnabled: microphoneEnabled,
       contactEnabled: contactEnabled,
-      occupancyEnabled: occupancyEnabled && selectedStreamCamera != nil,
+      lightSensorEnabled: lightSensorEnabled,
+      occupancyEnabled: occupancyEnabled,
       occupancyCooldown: occupancyCooldown.duration,
+      sensorCameraID: sensorCamera?.id,
       sirenEnabled: sirenEnabled
     )
 
@@ -543,7 +592,7 @@ final class HAPViewModel: ObservableObject {
         enabledAccessories.append(setup.motionSensor)
       }
 
-      if config.selectedStreamCameraID != nil {
+      if config.lightSensorEnabled {
         setup.lightSensor.onStateChange = { [weak server = setup.server] aid, iid, value in
           server?.notifySubscribers(aid: aid, iid: iid, value: value)
         }
@@ -777,8 +826,11 @@ private struct StartConfig: Sendable {
   let minimumBitrate: Int
   let microphoneEnabled: Bool
   let contactEnabled: Bool
+  let lightSensorEnabled: Bool
   let occupancyEnabled: Bool
   let occupancyCooldown: TimeInterval
+  /// Camera ID for standalone sensors when the camera accessory is off.
+  let sensorCameraID: String?
   let sirenEnabled: Bool
 }
 
@@ -931,23 +983,41 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     }
   }
 
-  // Ambient light sensor — auto-enabled when camera is enabled, derives lux
-  // from AVCaptureDevice exposure metadata on every frame (internally throttled).
+  // Resolve the camera device for sensors that need it.
+  // When the camera accessory is enabled, use its resolved camera.
+  // Otherwise, resolve from the standalone sensor camera ID.
+  let cameraDeviceForSensors: AVCaptureDevice? = {
+    if config.selectedStreamCameraID != nil {
+      return camera.resolvedCamera
+    }
+    if let sensorID = config.sensorCameraID,
+      let device = AVCaptureDevice(uniqueID: sensorID)
+    {
+      return device
+    }
+    // Fallback to default wide-angle camera if the stored ID is missing or stale
+    return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
+  }()
+
+  // Ambient light sensor — derives lux from AVCaptureDevice exposure metadata
+  // on every frame (internally throttled by MonitoringCaptureSession).
   var ambientLightDetector: AmbientLightDetector?
-  if config.selectedStreamCameraID != nil {
+  if config.lightSensorEnabled, let cameraDevice = cameraDeviceForSensors {
     let detector = AmbientLightDetector()
-    detector.device = camera.resolvedCamera
+    detector.device = cameraDevice
     detector.onLuxChange = { [weak lightSensor] lux in
       lightSensor?.updateLux(lux)
     }
-    camera.ambientLightDetector = detector
+    if config.selectedStreamCameraID != nil {
+      camera.ambientLightDetector = detector
+    }
     ambientLightDetector = detector
     enabledAccessories.append(lightSensor)
   }
 
   // Occupancy sensor — uses Vision framework person detection on camera frames
   var occupancyDetector: OccupancySensor?
-  if config.occupancyEnabled {
+  if config.occupancyEnabled, cameraDeviceForSensors != nil {
     let detector = OccupancySensor()
     detector.cooldown = config.occupancyCooldown
     detector.onOccupancyChange = { [weak occupancySensor] detected in
@@ -995,90 +1065,110 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     }
   }
 
-  // Monitoring capture session for HKSV idle motion detection + fMP4 pre-buffering
+  // Monitoring capture session — needed for HKSV (when camera accessory is on)
+  // and/or standalone sensors (light sensor, occupancy sensor).
+  let needsStandaloneSensors =
+    config.selectedStreamCameraID == nil
+    && (ambientLightDetector != nil || occupancyDetector != nil)
   var monitoringSession: MonitoringCaptureSession?
-  if config.selectedStreamCameraID != nil {
+  if config.selectedStreamCameraID != nil || needsStandaloneSensors {
     let monitoring = MonitoringCaptureSession()
-    monitoring.fragmentWriter = fmp4Writer
     monitoringSession = monitoring
 
-    // Cache a JPEG snapshot from the monitoring session every ~1s so snapshot
-    // requests from Home.app can be answered instantly instead of cold-starting
-    // a new AVCaptureSession (which takes 1-3s and causes "No Response").
-    // JPEG encoding is dispatched off captureQueue to avoid blocking frame
-    // delivery (which would cause dropped frames and affect motion/lux detection).
-    let ciContext = camera.snapshotCIContext
-    let snapshotQueue = DispatchQueue(
-      label: "\(Bundle.main.bundleIdentifier!).snapshot-encode", qos: .utility)
-    monitoring.snapshotCallback = { [weak camera] pixelBuffer in
-      // Dispatch all rendering and JPEG encoding to snapshotQueue to keep
-      // captureQueue unblocked (avoids dropped frames and motion/lux lag).
-      // Swift's closure capture retains the CVPixelBuffer automatically.
-      nonisolated(unsafe) let pixelBuffer = pixelBuffer
-      snapshotQueue.async { [weak camera] in
-        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-          let jpeg = ciContext.jpegRepresentation(of: ciImage, colorSpace: colorSpace, options: [:])
-        else { return }
-        camera?.cachedSnapshot = jpeg
-      }
-    }
+    if config.selectedStreamCameraID != nil {
+      // Full mode: HKSV, fMP4, snapshots, all camera callbacks
+      monitoring.fragmentWriter = fmp4Writer
 
-    camera.onMonitoringCaptureNeeded = {
-      [weak monitoring, weak camera, weak occupancyDetector] needed, existingSession in
-      guard let camera else { return }
-      if needed {
-        monitoring?.videoMotionDetector = camera.videoMotionDetector
-        monitoring?.ambientLightDetector = camera.ambientLightDetector
-        monitoring?.occupancySensor = occupancyDetector
-        monitoring?.audioRecordingEnabled =
-          camera.recordingAudioActive != 0 && camera.microphoneEnabled
-        if let device = camera.resolvedCamera {
-          monitoring?.start(camera: device, existingSession: existingSession)
+      // Cache a JPEG snapshot from the monitoring session every ~1s so snapshot
+      // requests from Home.app can be answered instantly instead of cold-starting
+      // a new AVCaptureSession (which takes 1-3s and causes "No Response").
+      // JPEG encoding is dispatched off captureQueue to avoid blocking frame
+      // delivery (which would cause dropped frames and affect motion/lux detection).
+      let ciContext = camera.snapshotCIContext
+      let snapshotQueue = DispatchQueue(
+        label: "\(Bundle.main.bundleIdentifier!).snapshot-encode", qos: .utility)
+      monitoring.snapshotCallback = { [weak camera] pixelBuffer in
+        nonisolated(unsafe) let pixelBuffer = pixelBuffer
+        snapshotQueue.async { [weak camera] in
+          let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+          guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+            let jpeg = ciContext.jpegRepresentation(
+              of: ciImage, colorSpace: colorSpace, options: [:])
+          else { return }
+          camera?.cachedSnapshot = jpeg
         }
-      } else if occupancyDetector != nil {
-        // HKSV disarmed but occupancy sensor still needs frames — restart
-        // monitoring without HKSV-specific features (motion detection, audio).
-        monitoring?.stop()
-        camera.videoMotionDetector?.reset()
-        monitoring?.videoMotionDetector = nil
-        monitoring?.ambientLightDetector = nil
-        monitoring?.occupancySensor = occupancyDetector
-        monitoring?.audioRecordingEnabled = false
-        if let device = camera.resolvedCamera {
-          monitoring?.start(camera: device, existingSession: existingSession)
-        }
-      } else {
-        monitoring?.stop()
-        camera.videoMotionDetector?.reset()
       }
-    }
 
-    // Auto-start monitoring if recordingActive was restored from a previous session,
-    // or if occupancy sensor is enabled (needs camera frames for person detection).
-    if camera.streamSession == nil,
-      camera.recordingActive != 0 || occupancyDetector != nil
-    {
-      let recordingArmed = camera.recordingActive != 0
-      monitoring.videoMotionDetector = recordingArmed ? camera.videoMotionDetector : nil
-      monitoring.ambientLightDetector = recordingArmed ? camera.ambientLightDetector : nil
+      camera.onMonitoringCaptureNeeded = {
+        [
+          weak monitoring, weak camera, weak occupancyDetector,
+          weak ambientLightDetector
+        ] needed, existingSession in
+        guard let camera else { return }
+        if needed {
+          monitoring?.videoMotionDetector = camera.videoMotionDetector
+          monitoring?.ambientLightDetector = camera.ambientLightDetector ?? ambientLightDetector
+          monitoring?.occupancySensor = occupancyDetector
+          monitoring?.audioRecordingEnabled =
+            camera.recordingAudioActive != 0 && camera.microphoneEnabled
+          if let device = camera.resolvedCamera {
+            monitoring?.start(camera: device, existingSession: existingSession)
+          }
+        } else if occupancyDetector != nil || ambientLightDetector != nil {
+          // HKSV disarmed but sensors still need frames — restart
+          // monitoring without HKSV-specific features (motion detection, audio).
+          monitoring?.stop()
+          camera.videoMotionDetector?.reset()
+          monitoring?.videoMotionDetector = nil
+          monitoring?.ambientLightDetector = ambientLightDetector
+          monitoring?.occupancySensor = occupancyDetector
+          monitoring?.audioRecordingEnabled = false
+          if let device = camera.resolvedCamera {
+            monitoring?.start(camera: device, existingSession: existingSession)
+          }
+        } else {
+          monitoring?.stop()
+          camera.videoMotionDetector?.reset()
+        }
+      }
+
+      // Auto-start monitoring if recordingActive was restored from a previous session,
+      // or if sensors need camera frames.
+      if camera.streamSession == nil,
+        camera.recordingActive != 0 || occupancyDetector != nil || ambientLightDetector != nil
+      {
+        let recordingArmed = camera.recordingActive != 0
+        monitoring.videoMotionDetector = recordingArmed ? camera.videoMotionDetector : nil
+        monitoring.ambientLightDetector =
+          recordingArmed
+          ? (camera.ambientLightDetector ?? ambientLightDetector) : ambientLightDetector
+        monitoring.occupancySensor = occupancyDetector
+        monitoring.audioRecordingEnabled =
+          recordingArmed && camera.recordingAudioActive != 0 && camera.microphoneEnabled
+        if let device = camera.resolvedCamera {
+          monitoring.start(camera: device)
+        }
+      }
+
+      // Restart monitoring when recordingAudioActive changes so audio state takes effect
+      camera.onRecordingAudioActiveChange = { [weak monitoring, weak camera] active in
+        UserDefaults.standard.set(active ? 1 : 0, forKey: "recordingAudioActive")
+        if let camera, camera.recordingActive != 0, camera.streamSession == nil {
+          monitoring?.stop()
+          monitoring?.audioRecordingEnabled = active && camera.microphoneEnabled
+          if let device = camera.resolvedCamera {
+            monitoring?.start(camera: device)
+          }
+        }
+      }
+    } else {
+      // Sensor-only mode: no HKSV, no fMP4, no snapshots — just run sensors
+      monitoring.sensorOnly = true
+      monitoring.ambientLightDetector = ambientLightDetector
       monitoring.occupancySensor = occupancyDetector
-      monitoring.audioRecordingEnabled =
-        recordingArmed && camera.recordingAudioActive != 0 && camera.microphoneEnabled
-      if let device = camera.resolvedCamera {
+      monitoring.audioRecordingEnabled = false
+      if let device = cameraDeviceForSensors {
         monitoring.start(camera: device)
-      }
-    }
-
-    // Restart monitoring when recordingAudioActive changes so audio state takes effect
-    camera.onRecordingAudioActiveChange = { [weak monitoring, weak camera] active in
-      UserDefaults.standard.set(active ? 1 : 0, forKey: "recordingAudioActive")
-      if let camera, camera.recordingActive != 0, camera.streamSession == nil {
-        monitoring?.stop()
-        monitoring?.audioRecordingEnabled = active && camera.microphoneEnabled
-        if let device = camera.resolvedCamera {
-          monitoring?.start(camera: device)
-        }
       }
     }
   }
@@ -1113,15 +1203,21 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     camera?.videoMotionDetector?.reset()
     occupancyDetector?.reset()
   }
-  camera.onSnapshotDidCapture = { [weak monitoringSession, weak camera, weak occupancyDetector] in
-    // Resume monitoring if recording armed or occupancy sensor needs frames + no live stream
+  camera.onSnapshotDidCapture = {
+    [
+      weak monitoringSession, weak camera, weak occupancyDetector,
+      weak ambientLightDetector
+    ] in
+    // Resume monitoring if recording armed or sensors need frames + no live stream
     if let camera, camera.streamSession == nil,
-      camera.recordingActive != 0 || occupancyDetector != nil,
+      camera.recordingActive != 0 || occupancyDetector != nil || ambientLightDetector != nil,
       let device = camera.resolvedCamera
     {
       let recordingArmed = camera.recordingActive != 0
       monitoringSession?.videoMotionDetector = recordingArmed ? camera.videoMotionDetector : nil
-      monitoringSession?.ambientLightDetector = recordingArmed ? camera.ambientLightDetector : nil
+      monitoringSession?.ambientLightDetector =
+        recordingArmed
+        ? (camera.ambientLightDetector ?? ambientLightDetector) : ambientLightDetector
       monitoringSession?.occupancySensor = occupancyDetector
       monitoringSession?.audioRecordingEnabled =
         recordingArmed && camera.recordingAudioActive != 0 && camera.microphoneEnabled
