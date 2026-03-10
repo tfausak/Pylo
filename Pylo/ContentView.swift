@@ -1,5 +1,11 @@
 import SwiftUI
 
+#if os(iOS)
+  import UIKit
+#elseif os(macOS)
+  import AppKit
+#endif
+
 struct ContentView: View {
   @ObservedObject var viewModel: HAPViewModel
   @Environment(\.scenePhase) private var scenePhase
@@ -22,7 +28,7 @@ struct ContentView: View {
         }
         .navigationTitle("Pylo")
         .toolbar {
-          ToolbarItem(placement: .navigationBarTrailing) {
+          ToolbarItem(placement: .primaryAction) {
             statusIndicator
           }
         }
@@ -58,7 +64,9 @@ struct ContentView: View {
         .animation(.default, value: viewModel.needsRestart)
         .animation(.default, value: viewModel.isWaitingForHomeApp)
       }
-      .navigationViewStyle(.stack)
+      #if os(iOS)
+        .navigationViewStyle(.stack)
+      #endif
       .onTapGesture {
         resetDimTimer()
       }
@@ -492,9 +500,15 @@ struct ContentView: View {
   }
 
   private static func openSettings() {
-    if let url = URL(string: UIApplication.openSettingsURLString) {
-      UIApplication.shared.open(url)
-    }
+    #if os(iOS)
+      if let url = URL(string: UIApplication.openSettingsURLString) {
+        UIApplication.shared.open(url)
+      }
+    #elseif os(macOS)
+      if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy") {
+        NSWorkspace.shared.open(url)
+      }
+    #endif
   }
 
   // MARK: - Bindings

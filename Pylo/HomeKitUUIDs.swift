@@ -1,4 +1,6 @@
-import HomeKit
+#if os(iOS)
+  import HomeKit
+#endif
 
 // MARK: - HomeKit UUID Mapping
 //
@@ -132,7 +134,7 @@ nonisolated enum HKCharacteristicUUID {
 /// Called once at startup in debug builds to catch any drift.
 @MainActor
 func verifyHomeKitUUIDs() {
-  #if DEBUG
+  #if DEBUG && os(iOS)
     func check(_ hardcoded: String, _ hmConstant: String, _ label: String) {
       let derived = hapShortUUID(hmConstant)
       assert(hardcoded == derived, "\(label): expected \(derived), got \(hardcoded)")

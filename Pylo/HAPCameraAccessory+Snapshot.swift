@@ -63,7 +63,7 @@ extension HAPCameraAccessory {
     // Rotate to match current device orientation
     let rotation = currentRotation()
     if let connection = videoOutput.connection(with: .video) {
-      if #available(iOS 17.0, *) {
+      if #available(iOS 17.0, macOS 14.0, *) {
         if connection.isVideoRotationAngleSupported(CGFloat(rotation.angle)) {
           connection.videoRotationAngle = CGFloat(rotation.angle)
         }

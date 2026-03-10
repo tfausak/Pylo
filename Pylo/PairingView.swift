@@ -1,20 +1,39 @@
 import SwiftUI
 
+#if os(iOS)
+  import UIKit
+#elseif os(macOS)
+  import AppKit
+#endif
+
 struct PairingView: View {
   var viewModel: HAPViewModel
-  @State private var qrImage: UIImage?
+  #if os(iOS)
+    @State private var qrImage: UIImage?
+  #elseif os(macOS)
+    @State private var qrImage: NSImage?
+  #endif
 
   var body: some View {
     VStack(spacing: 24) {
       Spacer()
 
       if let qr = qrImage {
-        Image(uiImage: qr)
-          .interpolation(.none)
-          .resizable()
-          .scaledToFit()
-          .frame(width: 200, height: 200)
-          .accessibilityLabel("HomeKit setup QR code")
+        #if os(iOS)
+          Image(uiImage: qr)
+            .interpolation(.none)
+            .resizable()
+            .scaledToFit()
+            .frame(width: 200, height: 200)
+            .accessibilityLabel("HomeKit setup QR code")
+        #elseif os(macOS)
+          Image(nsImage: qr)
+            .interpolation(.none)
+            .resizable()
+            .scaledToFit()
+            .frame(width: 200, height: 200)
+            .accessibilityLabel("HomeKit setup QR code")
+        #endif
       } else {
         RoundedRectangle(cornerRadius: 12)
           .fill(.quaternary)

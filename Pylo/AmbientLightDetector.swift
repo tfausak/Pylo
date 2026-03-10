@@ -34,29 +34,31 @@ nonisolated final class AmbientLightDetector {
   /// Called from capture delegate callbacks.
   /// Caller is responsible for throttling (e.g., calling every Nth frame).
   func sample() {
-    guard let device = device else { return }
+    #if os(iOS)
+      guard let device = device else { return }
 
-    let iso = device.iso
-    let duration = Float(CMTimeGetSeconds(device.exposureDuration))
-    guard iso > 0, duration > 0 else { return }
+      let iso = device.iso
+      let duration = Float(CMTimeGetSeconds(device.exposureDuration))
+      guard iso > 0, duration > 0 else { return }
 
-    let aperture = device.lensAperture
-    // EV-based lux estimate: lux = calibration * f^2 / (ISO * t)
-    let rawLux = 12.5 * aperture * aperture / (iso * duration)
-    let lux = min(max(rawLux, 0.0001), 100_000)
+      let aperture = device.lensAperture
+      // EV-based lux estimate: lux = calibration * f^2 / (ISO * t)
+      let rawLux = 12.5 * aperture * aperture / (iso * duration)
+      let lux = min(max(rawLux, 0.0001), 100_000)
 
-    let shouldNotify = state.withLock { s in
-      let previous = s.currentLux
-      s.currentLux = lux
-      if previous == 0 { return true }
-      let ratio = abs(lux - previous) / previous
-      return ratio > 0.1
-    }
+      let shouldNotify = state.withLock { s in
+        let previous = s.currentLux
+        s.currentLux = lux
+        if previous == 0 { return true }
+        let ratio = abs(lux - previous) / previous
+        return ratio > 0.1
+      }
 
-    if shouldNotify {
-      logger.debug("Ambient light: \(lux, format: .fixed(precision: 1)) lux")
-      onLuxChange?(lux)
-    }
+      if shouldNotify {
+        logger.debug("Ambient light: \(lux, format: .fixed(precision: 1)) lux")
+        onLuxChange?(lux)
+      }
+    #endif
   }
 
   func reset() {

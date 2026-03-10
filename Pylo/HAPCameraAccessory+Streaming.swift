@@ -328,7 +328,11 @@ extension HAPCameraAccessory {
     if let id = selectedCameraID, let device = AVCaptureDevice(uniqueID: id) {
       return device
     }
-    return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
+    #if os(iOS)
+      return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
+    #elseif os(macOS)
+      return AVCaptureDevice.default(for: .video)
+    #endif
   }
 
   // MARK: - Utility

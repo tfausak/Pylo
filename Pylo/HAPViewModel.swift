@@ -5,6 +5,13 @@ import FragmentedMP4
 import HAP
 import SwiftUI
 
+#if os(iOS)
+  import UIKit
+#elseif os(macOS)
+  import AppKit
+  import IOKit
+#endif
+
 // MARK: - Accessory Config Snapshot
 
 /// Captures the accessory-enable state at server start so we can detect
@@ -435,8 +442,18 @@ final class HAPViewModel: ObservableObject {
     let cameras = CameraOption.availableCameras()
     availableCameras = cameras
     hasCamera = !cameras.isEmpty
+    #if os(iOS)
+      let discoveryTypes: [AVCaptureDevice.DeviceType] = [
+        .builtInWideAngleCamera, .builtInTelephotoCamera, .builtInUltraWideCamera,
+      ]
+    #elseif os(macOS)
+      var discoveryTypes: [AVCaptureDevice.DeviceType] = [.builtInWideAngleCamera, .external]
+      if #available(macOS 14.0, *) {
+        discoveryTypes.append(.continuityCamera)
+      }
+    #endif
     let discovery = AVCaptureDevice.DiscoverySession(
-      deviceTypes: [.builtInWideAngleCamera, .builtInTelephotoCamera, .builtInUltraWideCamera],
+      deviceTypes: discoveryTypes,
       mediaType: .video,
       position: .unspecified
     )
@@ -482,8 +499,8 @@ final class HAPViewModel: ObservableObject {
 
     // Stage 1: Capture config values on MainActor before leaving isolation.
     let config = StartConfig(
-      serial: UIDevice.current.identifierForVendor?.uuidString ?? "000000",
-      deviceModel: UIDevice.current.model,  // "iPhone", "iPad", etc.
+      serial: deviceSerial(),
+      deviceModel: deviceModelName(),
       flashlightEnabled: flashlightEnabled,
       selectedStreamCameraID: selectedStreamCamera?.id,
       motionEnabled: motionEnabled,
@@ -749,7 +766,9 @@ final class HAPViewModel: ObservableObject {
   }
 
   func updateIdleTimer() {
-    UIApplication.shared.isIdleTimerDisabled = keepScreenAwake && isRunning && hasPairings
+    #if os(iOS)
+      UIApplication.shared.isIdleTimerDisabled = keepScreenAwake && isRunning && hasPairings
+    #endif
   }
 
   @MainActor
@@ -787,7 +806,9 @@ final class HAPViewModel: ObservableObject {
       isWaitingForHomeApp = false
     }
     startedConfig = nil
-    UIApplication.shared.isIdleTimerDisabled = false
+    #if os(iOS)
+      UIApplication.shared.isIdleTimerDisabled = false
+    #endif
     statusMessage = "Stopped"
   }
 
@@ -1259,6 +1280,35 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
   )
 }
 
+// MARK: - Platform Helpers
+
+/// Returns a stable device serial string.
+@MainActor private func deviceSerial() -> String {
+  #if os(iOS)
+    return UIDevice.current.identifierForVendor?.uuidString ?? "000000"
+  #elseif os(macOS)
+    // Use the hardware UUID as a stable identifier
+    let platformExpert = IOServiceGetMatchingService(
+      kIOMainPortDefault, IOServiceMatching("IOPlatformExpertDevice"))
+    defer { IOObjectRelease(platformExpert) }
+    if let uuidCF = IORegistryEntryCreateCFProperty(
+      platformExpert, "IOPlatformUUID" as CFString, kCFAllocatorDefault, 0)
+    {
+      return (uuidCF.takeRetainedValue() as? String) ?? "000000"
+    }
+    return "000000"
+  #endif
+}
+
+/// Returns a human-readable device model name.
+@MainActor private func deviceModelName() -> String {
+  #if os(iOS)
+    return UIDevice.current.model  // "iPhone", "iPad", etc.
+  #elseif os(macOS)
+    return "Mac"
+  #endif
+}
+
 // MARK: - HomeKit QR Code Helpers
 
 /// Build the `X-HM://` setup URI defined by the HAP spec (§8.6.1).
@@ -1290,19 +1340,32 @@ nonisolated func hapSetupURI(
   return "X-HM://\(encoded)\(setupID)"
 }
 
-/// Generate a crisp QR code `UIImage` from a string using CoreImage.
-/// Called from a detached Task (off MainActor). UIImage(cgImage:) is safe
-/// to construct from any thread — only UIView/layer operations require main.
+/// Generate a crisp QR code image from a string using CoreImage.
+/// Called from a detached Task (off MainActor).
 /// CIContext is thread-safe and expensive to create — reuse a single instance.
 nonisolated private let _qrContext = CIContext()
-nonisolated func generateQRCode(from string: String) -> UIImage? {
-  let context = _qrContext
-  let filter = CIFilter.qrCodeGenerator()
-  filter.message = Data(string.utf8)
-  filter.correctionLevel = "M"
-  guard let output = filter.outputImage else { return nil }
-  let scale = CGAffineTransform(scaleX: 10, y: 10)
-  let scaled = output.transformed(by: scale)
-  guard let cgImage = context.createCGImage(scaled, from: scaled.extent) else { return nil }
-  return UIImage(cgImage: cgImage)
-}
+#if os(iOS)
+  nonisolated func generateQRCode(from string: String) -> UIImage? {
+    let context = _qrContext
+    let filter = CIFilter.qrCodeGenerator()
+    filter.message = Data(string.utf8)
+    filter.correctionLevel = "M"
+    guard let output = filter.outputImage else { return nil }
+    let scale = CGAffineTransform(scaleX: 10, y: 10)
+    let scaled = output.transformed(by: scale)
+    guard let cgImage = context.createCGImage(scaled, from: scaled.extent) else { return nil }
+    return UIImage(cgImage: cgImage)
+  }
+#elseif os(macOS)
+  nonisolated func generateQRCode(from string: String) -> NSImage? {
+    let context = _qrContext
+    let filter = CIFilter.qrCodeGenerator()
+    filter.message = Data(string.utf8)
+    filter.correctionLevel = "M"
+    guard let output = filter.outputImage else { return nil }
+    let scale = CGAffineTransform(scaleX: 10, y: 10)
+    let scaled = output.transformed(by: scale)
+    guard let cgImage = context.createCGImage(scaled, from: scaled.extent) else { return nil }
+    return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+  }
+#endif

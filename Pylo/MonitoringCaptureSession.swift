@@ -2,9 +2,12 @@
 import AudioToolbox
 @preconcurrency import CoreMedia
 import FragmentedMP4
-@preconcurrency import UIKit
 import VideoToolbox
 import os
+
+#if os(iOS)
+  @preconcurrency import UIKit
+#endif
 
 /// Lightweight capture-only session for HKSV idle motion detection and fMP4 pre-buffering.
 ///
@@ -349,7 +352,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     // Rotate output to match device orientation.
     let rotationAngle = Self.currentRotationAngle()
     if let connection = output.connection(with: .video) {
-      if #available(iOS 17.0, *) {
+      if #available(iOS 17.0, macOS 14.0, *) {
         if connection.isVideoRotationAngleSupported(CGFloat(rotationAngle)) {
           connection.videoRotationAngle = CGFloat(rotationAngle)
         }
