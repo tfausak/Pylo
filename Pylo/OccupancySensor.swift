@@ -33,6 +33,9 @@ nonisolated final class OccupancySensor: @unchecked Sendable {
   private let detectionQueue = DispatchQueue(
     label: "\(Bundle.main.bundleIdentifier!).occupancy", qos: .utility)
 
+  /// Reused across calls since the detection queue is serial.
+  private let request = VNDetectHumanRectanglesRequest()
+
   /// Guards against overlapping detection requests (previous still running when next frame arrives).
   private let _processing = Locked(initialState: false)
 
@@ -55,22 +58,24 @@ nonisolated final class OccupancySensor: @unchecked Sendable {
     detectionQueue.async { [self] in
       defer { _processing.withLock { $0 = false } }
 
-      let request = VNDetectHumanRectanglesRequest()
-      let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
+      let personDetected: Bool = autoreleasepool {
+        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
 
-      do {
-        try handler.perform([request])
-      } catch {
-        logger.error("[occupancy] failed: \(error)")
-        return
-      }
+        do {
+          try handler.perform([self.request])
+        } catch {
+          self.logger.error("[occupancy] failed: \(error)")
+          return false
+        }
 
-      let results = request.results ?? []
-      let bestConfidence = results.map(\.confidence).max() ?? 0
-      let personDetected = bestConfidence >= 0.5
+        let results = self.request.results ?? []
+        let bestConfidence = results.map(\.confidence).max() ?? 0
 
-      if !results.isEmpty {
-        logger.debug("[occupancy] found \(results.count) results, best confidence is \(bestConfidence, format: .fixed(precision: 3))")
+        if !results.isEmpty {
+          self.logger.debug("[occupancy] found \(results.count) results, best confidence is \(bestConfidence, format: .fixed(precision: 3))")
+        }
+
+        return bestConfidence >= 0.5
       }
 
       if personDetected {

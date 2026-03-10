@@ -914,6 +914,8 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
         // monitoring without HKSV-specific features (motion detection, audio).
         monitoring?.stop()
         camera.videoMotionDetector?.reset()
+        monitoring?.videoMotionDetector = nil
+        monitoring?.ambientLightDetector = nil
         monitoring?.occupancySensor = occupancyDetector
         monitoring?.audioRecordingEnabled = false
         if let device = camera.resolvedCamera {
@@ -930,11 +932,12 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     if camera.streamSession == nil,
       camera.recordingActive != 0 || occupancyDetector != nil
     {
-      monitoring.videoMotionDetector = camera.videoMotionDetector
-      monitoring.ambientLightDetector = camera.ambientLightDetector
+      let recordingArmed = camera.recordingActive != 0
+      monitoring.videoMotionDetector = recordingArmed ? camera.videoMotionDetector : nil
+      monitoring.ambientLightDetector = recordingArmed ? camera.ambientLightDetector : nil
       monitoring.occupancySensor = occupancyDetector
       monitoring.audioRecordingEnabled =
-        camera.recordingAudioActive != 0 && camera.microphoneEnabled
+        recordingArmed && camera.recordingAudioActive != 0 && camera.microphoneEnabled
       if let device = camera.resolvedCamera {
         monitoring.start(camera: device)
       }
@@ -975,11 +978,12 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
       camera.recordingActive != 0 || occupancyDetector != nil,
       let device = camera.resolvedCamera
     {
-      monitoringSession?.videoMotionDetector = camera.videoMotionDetector
-      monitoringSession?.ambientLightDetector = camera.ambientLightDetector
+      let recordingArmed = camera.recordingActive != 0
+      monitoringSession?.videoMotionDetector = recordingArmed ? camera.videoMotionDetector : nil
+      monitoringSession?.ambientLightDetector = recordingArmed ? camera.ambientLightDetector : nil
       monitoringSession?.occupancySensor = occupancyDetector
       monitoringSession?.audioRecordingEnabled =
-        camera.recordingAudioActive != 0 && camera.microphoneEnabled
+        recordingArmed && camera.recordingAudioActive != 0 && camera.microphoneEnabled
       monitoringSession?.start(camera: device)
     }
   }
