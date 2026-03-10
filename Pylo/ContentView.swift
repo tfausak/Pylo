@@ -271,7 +271,7 @@ struct ContentView: View {
         // Display
         AccessoryCard(
           icon: "display",
-          title: "Display",
+          title: "Keep Display On",
           isOn: $viewModel.keepScreenAwake
         ) {
           displayContent
