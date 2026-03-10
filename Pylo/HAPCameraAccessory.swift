@@ -668,8 +668,13 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
         object: nil,
         queue: .main
       ) { _ in
-        let raw = MainActor.assumeIsolated { UIDevice.current.orientation.rawValue }
-        state.withLock { $0 = raw }
+        let orientation = MainActor.assumeIsolated { UIDevice.current.orientation }
+        // Ignore flat and unknown orientations so the cache retains the last
+        // meaningful value. iPads in stands commonly report .faceUp which would
+        // otherwise be treated as portrait, causing upside-down streams (#40).
+        guard orientation != .faceUp, orientation != .faceDown,
+              orientation != .unknown else { return }
+        state.withLock { $0 = orientation.rawValue }
       }
     }()
 
@@ -681,7 +686,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     static func seed() {
       _ = token
       let initial = UIDevice.current.orientation
-      if initial != .unknown {
+      if initial != .unknown, initial != .faceUp, initial != .faceDown {
         state.withLock { $0 = initial.rawValue }
       }
     }
