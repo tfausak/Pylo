@@ -673,7 +673,8 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
         // meaningful value. iPads in stands commonly report .faceUp which would
         // otherwise be treated as portrait, causing upside-down streams (#40).
         guard orientation != .faceUp, orientation != .faceDown,
-              orientation != .unknown else { return }
+          orientation != .unknown
+        else { return }
         state.withLock { $0 = orientation.rawValue }
       }
     }()
