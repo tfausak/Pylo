@@ -172,6 +172,13 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     set { _microphoneEnabled.withLock { $0 = newValue } }
   }
 
+  /// Whether the doorbell service is included in this accessory's HAP database.
+  private let _doorbellEnabled = Locked(initialState: false)
+  var doorbellEnabled: Bool {
+    get { _doorbellEnabled.withLock { $0 } }
+    set { _doorbellEnabled.withLock { $0 = newValue } }
+  }
+
   /// Active streaming session (nil when idle).
   var streamSession: CameraStreamSession? {
     get { streamState.withLock { $0.streamSession } }
@@ -365,6 +372,10 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   static let iidSetupDataStreamTransport = 62
   static let iidDataStreamVersion = 63
 
+  // Doorbell Service (iid 70-71)
+  static let iidDoorbellService = 70
+  static let iidProgrammableSwitchEvent = 71
+
   // MARK: - HAP UUIDs (from HomeKit framework constants)
 
   static let uuidCameraRTPStreamManagement = HKServiceUUID.cameraRTPStreamManagement
@@ -404,6 +415,10 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   static let uuidSupportedDataStreamTransportConfig = "130"
   static let uuidSetupDataStreamTransport = "131"
   static let uuidVersion = HKCharacteristicUUID.version
+
+  // Doorbell UUIDs
+  static let uuidDoorbell = HKServiceUUID.doorbell
+  static let uuidProgrammableSwitchEvent = HKCharacteristicUUID.programmableSwitchEvent
 
   // MARK: - Read Characteristic
 
@@ -468,6 +483,9 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     case BatteryIID.batteryLevel: return batteryState.map { .int($0.level) }
     case BatteryIID.chargingState: return batteryState.map { .int($0.chargingState) }
     case BatteryIID.statusLowBattery: return batteryState.map { .int($0.statusLowBattery) }
+    // Doorbell
+    case Self.iidProgrammableSwitchEvent:
+      return nil  // Event-only characteristic, no readable value
     default: return nil
     }
   }
@@ -589,6 +607,9 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     // DataStream Transport Management
     case Self.iidSetupDataStreamTransport:
       return handleSetupDataStream(value, sharedSecret: sharedSecret)
+    // Doorbell
+    case Self.iidProgrammableSwitchEvent:
+      return false  // Event-only, not writable by controllers
     default:
       return false
     }
@@ -621,6 +642,12 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   func updateMotionDetected(_ detected: Bool) {
     _isMotionDetected.withLock { $0 = detected }
     onStateChange?(aid, Self.iidMotionDetected, .bool(detected))
+  }
+
+  /// Fire a doorbell press event to subscribed HomeKit controllers.
+  func triggerDoorbell() {
+    guard doorbellEnabled else { return }
+    onStateChange?(aid, Self.iidProgrammableSwitchEvent, .int(0))
   }
 
   // MARK: - Streaming Control

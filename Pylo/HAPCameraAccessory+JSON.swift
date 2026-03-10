@@ -216,6 +216,22 @@ extension HAPCameraAccessory {
       ])
     }
 
+    // Doorbell Service (only if enabled)
+    if doorbellEnabled {
+      services.append([
+        "iid": Self.iidDoorbellService,
+        "type": Self.uuidDoorbell,
+        "characteristics": [
+          [
+            "iid": Self.iidProgrammableSwitchEvent,
+            "type": Self.uuidProgrammableSwitchEvent, "format": "uint8",
+            "perms": ["pr", "ev"],
+            "minValue": 0, "maxValue": 0,
+          ]
+        ],
+      ])
+    }
+
     services.append(batteryServiceJSON(state: batteryState))
     return ["aid": aid, "services": services]
   }

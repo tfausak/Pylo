@@ -680,6 +680,84 @@ struct VideoMotionDetectorThreadSafetyTests {
   }
 }
 
+// MARK: - Camera Doorbell Service Tests
+
+@Suite("Camera Doorbell Service")
+struct CameraDoorbellTests {
+
+  private func makeCamera(doorbell: Bool = true) -> HAPCameraAccessory {
+    let cam = HAPCameraAccessory(
+      aid: 3, name: "Test Camera", model: "Test",
+      manufacturer: "Test", serialNumber: "SN-CAM", firmwareRevision: "1.0.0"
+    )
+    cam.doorbellEnabled = doorbell
+    return cam
+  }
+
+  @Test("ProgrammableSwitchEvent reads as nil (event-only)")
+  func eventReadNil() {
+    let cam = makeCamera()
+    #expect(cam.readCharacteristic(iid: HAPCameraAccessory.iidProgrammableSwitchEvent) == nil)
+  }
+
+  @Test("ProgrammableSwitchEvent is not writable")
+  func eventNotWritable() {
+    let cam = makeCamera()
+    #expect(cam.writeCharacteristic(iid: HAPCameraAccessory.iidProgrammableSwitchEvent, value: .int(0)) == false)
+  }
+
+  @Test("triggerDoorbell fires onStateChange with single press event")
+  func triggerFiresEvent() {
+    let cam = makeCamera()
+    var receivedAID: Int?
+    var receivedIID: Int?
+    var receivedValue: HAPValue?
+    cam.onStateChange = { aid, iid, value in
+      receivedAID = aid
+      receivedIID = iid
+      receivedValue = value
+    }
+    cam.triggerDoorbell()
+    #expect(receivedAID == 3)
+    #expect(receivedIID == HAPCameraAccessory.iidProgrammableSwitchEvent)
+    #expect(receivedValue == .int(0))
+  }
+
+  @Test("triggerDoorbell does nothing when doorbell is disabled")
+  func triggerDoesNothingWhenDisabled() {
+    let cam = makeCamera(doorbell: false)
+    var called = false
+    cam.onStateChange = { _, _, _ in called = true }
+    cam.triggerDoorbell()
+    #expect(!called)
+  }
+
+  @Test("toJSON includes doorbell service when enabled")
+  func toJSONIncludesDoorbell() {
+    let cam = makeCamera(doorbell: true)
+    let json = cam.toJSON()
+    let services = json["services"] as! [[String: Any]]
+    let doorbellService = services.first { ($0["type"] as? String) == HKServiceUUID.doorbell }
+    #expect(doorbellService != nil)
+    let chars = doorbellService!["characteristics"] as! [[String: Any]]
+    let eventChar = chars.first { ($0["type"] as? String) == HKCharacteristicUUID.programmableSwitchEvent }
+    #expect(eventChar != nil)
+    let perms = eventChar!["perms"] as! [String]
+    #expect(perms.contains("pr"))
+    #expect(perms.contains("ev"))
+    #expect(!perms.contains("pw"))
+  }
+
+  @Test("toJSON omits doorbell service when disabled")
+  func toJSONOmitsDoorbell() {
+    let cam = makeCamera(doorbell: false)
+    let json = cam.toJSON()
+    let services = json["services"] as! [[String: Any]]
+    let doorbellService = services.first { ($0["type"] as? String) == HKServiceUUID.doorbell }
+    #expect(doorbellService == nil)
+  }
+}
+
 // MARK: - Audio Resampling Tests
 
 @Suite("Audio Resampling")
