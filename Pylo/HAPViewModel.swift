@@ -1083,6 +1083,15 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     }
   }
 
+  // Stop the siren when camera streaming starts — the camera's voiceChat
+  // audio session mode kills the siren's AVAudioEngine and it can't recover.
+  camera.onStreamingStart = { [weak sirenPlayer, weak siren] in
+    if sirenPlayer?.isPlaying == true {
+      sirenPlayer?.stop()
+      siren?.updateOn(false)
+    }
+  }
+
   // Hand off the monitoring session's AVCaptureSession to the stream session
   // for reuse, avoiding the ~500ms cold-start of creating a new one.
   camera.onMonitoringSessionHandoff = {
