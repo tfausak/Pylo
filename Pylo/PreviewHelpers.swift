@@ -17,7 +17,9 @@ extension HAPViewModel {
     needsRestart: Bool = false,
     screenSaverEnabled: Bool = false,
     screenSaverDelay: TimeInterval = 60,
-    keepScreenAwake: Bool = false
+    keepScreenAwake: Bool = false,
+    sirenEnabled: Bool = false,
+    sirenActive: Bool = false
   ) -> HAPViewModel {
     let vm = HAPViewModel(skipRestore: true)
     vm.isRestoring = true
@@ -41,6 +43,8 @@ extension HAPViewModel {
     vm.screenSaverEnabled = screenSaverEnabled
     vm.screenSaverDelay = screenSaverDelay
     vm.keepScreenAwake = keepScreenAwake
+    vm.sirenEnabled = sirenEnabled
+    vm.isSirenActive = sirenActive
     vm.setupCode = "123-45-678"
     vm.setupID = "PYLO"
     vm.statusMessage = "Advertising as 'Pylo Bridge'"
@@ -60,7 +64,8 @@ extension HAPViewModel {
           contactEnabled: contactEnabled,
           lightSensorEnabled: vm.lightSensorEnabled,
           occupancyEnabled: occupancyEnabled,
-          sensorCameraID: vm.sensorCamera?.id
+          sensorCameraID: vm.sensorCamera?.id,
+          sirenEnabled: sirenEnabled
         )
       } else {
         vm.startedConfig = AccessoryConfig(from: vm)

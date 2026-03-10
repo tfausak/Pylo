@@ -70,6 +70,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     var onSnapshotDidCapture: (() -> Void)?
     var onMonitoringCaptureNeeded: ((_ needed: Bool, _ existingSession: AVCaptureSession?) -> Void)?
     var onMonitoringSessionHandoff: (() -> AVCaptureSession?)?
+    var onStreamingStart: (() -> Void)?
     var onVideoMotionChange: ((Bool) -> Void)?
     var onRecordingConfigChange: ((_ active: Bool) -> Void)?
     var onRecordingAudioActiveChange: ((_ active: Bool) -> Void)?
@@ -97,6 +98,10 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   var onMonitoringSessionHandoff: (() -> AVCaptureSession?)? {
     get { _callbacks.withLock { $0.onMonitoringSessionHandoff } }
     set { _callbacks.withLock { $0.onMonitoringSessionHandoff = newValue } }
+  }
+  var onStreamingStart: (() -> Void)? {
+    get { _callbacks.withLock { $0.onStreamingStart } }
+    set { _callbacks.withLock { $0.onStreamingStart = newValue } }
   }
   var onVideoMotionChange: ((Bool) -> Void)? {
     get { _callbacks.withLock { $0.onVideoMotionChange } }
@@ -668,8 +673,14 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
         object: nil,
         queue: .main
       ) { _ in
-        let raw = MainActor.assumeIsolated { UIDevice.current.orientation.rawValue }
-        state.withLock { $0 = raw }
+        let orientation = MainActor.assumeIsolated { UIDevice.current.orientation }
+        // Ignore flat and unknown orientations so the cache retains the last
+        // meaningful value. iPads in stands commonly report .faceUp which would
+        // otherwise be treated as portrait, causing upside-down streams (#40).
+        guard orientation != .faceUp, orientation != .faceDown,
+          orientation != .unknown
+        else { return }
+        state.withLock { $0 = orientation.rawValue }
       }
     }()
 
@@ -681,7 +692,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     static func seed() {
       _ = token
       let initial = UIDevice.current.orientation
-      if initial != .unknown {
+      if initial != .unknown, initial != .faceUp, initial != .faceDown {
         state.withLock { $0 = initial.rawValue }
       }
     }

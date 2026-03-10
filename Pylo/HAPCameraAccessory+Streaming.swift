@@ -275,6 +275,8 @@ extension HAPCameraAccessory {
     // Hand off the monitoring session's AVCaptureSession for reuse if available.
     // This avoids the ~500ms cold-start of creating a new session. If no monitoring
     // session is running, fall back to stopping it and creating a fresh session.
+    onStreamingStart?()
+
     let existingSession = onMonitoringSessionHandoff?()
     if existingSession == nil {
       onMonitoringCaptureNeeded?(false, nil)

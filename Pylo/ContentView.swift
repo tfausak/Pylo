@@ -259,6 +259,15 @@ struct ContentView: View {
           contactContent
         }
 
+        // Siren
+        AccessoryCard(
+          icon: "speaker.wave.3.fill",
+          title: "Siren",
+          isOn: $viewModel.sirenEnabled
+        ) {
+          sirenContent
+        }
+
         // Display
         AccessoryCard(
           icon: "display",
@@ -469,6 +478,16 @@ struct ContentView: View {
           .pickerStyle(.menu)
         }
       }
+    }
+  }
+
+  @ViewBuilder
+  private var sirenContent: some View {
+    HStack {
+      Text("Status")
+        .foregroundStyle(.secondary)
+      Spacer()
+      Text(viewModel.isSirenActive ? "Sounding" : "Off")
     }
   }
 
