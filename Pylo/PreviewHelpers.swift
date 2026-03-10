@@ -58,7 +58,9 @@ extension HAPViewModel {
           motionEnabled: motionEnabled,
           microphoneEnabled: vm.microphoneEnabled,
           contactEnabled: contactEnabled,
-          occupancyEnabled: occupancyEnabled
+          lightSensorEnabled: vm.lightSensorEnabled,
+          occupancyEnabled: occupancyEnabled,
+          sensorCameraID: vm.sensorCamera?.id
         )
       } else {
         vm.startedConfig = AccessoryConfig(from: vm)
