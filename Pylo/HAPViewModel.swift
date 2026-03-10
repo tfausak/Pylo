@@ -19,13 +19,14 @@ struct AccessoryConfig: Equatable {
   var occupancyEnabled: Bool
   var sensorCameraID: String?
   var sirenEnabled: Bool
+  var doorbellEnabled: Bool
 
   init(
     flashlightEnabled: Bool, selectedCameraID: String?,
     motionEnabled: Bool, microphoneEnabled: Bool,
     contactEnabled: Bool, lightSensorEnabled: Bool,
     occupancyEnabled: Bool, sensorCameraID: String?,
-    sirenEnabled: Bool
+    sirenEnabled: Bool, doorbellEnabled: Bool
   ) {
     self.flashlightEnabled = flashlightEnabled
     self.selectedCameraID = selectedCameraID
@@ -36,6 +37,7 @@ struct AccessoryConfig: Equatable {
     self.occupancyEnabled = occupancyEnabled
     self.sensorCameraID = sensorCameraID
     self.sirenEnabled = sirenEnabled
+    self.doorbellEnabled = doorbellEnabled
   }
 
   @MainActor
@@ -49,6 +51,7 @@ struct AccessoryConfig: Equatable {
     occupancyEnabled = vm.occupancyEnabled
     sensorCameraID = vm.sensorCamera?.id
     sirenEnabled = vm.sirenEnabled
+    doorbellEnabled = vm.doorbellEnabled
   }
 }
 
@@ -195,6 +198,12 @@ final class HAPViewModel: ObservableObject {
     didSet {
       guard !isRestoring, sirenEnabled != oldValue else { return }
       UserDefaults.standard.set(sirenEnabled, forKey: "sirenEnabled")
+    }
+  }
+  @Published var doorbellEnabled: Bool = false {
+    didSet {
+      guard !isRestoring, doorbellEnabled != oldValue else { return }
+      UserDefaults.standard.set(doorbellEnabled, forKey: "doorbellEnabled")
     }
   }
   @Published var isSirenActive = false
@@ -426,6 +435,9 @@ final class HAPViewModel: ObservableObject {
     if UserDefaults.standard.object(forKey: "sirenEnabled") != nil {
       sirenEnabled = UserDefaults.standard.bool(forKey: "sirenEnabled")
     }
+    if UserDefaults.standard.object(forKey: "doorbellEnabled") != nil {
+      doorbellEnabled = UserDefaults.standard.bool(forKey: "doorbellEnabled")
+    }
     if UserDefaults.standard.object(forKey: "keepScreenAwake") != nil {
       keepScreenAwake = UserDefaults.standard.bool(forKey: "keepScreenAwake")
     }
@@ -499,7 +511,8 @@ final class HAPViewModel: ObservableObject {
       occupancyEnabled: occupancyEnabled,
       occupancyCooldown: occupancyCooldown.duration,
       sensorCameraID: sensorCamera?.id,
-      sirenEnabled: sirenEnabled
+      sirenEnabled: sirenEnabled,
+      doorbellEnabled: doorbellEnabled
     )
 
     let myGeneration = startGeneration
@@ -816,6 +829,10 @@ final class HAPViewModel: ObservableObject {
     UserDefaults.standard.set(false, forKey: "hasPairings")
     withAnimation { hasPairings = false }
   }
+
+  func ringDoorbell() {
+    cameraAccessory?.triggerDoorbell()
+  }
 }
 
 // MARK: - Server Setup (off MainActor)
@@ -837,6 +854,7 @@ private struct StartConfig: Sendable {
   /// Camera ID for standalone sensors when the camera accessory is off.
   let sensorCameraID: String?
   let sirenEnabled: Bool
+  let doorbellEnabled: Bool
 }
 
 /// Objects created off MainActor, returned to MainActor for callback wiring and UI updates.
@@ -930,6 +948,7 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     camera.selectedCameraID = config.selectedStreamCameraID
     camera.minimumBitrate = config.minimumBitrate
     camera.microphoneEnabled = config.microphoneEnabled
+    camera.doorbellEnabled = config.doorbellEnabled
     camera.hksvEnabled = true
     camera.videoMotionEnabled = true
 
