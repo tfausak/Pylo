@@ -39,6 +39,7 @@ struct ContentView: View {
                 resetDimTimer()
                 viewModel.restart()
               }
+              .accessibilityAddTraits(.isButton)
               .padding(.horizontal)
               .padding(.bottom, 4)
               .transition(.move(edge: .bottom).combined(with: .opacity))
