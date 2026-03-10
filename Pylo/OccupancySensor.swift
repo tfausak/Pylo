@@ -61,37 +61,49 @@ nonisolated final class OccupancySensor: @unchecked Sendable {
       do {
         try handler.perform([request])
       } catch {
-        logger.error("Vision request failed: \(error)")
+        logger.error("[occupancy] failed: \(error)")
         return
       }
 
-      let personDetected = !(request.results?.isEmpty ?? true)
+      let results = request.results ?? []
+      let bestConfidence = results.map(\.confidence).max() ?? 0
+      let personDetected = bestConfidence >= 0.5
+
+      if !results.isEmpty {
+        logger.debug("[occupancy] found \(results.count) results, best confidence is \(bestConfidence, format: .fixed(precision: 3))")
+      }
 
       if personDetected {
-        let shouldNotify = state.withLock { s in
+        let (shouldNotify, cooldown) = state.withLock { s in
           s.lastDetectionDate = Date()
           if !s.isOccupied {
             s.isOccupied = true
-            return true
+            return (true, s.cooldown)
           }
-          return false
+          return (false, s.cooldown)
         }
+        logger.debug("[occupancy] Check: person=yes, cooldown=\(cooldown, format: .fixed(precision: 0))s")
         if shouldNotify {
-          logger.debug("Occupancy detected")
+          logger.debug("[occupancy] occupied, clearing in \(cooldown, format: .fixed(precision: 1)) seconds")
           onOccupancyChange?(true)
         }
       } else {
-        let elapsed: TimeInterval? = state.withLock { s in
-          guard s.isOccupied else { return nil }
+        let (elapsed, remaining, shouldClear): (TimeInterval?, TimeInterval?, Bool) = state.withLock { s in
+          guard s.isOccupied else { return (nil, nil, false) }
           let elapsed = Date().timeIntervalSince(s.lastDetectionDate)
           if elapsed >= s.cooldown {
             s.isOccupied = false
-            return elapsed
+            return (elapsed, 0, true)
           }
-          return nil
+          return (elapsed, s.cooldown - elapsed, false)
         }
-        if let elapsed {
-          logger.debug("Occupancy cleared after \(elapsed, format: .fixed(precision: 0))s")
+        if let remaining {
+          logger.debug("[occupancy] not occupied, clearing in \(remaining, format: .fixed(precision: 1)) seconds")
+        } else {
+          logger.debug("[occupancy] not occupied")
+        }
+        if shouldClear, let elapsed {
+          logger.debug("[occupancy] cleared after \(elapsed, format: .fixed(precision: 1)) seconds")
           onOccupancyChange?(false)
         }
       }
