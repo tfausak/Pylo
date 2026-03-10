@@ -201,7 +201,7 @@ final class HAPViewModel: ObservableObject {
 
   // NOTE: iOS does not offer a background mode suitable for a HAP server.
   // The app cannot run indefinitely in the background, so keeping the screen
-  // awake (opt-in) is the best available workaround to stay reachable.
+  // awake (enabled by default but user-configurable) is the best available workaround to stay reachable.
   @Published var keepScreenAwake: Bool = true {
     didSet {
       guard !isRestoring, keepScreenAwake != oldValue else { return }
