@@ -14,6 +14,7 @@ public enum AccessoryID {
   public static let lightSensor = 4
   public static let motionSensor = 5
   public static let contactSensor = 6
+  public static let occupancySensor = 7
 }
 
 // MARK: - Accessory Category (Table 12-3 in HAP R2 spec)
@@ -552,6 +553,119 @@ public nonisolated final class HAPContactSensorAccessory: HAPAccessoryProtocol,
             "iid": Self.iidContactSensorState,
             "type": Self.uuidContactSensorState, "format": "uint8",
             "perms": ["pr", "ev"], "value": contactState,
+            "minValue": 0, "maxValue": 1,
+          ]
+        ],
+      ],
+    ]
+    services.append(batteryServiceJSON(state: batteryState))
+    return ["aid": aid, "services": services]
+  }
+}
+
+// MARK: - Occupancy Sensor Accessory
+
+/// Standalone occupancy sensor accessory for the bridge.
+/// Uses Vision framework person detection to expose persistent occupied/unoccupied state.
+public nonisolated final class HAPOccupancySensorAccessory: HAPAccessoryProtocol,
+  @unchecked Sendable
+{
+
+  public let aid: Int
+  public let name: String
+  public let model: String
+  public let manufacturer: String
+  public let serialNumber: String
+  public let firmwareRevision: String
+
+  private let _onStateChange = Locked<
+    (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
+  >(initialState: nil)
+  public var onStateChange: (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)? {
+    get { _onStateChange.withLock { $0 } }
+    set { _onStateChange.withLock { $0 = newValue } }
+  }
+
+  /// Shared battery state — nil means no battery, omit battery service.
+  private let _batteryState = Locked<BatteryState?>(initialState: nil)
+  public var batteryState: BatteryState? {
+    get { _batteryState.withLock { $0 } }
+    set { _batteryState.withLock { $0 = newValue } }
+  }
+
+  private let _isOccupancyDetected = Locked(initialState: false)
+  public var isOccupancyDetected: Bool {
+    _isOccupancyDetected.withLock { $0 }
+  }
+
+  public static let iidOccupancySensorService = 8
+  public static let iidOccupancyDetected = 9
+
+  private static let uuidOccupancySensor = "86"  // HMServiceTypeOccupancySensor
+  private static let uuidOccupancyDetected = "71"  // HMCharacteristicTypeOccupancyDetected
+
+  public init(
+    aid: Int,
+    name: String = "Pylo Occupancy Sensor",
+    model: String = "iPhone Occupancy Sensor",
+    manufacturer: String = "Pylo",
+    serialNumber: String = "000001",
+    firmwareRevision: String = "0.1.0"
+  ) {
+    self.aid = aid
+    self.name = name
+    self.model = model
+    self.manufacturer = manufacturer
+    self.serialNumber = serialNumber
+    self.firmwareRevision = firmwareRevision
+  }
+
+  public func updateOccupancyDetected(_ detected: Bool) {
+    _isOccupancyDetected.withLock { $0 = detected }
+    onStateChange?(aid, Self.iidOccupancyDetected, .int(detected ? 1 : 0))
+  }
+
+  public func readCharacteristic(iid: Int) -> HAPValue? {
+    switch iid {
+    case AccessoryInfoIID.manufacturer: return .string(manufacturer)
+    case AccessoryInfoIID.model: return .string(model)
+    case AccessoryInfoIID.name: return .string(name)
+    case AccessoryInfoIID.serialNumber: return .string(serialNumber)
+    case AccessoryInfoIID.firmwareRevision: return .string(firmwareRevision)
+    case ProtocolInfoIID.version: return .string(hapProtocolVersion)
+    case Self.iidOccupancyDetected: return .int(isOccupancyDetected ? 1 : 0)
+    case BatteryIID.batteryLevel: return batteryState.map { .int($0.level) }
+    case BatteryIID.chargingState: return batteryState.map { .int($0.chargingState) }
+    case BatteryIID.statusLowBattery: return batteryState.map { .int($0.statusLowBattery) }
+    default: return nil
+    }
+  }
+
+  @discardableResult
+  public func writeCharacteristic(iid: Int, value: HAPValue, sharedSecret: SharedSecret? = nil)
+    -> Bool
+  {
+    if iid == AccessoryInfoIID.identify {
+      identify()
+      return true
+    }
+    return false
+  }
+
+  public func identify() {}
+
+  public func toJSON() -> [String: Any] {
+    var services: [[String: Any]] = [
+      accessoryInformationServiceJSON(),
+      protocolInformationServiceJSON(),
+      [
+        "iid": Self.iidOccupancySensorService,
+        "type": Self.uuidOccupancySensor,
+        "characteristics": [
+          [
+            "iid": Self.iidOccupancyDetected,
+            "type": Self.uuidOccupancyDetected, "format": "uint8",
+            "perms": ["pr", "ev"], "value": isOccupancyDetected ? 1 : 0,
             "minValue": 0, "maxValue": 1,
           ]
         ],

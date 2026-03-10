@@ -30,6 +30,14 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     set { _ambientLightDetector.withLock { $0 = newValue } }
   }
 
+  /// Optional occupancy sensor — called every `occupancyFrameInterval` frames.
+  /// Protected: written from server queue, read from captureQueue.
+  private let _occupancySensor = Locked<OccupancySensor?>(initialState: nil)
+  var occupancySensor: OccupancySensor? {
+    get { _occupancySensor.withLock { $0 } }
+    set { _occupancySensor.withLock { $0 = newValue } }
+  }
+
   /// Optional fMP4 writer for HKSV recording — feeds encoded H.264 samples.
   /// Protected: written from server queue, read from VT output handler and start/stop.
   private let _fragmentWriter = Locked<FragmentedMP4Writer?>(initialState: nil)
@@ -67,6 +75,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   private let motionFrameInterval = 15
   private let luxFrameInterval = 60
   private let snapshotFrameInterval = 30
+  private let occupancyFrameInterval = 75  // ~2.5s at 30fps
 
   /// Callback to periodically provide a pixel buffer for snapshot caching.
   /// Called every ~1 second on the captureQueue. The receiver should JPEG-encode
@@ -186,6 +195,9 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       }
       if self.captureFrameCount % self.snapshotFrameInterval == 0 {
         self.snapshotCallback?(pixelBuffer)
+      }
+      if self.captureFrameCount % self.occupancyFrameInterval == 0 {
+        self.occupancySensor?.processPixelBuffer(pixelBuffer)
       }
       self.encodeFrame(pixelBuffer, pts: pts)
     }

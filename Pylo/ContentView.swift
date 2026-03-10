@@ -304,6 +304,27 @@ struct ContentView: View {
       Toggle("Microphone", isOn: microphoneEnabled)
         .tint(viewModel.microphonePermissionDenied ? Color.secondary : nil)
         .disabled(viewModel.microphonePermissionDenied)
+      Toggle("Occupancy Sensor", isOn: $viewModel.occupancyEnabled)
+      if viewModel.occupancyEnabled {
+        HStack {
+          Text("Status")
+            .foregroundStyle(.secondary)
+          Spacer()
+          Text(viewModel.isOccupancyDetected ? "Occupied" : "Unoccupied")
+        }
+        HStack {
+          Text("Cooldown")
+            .foregroundStyle(.secondary)
+          Spacer()
+          Picker("Cooldown", selection: $viewModel.occupancyCooldown) {
+            ForEach(OccupancyCooldown.allCases) { cooldown in
+              Text(cooldown.rawValue).tag(cooldown)
+            }
+          }
+          .labelsHidden()
+          .pickerStyle(.menu)
+        }
+      }
     }
   }
 

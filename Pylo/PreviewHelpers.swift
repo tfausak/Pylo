@@ -12,6 +12,8 @@ extension HAPViewModel {
     cameraStreaming: Bool = false,
     contactEnabled: Bool = false,
     contactDetected: Bool = false,
+    occupancyEnabled: Bool = false,
+    occupancyDetected: Bool = false,
     needsRestart: Bool = false,
     screenSaverEnabled: Bool = false,
     screenSaverDelay: TimeInterval = 60,
@@ -34,6 +36,8 @@ extension HAPViewModel {
     vm.contactEnabled = contactEnabled
     vm.isContactDetected = contactDetected
     vm.hasProximity = true
+    vm.occupancyEnabled = occupancyEnabled
+    vm.isOccupancyDetected = occupancyDetected
     vm.screenSaverEnabled = screenSaverEnabled
     vm.screenSaverDelay = screenSaverDelay
     vm.keepScreenAwake = keepScreenAwake
@@ -53,7 +57,8 @@ extension HAPViewModel {
           selectedCameraID: vm.selectedStreamCamera?.id,
           motionEnabled: motionEnabled,
           microphoneEnabled: vm.microphoneEnabled,
-          contactEnabled: contactEnabled
+          contactEnabled: contactEnabled,
+          occupancyEnabled: occupancyEnabled
         )
       } else {
         vm.startedConfig = AccessoryConfig(from: vm)
