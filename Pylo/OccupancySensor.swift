@@ -138,21 +138,33 @@ nonisolated final class OccupancySensor: @unchecked Sendable {
     timer.schedule(deadline: .now() + delay)
     timer.setEventHandler { [weak self] in
       guard let self else { return }
+      var remainingDelay: TimeInterval?
       let shouldClear = self.state.withLock { s -> Bool in
         guard s.isOccupied else { return false }
         let elapsed = Date().timeIntervalSince(s.lastDetectionDate)
-        guard elapsed >= s.cooldown else { return false }
-        s.isOccupied = false
-        return true
+        if elapsed >= s.cooldown {
+          s.isOccupied = false
+          return true
+        }
+        // Cooldown increased or not yet elapsed; reschedule for remaining time.
+        remainingDelay = s.cooldown - elapsed
+        return false
       }
       if shouldClear {
         self.logger.debug("[occupancy] cooldown timer fired, clearing occupancy")
         self.onOccupancyChange?(false)
+        self._cooldownTimer.withLock { $0 = nil }
+      } else if let delay = remainingDelay {
+        self.logger.debug("[occupancy] cooldown not yet elapsed, rescheduling in \(delay, privacy: .public)s")
+        self.scheduleCooldownTimer(delay: delay)
+      } else {
+        self._cooldownTimer.withLock { $0 = nil }
       }
-      self._cooldownTimer.withLock { $0 = nil }
     }
-    _cooldownTimer.withLock { $0 = timer }
+    // Resume before storing so the timer is never in a suspended+visible state
+    // where another thread could cancel it while suspended (which would crash).
     timer.resume()
+    _cooldownTimer.withLock { $0 = timer }
   }
 
   private func cancelCooldownTimer() {
@@ -163,11 +175,14 @@ nonisolated final class OccupancySensor: @unchecked Sendable {
   }
 
   /// Reset state (call when stopping detection).
+  /// Dispatches onto detectionQueue so timer cancel/resume can't race.
   func reset() {
-    cancelCooldownTimer()
-    state.withLock { s in
-      s.isOccupied = false
-      s.lastDetectionDate = .distantPast
+    detectionQueue.async { [self] in
+      cancelCooldownTimer()
+      state.withLock { s in
+        s.isOccupied = false
+        s.lastDetectionDate = .distantPast
+      }
     }
   }
 }
