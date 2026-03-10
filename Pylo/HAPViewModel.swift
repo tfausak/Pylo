@@ -1038,13 +1038,13 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
       // Sync the HAP state if the siren stops externally
       if !active { siren?.updateOn(false) }
     }
-    siren.onSirenActivate = { [weak player, weak camera] on in
+    siren.onSirenActivate = { [weak player, weak camera, weak siren] on in
       if on {
         // Don't start the siren while the camera is streaming — the siren's
         // .playAndRecord audio session would clobber the camera's .voiceChat
         // session, breaking stream audio.
         guard camera?.streamSession == nil else {
-          siren.updateOn(false)
+          siren?.updateOn(false)
           return
         }
         player?.start()
