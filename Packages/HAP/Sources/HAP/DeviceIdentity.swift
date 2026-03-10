@@ -5,7 +5,7 @@ import os
 // MARK: - Device Identity
 // The accessory's long-term Ed25519 key pair and device ID.
 
-public nonisolated final class DeviceIdentity: @unchecked Sendable {
+public final class DeviceIdentity: @unchecked Sendable {
 
   private static let logger = Logger(subsystem: logSubsystem, category: "Identity")
 

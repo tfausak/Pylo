@@ -9,7 +9,7 @@ let logSubsystem = "me.fausak.taylor.Pylo"
 // After pair-verify succeeds, this handles encrypting/decrypting HAP frames
 // using ChaCha20-Poly1305 with incrementing nonce counters.
 
-public nonisolated final class EncryptionContext: @unchecked Sendable {
+public final class EncryptionContext: @unchecked Sendable {
 
   private let readKey: SymmetricKey  // Controller-to-Accessory
   private let writeKey: SymmetricKey  // Accessory-to-Controller
@@ -120,7 +120,7 @@ public nonisolated final class EncryptionContext: @unchecked Sendable {
 /// All mutable properties are accessed exclusively on the HAP server queue
 /// (via `HAPConnection.pairSetupState`). The class is `@unchecked Sendable`
 /// because queue affinity provides the concurrency guarantee.
-public nonisolated final class PairSetupSession: @unchecked Sendable {
+public final class PairSetupSession: @unchecked Sendable {
   /// Explicit state machine phase to prevent out-of-order messages.
   public enum Phase {
     case awaitingM3  // M1 processed, waiting for client proof
@@ -145,7 +145,7 @@ public nonisolated final class PairSetupSession: @unchecked Sendable {
 /// All mutable properties are accessed exclusively on the HAP server queue
 /// (via `HAPConnection.pairVerifyState`). The class is `@unchecked Sendable`
 /// because queue affinity provides the concurrency guarantee.
-public nonisolated final class PairVerifySession: @unchecked Sendable {
+public final class PairVerifySession: @unchecked Sendable {
   public var sharedSecret: SharedSecret?
   /// Raw bytes of the accessory's ephemeral public key (sent in M2).
   /// Only the public key is retained — the private key is discarded after

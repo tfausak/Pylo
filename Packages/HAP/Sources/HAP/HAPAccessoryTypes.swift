@@ -20,7 +20,7 @@ public enum AccessoryID {
 
 // MARK: - Accessory Category (Table 12-3 in HAP R2 spec)
 
-public nonisolated enum HAPAccessoryCategory: Int, Sendable {
+public enum HAPAccessoryCategory: Int, Sendable {
   case other = 1
   case bridge = 2
   case fan = 3
@@ -42,7 +42,7 @@ public nonisolated enum HAPAccessoryCategory: Int, Sendable {
 // MARK: - Type-safe Characteristic Value
 
 /// Type-safe wrapper for HAP characteristic values, replacing untyped `Any`.
-public nonisolated enum HAPValue: Equatable, Sendable {
+public enum HAPValue: Equatable, Sendable {
   case bool(Bool)
   case int(Int)
   case float(Double)
@@ -86,7 +86,7 @@ public nonisolated enum HAPValue: Equatable, Sendable {
 /// with manual lock protection. This is intentional — Swift protocols cannot have stored
 /// properties, and a base class would force a class hierarchy that's worse than the 4-line
 /// boilerplate each conformer duplicates (Locked + computed get/set).
-public nonisolated protocol HAPAccessoryProtocol: AnyObject {
+public protocol HAPAccessoryProtocol: AnyObject {
   var aid: Int { get }
   var name: String { get }
   var model: String { get }
@@ -110,7 +110,7 @@ public nonisolated protocol HAPAccessoryProtocol: AnyObject {
 /// These values match the HomeKit framework constants (HMServiceTypeAccessoryInformation,
 /// HMCharacteristicTypeIdentify, etc.) but are hardcoded here because the HAP package
 /// cannot import HomeKit. The app target verifies them via HomeKitUUIDs.swift.
-public nonisolated enum HAPUUID {
+public enum HAPUUID {
   public static let accessoryInformation = "3E"  // HMServiceTypeAccessoryInformation
   public static let identify = "14"  // HMCharacteristicTypeIdentify
   public static let manufacturer = "20"  // HMCharacteristicTypeManufacturer
@@ -123,7 +123,7 @@ public nonisolated enum HAPUUID {
 // MARK: - Shared Accessory Information IIDs
 
 /// Instance IDs for the Accessory Information service, shared by all accessories.
-public nonisolated enum AccessoryInfoIID {
+public enum AccessoryInfoIID {
   public static let service = 1
   public static let identify = 2
   public static let manufacturer = 3
@@ -137,13 +137,13 @@ public nonisolated enum AccessoryInfoIID {
 
 /// IIDs for the HAP Protocol Information service, shared by all accessories.
 /// Uses IIDs 110-111 to avoid conflicts with other shared services (Battery is 100-103).
-public nonisolated enum ProtocolInfoIID {
+public enum ProtocolInfoIID {
   public static let service = 110
   public static let version = 111
 }
 
 /// HAP short-form UUIDs for the Protocol Information service.
-public nonisolated enum ProtocolInfoUUID {
+public enum ProtocolInfoUUID {
   public static let service = "A2"  // HAP Protocol Information
   public static let version = "37"  // Version characteristic
 }
@@ -156,7 +156,7 @@ public let hapProtocolVersion = "1.1.0"
 
 /// Instance IDs for the Battery Service, shared by all accessories.
 /// IIDs 100-103 are safely above all current accessory IIDs.
-public nonisolated enum BatteryIID {
+public enum BatteryIID {
   public static let service = 100
   public static let batteryLevel = 101
   public static let chargingState = 102
@@ -165,7 +165,7 @@ public nonisolated enum BatteryIID {
 
 /// HAP short-form UUIDs for the Battery Service and its characteristics.
 /// Values match HomeKit constants (HMServiceTypeBattery, HMCharacteristicTypeBatteryLevel, etc.).
-public nonisolated enum BatteryUUID {
+public enum BatteryUUID {
   public static let service = "96"  // HMServiceTypeBattery
   public static let level = "68"  // HMCharacteristicTypeBatteryLevel
   public static let chargingState = "8F"  // HMCharacteristicTypeChargingState
@@ -269,7 +269,7 @@ extension HAPAccessoryProtocol {
 
 /// Lightweight accessory representing the bridge itself (aid=1).
 /// Exposes the Accessory Information and Protocol Information services.
-public nonisolated final class HAPBridgeInfo: HAPAccessoryProtocol, @unchecked Sendable {
+public final class HAPBridgeInfo: HAPAccessoryProtocol, @unchecked Sendable {
 
   public let aid: Int = 1
   public let name: String
@@ -342,7 +342,7 @@ public nonisolated final class HAPBridgeInfo: HAPAccessoryProtocol, @unchecked S
 
 /// Standalone siren accessory for the bridge.
 /// Uses the HAP Switch service — when turned on, the siren plays; when off, it stops.
-public nonisolated final class HAPSirenAccessory: HAPAccessoryProtocol, @unchecked Sendable {
+public final class HAPSirenAccessory: HAPAccessoryProtocol, @unchecked Sendable {
 
   public let aid: Int
   public let name: String
@@ -479,7 +479,7 @@ public nonisolated final class HAPSirenAccessory: HAPAccessoryProtocol, @uncheck
 // MARK: - Motion Sensor Accessory
 
 /// Standalone motion sensor accessory for the bridge.
-public nonisolated final class HAPMotionSensorAccessory: HAPAccessoryProtocol, @unchecked Sendable {
+public final class HAPMotionSensorAccessory: HAPAccessoryProtocol, @unchecked Sendable {
 
   public let aid: Int
   public let name: String
@@ -589,7 +589,7 @@ public nonisolated final class HAPMotionSensorAccessory: HAPAccessoryProtocol, @
 
 /// Standalone contact sensor accessory for the bridge.
 /// Uses the iPhone's proximity sensor to detect open/close state.
-public nonisolated final class HAPContactSensorAccessory: HAPAccessoryProtocol,
+public final class HAPContactSensorAccessory: HAPAccessoryProtocol,
   @unchecked Sendable
 {
 
@@ -706,7 +706,7 @@ public nonisolated final class HAPContactSensorAccessory: HAPAccessoryProtocol,
 
 /// Standalone occupancy sensor accessory for the bridge.
 /// Uses Vision framework person detection to expose persistent occupied/unoccupied state.
-public nonisolated final class HAPOccupancySensorAccessory: HAPAccessoryProtocol,
+public final class HAPOccupancySensorAccessory: HAPAccessoryProtocol,
   @unchecked Sendable
 {
 
@@ -818,7 +818,7 @@ public nonisolated final class HAPOccupancySensorAccessory: HAPAccessoryProtocol
 // MARK: - Light Sensor Accessory
 
 /// Standalone ambient light sensor accessory for the bridge.
-public nonisolated final class HAPLightSensorAccessory: HAPAccessoryProtocol, @unchecked Sendable {
+public final class HAPLightSensorAccessory: HAPAccessoryProtocol, @unchecked Sendable {
 
   public let aid: Int
   public let name: String

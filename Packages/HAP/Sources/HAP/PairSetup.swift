@@ -14,7 +14,7 @@ import os
 // MARK: - Pair Setup Rate Limiting
 // HAP spec §5.6.1: After 100 failed attempts, only process attempts every 30 seconds.
 
-public nonisolated final class PairSetupThrottle: @unchecked Sendable {
+public final class PairSetupThrottle: @unchecked Sendable {
 
   /// Number of failed attempts before throttling kicks in.
   public static let maxAttempts = 100
@@ -73,7 +73,7 @@ public nonisolated final class PairSetupThrottle: @unchecked Sendable {
   }
 }
 
-public nonisolated enum PairSetupHandler {
+public enum PairSetupHandler {
 
   private static let logger = Logger(subsystem: logSubsystem, category: "PairSetup")
 

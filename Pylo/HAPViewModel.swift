@@ -38,6 +38,7 @@ struct AccessoryConfig: Equatable {
     self.sirenEnabled = sirenEnabled
   }
 
+  @MainActor
   init(from vm: HAPViewModel) {
     flashlightEnabled = vm.flashlightEnabled
     selectedCameraID = vm.selectedStreamCamera?.id

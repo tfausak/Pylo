@@ -6,7 +6,7 @@ import os
 // Handles POST /pairings for adding, removing, and listing pairings.
 // This endpoint is only accessible over an encrypted (pair-verified) session.
 
-public nonisolated enum PairingsHandler {
+public enum PairingsHandler {
 
   private static let logger = Logger(subsystem: logSubsystem, category: "Pairings")
 

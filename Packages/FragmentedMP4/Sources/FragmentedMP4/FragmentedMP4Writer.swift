@@ -22,7 +22,7 @@ public struct MP4Fragment: Sendable {
 
 /// Thread-safe circular buffer holding the most recent fMP4 fragments for prebuffering.
 /// Uses index-based overwrite for O(1) append instead of O(n) removeFirst.
-public nonisolated final class FragmentRingBuffer: @unchecked Sendable {
+public final class FragmentRingBuffer: @unchecked Sendable {
 
   private let capacity: Int
 
@@ -95,7 +95,7 @@ private struct VideoSample {
 /// constructing moof+mdat boxes (ISO 14496-12). AVAssetWriter on iOS does not
 /// produce fragmented MP4 regardless of movieFragmentInterval, so we bypass it
 /// entirely and build the ISO BMFF boxes from raw CMSampleBuffer data.
-public nonisolated final class FragmentedMP4Writer: @unchecked Sendable {
+public final class FragmentedMP4Writer: @unchecked Sendable {
 
   /// Ring buffer holding completed fragments for HKSV prebuffering.
   public let ringBuffer = FragmentRingBuffer(capacity: 6)

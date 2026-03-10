@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Minimal HTTP Response
 
-public nonisolated struct HTTPResponse: Sendable {
+public struct HTTPResponse: Sendable {
   public let status: Int
   public let body: Data?
   public let contentType: String

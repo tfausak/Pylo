@@ -12,7 +12,7 @@ import os
 //   - Password: the setup code (e.g. "111-22-333")
 
 /// SRP-6a server session for HAP pair-setup.
-public nonisolated final class SRPServer {
+public final class SRPServer {
 
   // MARK: - 3072-bit SRP Group (RFC 5054, Appendix A)
 

@@ -9,7 +9,7 @@ import os
 // Before pairing is verified, HTTP is plaintext. After pair-verify completes,
 // all HTTP traffic is encrypted with ChaCha20-Poly1305.
 
-public nonisolated final class HAPConnection: @unchecked Sendable {
+public final class HAPConnection: @unchecked Sendable {
 
   public let id: String
   private let connection: NWConnection

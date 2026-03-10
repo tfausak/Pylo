@@ -11,7 +11,7 @@ import os
 // approach is pragmatic here since serialization is infrequent (once per
 // request) and JSONSerialization is well-optimized.
 
-public nonisolated enum CharacteristicsHandler {
+public enum CharacteristicsHandler {
 
   private static let logger = Logger(
     subsystem: logSubsystem, category: "Characteristics")
