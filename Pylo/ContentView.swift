@@ -59,8 +59,11 @@ struct ContentView: View {
         .animation(.default, value: viewModel.isWaitingForHomeApp)
       }
       .navigationViewStyle(.stack)
+      .onTapGesture {
+        resetDimTimer()
+      }
       .simultaneousGesture(
-        DragGesture(minimumDistance: 0)
+        DragGesture(minimumDistance: 10)
           .onChanged { _ in
             guard !isDimTimerResetPending else { return }
             isDimTimerResetPending = true
