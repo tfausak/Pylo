@@ -155,7 +155,8 @@ nonisolated final class OccupancySensor: @unchecked Sendable {
         self.onOccupancyChange?(false)
         self._cooldownTimer.withLock { $0 = nil }
       } else if let delay = remainingDelay {
-        self.logger.debug("[occupancy] cooldown not yet elapsed, rescheduling in \(delay, privacy: .public)s")
+        self.logger.debug(
+          "[occupancy] cooldown not yet elapsed, rescheduling in \(delay, privacy: .public)s")
         self.scheduleCooldownTimer(delay: delay)
       } else {
         self._cooldownTimer.withLock { $0 = nil }
