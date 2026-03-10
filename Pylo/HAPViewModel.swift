@@ -208,15 +208,15 @@ final class HAPViewModel: ObservableObject {
 
   // NOTE: iOS does not offer a background mode suitable for a HAP server.
   // The app cannot run indefinitely in the background, so keeping the screen
-  // awake (opt-in) is the best available workaround to stay reachable.
-  @Published var keepScreenAwake: Bool = false {
+  // awake (enabled by default but user-configurable) is the best available workaround to stay reachable.
+  @Published var keepScreenAwake: Bool = true {
     didSet {
       guard !isRestoring, keepScreenAwake != oldValue else { return }
       UserDefaults.standard.set(keepScreenAwake, forKey: "keepScreenAwake")
       updateIdleTimer()
     }
   }
-  @Published var screenSaverEnabled: Bool = false {
+  @Published var screenSaverEnabled: Bool = true {
     didSet {
       guard !isRestoring, screenSaverEnabled != oldValue else { return }
       UserDefaults.standard.set(screenSaverEnabled, forKey: "screenSaverEnabled")
@@ -433,8 +433,12 @@ final class HAPViewModel: ObservableObject {
     if UserDefaults.standard.object(forKey: "sirenEnabled") != nil {
       sirenEnabled = UserDefaults.standard.bool(forKey: "sirenEnabled")
     }
-    keepScreenAwake = UserDefaults.standard.bool(forKey: "keepScreenAwake")
-    screenSaverEnabled = UserDefaults.standard.bool(forKey: "screenSaverEnabled")
+    if UserDefaults.standard.object(forKey: "keepScreenAwake") != nil {
+      keepScreenAwake = UserDefaults.standard.bool(forKey: "keepScreenAwake")
+    }
+    if UserDefaults.standard.object(forKey: "screenSaverEnabled") != nil {
+      screenSaverEnabled = UserDefaults.standard.bool(forKey: "screenSaverEnabled")
+    }
     let savedDelay = UserDefaults.standard.double(forKey: "screenSaverDelay")
     if savedDelay > 0 { screenSaverDelay = savedDelay }
 
