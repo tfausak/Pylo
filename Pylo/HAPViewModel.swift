@@ -441,6 +441,14 @@ final class HAPViewModel: ObservableObject {
       // Seed from camera selection on first run after upgrade
       sensorCamera = selectedStreamCamera
     }
+    // If sensors are enabled but no sensor camera resolved, auto-select the first
+    // available camera so sensors don't silently fail after upgrade or camera changes.
+    if sensorCamera == nil && (lightSensorEnabled || occupancyEnabled),
+      let fallback = cameras.first
+    {
+      sensorCamera = fallback
+      UserDefaults.standard.set(fallback.id, forKey: "sensorCameraID")
+    }
     hasPairings = UserDefaults.standard.bool(forKey: "hasPairings")
     isRestoring = false
 
@@ -937,8 +945,13 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     if config.selectedStreamCameraID != nil {
       return camera.resolvedCamera
     }
-    guard let sensorID = config.sensorCameraID else { return nil }
-    return AVCaptureDevice(uniqueID: sensorID)
+    if let sensorID = config.sensorCameraID,
+      let device = AVCaptureDevice(uniqueID: sensorID)
+    {
+      return device
+    }
+    // Fallback to default wide-angle camera if the stored ID is missing or stale
+    return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
   }()
 
   // Ambient light sensor — derives lux from AVCaptureDevice exposure metadata
@@ -1090,6 +1103,7 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
       }
     } else {
       // Sensor-only mode: no HKSV, no fMP4, no snapshots — just run sensors
+      monitoring.sensorOnly = true
       monitoring.ambientLightDetector = ambientLightDetector
       monitoring.occupancySensor = occupancyDetector
       monitoring.audioRecordingEnabled = false
