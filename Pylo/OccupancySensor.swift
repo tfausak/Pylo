@@ -39,6 +39,10 @@ nonisolated final class OccupancySensor: @unchecked Sendable {
   /// Guards against overlapping detection requests (previous still running when next frame arrives).
   private let _processing = Locked(initialState: false)
 
+  /// Timer that fires after the cooldown expires to clear occupancy even when
+  /// no camera frames are being delivered (e.g. app backgrounded, snapshot capture).
+  private let _cooldownTimer = Locked<DispatchSourceTimer?>(initialState: nil)
+
   init() {}
 
   /// Process a pixel buffer for person detection.
@@ -96,6 +100,9 @@ nonisolated final class OccupancySensor: @unchecked Sendable {
             "[occupancy] occupied, clearing in \(cooldown, format: .fixed(precision: 1)) seconds")
           onOccupancyChange?(true)
         }
+        // Schedule/reschedule the cooldown timer so occupancy clears even if
+        // camera frames stop (backgrounding, snapshot capture, handoff).
+        scheduleCooldownTimer(delay: cooldown)
       } else {
         let (elapsed, remaining, shouldClear): (TimeInterval?, TimeInterval?, Bool) = state.withLock
         { s in
@@ -115,6 +122,7 @@ nonisolated final class OccupancySensor: @unchecked Sendable {
           logger.debug("[occupancy] not occupied")
         }
         if shouldClear, let elapsed {
+          cancelCooldownTimer()
           logger.debug("[occupancy] cleared after \(elapsed, format: .fixed(precision: 1)) seconds")
           onOccupancyChange?(false)
         }
@@ -122,11 +130,60 @@ nonisolated final class OccupancySensor: @unchecked Sendable {
     }
   }
 
+  /// Schedule a one-shot timer on the detection queue to clear occupancy after
+  /// the cooldown, even if no more camera frames arrive.
+  private func scheduleCooldownTimer(delay: TimeInterval) {
+    cancelCooldownTimer()
+    let timer = DispatchSource.makeTimerSource(queue: detectionQueue)
+    timer.schedule(deadline: .now() + delay)
+    timer.setEventHandler { [weak self] in
+      guard let self else { return }
+      var remainingDelay: TimeInterval?
+      let shouldClear = self.state.withLock { s -> Bool in
+        guard s.isOccupied else { return false }
+        let elapsed = Date().timeIntervalSince(s.lastDetectionDate)
+        if elapsed >= s.cooldown {
+          s.isOccupied = false
+          return true
+        }
+        // Cooldown increased or not yet elapsed; reschedule for remaining time.
+        remainingDelay = s.cooldown - elapsed
+        return false
+      }
+      if shouldClear {
+        self.logger.debug("[occupancy] cooldown timer fired, clearing occupancy")
+        self.onOccupancyChange?(false)
+        self._cooldownTimer.withLock { $0 = nil }
+      } else if let delay = remainingDelay {
+        self.logger.debug(
+          "[occupancy] cooldown not yet elapsed, rescheduling in \(delay, privacy: .public)s")
+        self.scheduleCooldownTimer(delay: delay)
+      } else {
+        self._cooldownTimer.withLock { $0 = nil }
+      }
+    }
+    // Resume before storing so the timer is never in a suspended+visible state
+    // where another thread could cancel it while suspended (which would crash).
+    timer.resume()
+    _cooldownTimer.withLock { $0 = timer }
+  }
+
+  private func cancelCooldownTimer() {
+    _cooldownTimer.withLock { timer in
+      timer?.cancel()
+      timer = nil
+    }
+  }
+
   /// Reset state (call when stopping detection).
+  /// Dispatches onto detectionQueue so timer cancel/resume can't race.
   func reset() {
-    state.withLock { s in
-      s.isOccupied = false
-      s.lastDetectionDate = .distantPast
+    detectionQueue.async { [self] in
+      cancelCooldownTimer()
+      state.withLock { s in
+        s.isOccupied = false
+        s.lastDetectionDate = .distantPast
+      }
     }
   }
 }
