@@ -113,9 +113,18 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   // non-Sendable CFTypeRefs. Accesses to these fields use withLockUnchecked
   // (to bypass the Sendable return-type check), while Sendable fields like
   // captureSession use the regular withLock.
+  /// Box holding a weak reference to the session, used as the VTCompressionSession refcon.
+  /// The box is retained for the lifetime of the compression session, but the weak reference
+  /// safely becomes nil if the MonitoringCaptureSession is deallocated first.
+  fileprivate final class RefconBox {
+    weak var session: MonitoringCaptureSession?
+    init(_ session: MonitoringCaptureSession) { self.session = session }
+  }
+
   struct State: @unchecked Sendable {
     var captureSession: AVCaptureSession?
     var compressionSession: VTCompressionSession?  // non-Sendable → withLockUnchecked
+    fileprivate var refconBox: RefconBox?
     var audioConverter: AudioConverterRef?  // non-Sendable → withLockUnchecked
     var pcmAccumulator = Data()
     // Strong references to delegates to prevent premature deallocation.
@@ -394,10 +403,15 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     let encHeight = swapDims ? width : height
 
     // VTCompressionSession setup
+    let box = RefconBox(self)
+    let refcon = Unmanaged.passRetained(box).toOpaque()
     guard
       let cs = Self.createCompressionSession(
-        width: encWidth, height: encHeight, fps: fps, bitrate: bitrate, logger: logger)
+        width: encWidth, height: encHeight, fps: fps, bitrate: bitrate, logger: logger,
+        refcon: refcon)
     else {
+      // Release the retained box since no compression session was created.
+      Unmanaged<RefconBox>.fromOpaque(refcon).release()
       mState.withLock { $0.captureSession = nil }
       return
     }
@@ -407,10 +421,12 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       guard state.captureSession != nil else { return true }
       state.captureSession = session
       state.compressionSession = cs
+      state.refconBox = box
       return false
     }
     if cancelled {
       VTCompressionSessionInvalidate(cs)
+      Unmanaged<RefconBox>.fromOpaque(refcon).release()
       logger.info("Monitoring capture start aborted (stop() called concurrently)")
       return
     }
@@ -447,6 +463,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
         let ac = $0.audioConverter
         $0.captureSession = nil
         $0.compressionSession = nil
+        $0.refconBox = nil
         $0.audioConverter = nil
         $0.pcmAccumulator = Data()
         return (s, cs, ac)
@@ -494,6 +511,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
         let ac = $0.audioConverter
         $0.captureSession = nil
         $0.compressionSession = nil
+        $0.refconBox = nil
         $0.audioConverter = nil
         $0.pcmAccumulator = Data()
         return (s, cs, ac)
@@ -557,28 +575,38 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       presentationTimeStamp: pts,
       duration: .invalid,
       frameProperties: props,
-      infoFlagsOut: &flags,
-      outputHandler: { [weak self] status, _, sampleBuffer in
-        // Wrap in autoreleasepool: VT calls this handler on an unspecified
-        // thread that may not drain its autorelease pool. CF→Swift bridging
-        // inside appendVideoSample creates autoreleased objects that would
-        // otherwise accumulate at 30fps.
-        autoreleasepool {
-          if status != noErr {
-            self?.logger.error("Monitoring encode error: \(status)")
-            return
-          }
-          guard let sampleBuffer else { return }
-          self?.fragmentWriter?.appendVideoSample(sampleBuffer)
-        }
-      }
+      sourceFrameRefcon: nil,
+      infoFlagsOut: &flags
     )
+  }
+
+  /// VTCompressionSession output callback — called by the encoder for each compressed frame.
+  /// Uses a session-level callback instead of per-frame outputHandler closures to avoid
+  /// accumulating heap-allocated closure contexts that cause recursive deallocation
+  /// (stack overflow) when the session is invalidated after long-running capture.
+  private static let compressionOutputCallback: VTCompressionOutputCallback = {
+    refcon, _, status, _, sampleBuffer in
+    guard let refcon else { return }
+    let box = Unmanaged<RefconBox>.fromOpaque(refcon).takeUnretainedValue()
+    guard let session = box.session else { return }
+    // Wrap in autoreleasepool: VT calls this on an unspecified thread that may
+    // not drain its autorelease pool. CF→Swift bridging inside appendVideoSample
+    // creates autoreleased objects that would otherwise accumulate at 30fps.
+    autoreleasepool {
+      if status != noErr {
+        session.logger.error("Monitoring encode error: \(status)")
+        return
+      }
+      guard let sampleBuffer else { return }
+      session.fragmentWriter?.appendVideoSample(sampleBuffer)
+    }
   }
 
   // MARK: - Helpers
 
   private static func createCompressionSession(
-    width: Int, height: Int, fps: Int, bitrate: Int, logger: Logger
+    width: Int, height: Int, fps: Int, bitrate: Int, logger: Logger,
+    refcon: UnsafeMutableRawPointer
   ) -> VTCompressionSession? {
     var session: VTCompressionSession?
     let status = VTCompressionSessionCreate(
@@ -589,8 +617,8 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       encoderSpecification: nil,
       imageBufferAttributes: nil,
       compressedDataAllocator: nil,
-      outputCallback: nil,
-      refcon: nil,
+      outputCallback: compressionOutputCallback,
+      refcon: refcon,
       compressionSessionOut: &session
     )
 
