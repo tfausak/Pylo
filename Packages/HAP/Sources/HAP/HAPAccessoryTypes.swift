@@ -2,6 +2,20 @@ import CryptoKit
 import Foundation
 import os
 
+// MARK: - Accessory IDs
+
+/// Central registry of accessory IDs (aids) used by the Pylo bridge.
+/// HAP requires aid=1 for the bridge; accessories use 2+.
+/// Add new entries here to avoid ID collisions across branches.
+public enum AccessoryID {
+  public static let bridge = 1
+  public static let lightbulb = 2
+  public static let camera = 3
+  public static let lightSensor = 4
+  public static let motionSensor = 5
+  public static let contactSensor = 6
+}
+
 // MARK: - Accessory Category (Table 12-3 in HAP R2 spec)
 
 public nonisolated enum HAPAccessoryCategory: Int, Sendable {

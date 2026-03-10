@@ -726,27 +726,30 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
   )
 
   let lightbulb = HAPAccessory(
-    aid: 2, name: "Pylo Flashlight", model: "\(device) Light", manufacturer: "Pylo",
-    serialNumber: config.serial + "-light", firmwareRevision: fw
+    aid: AccessoryID.lightbulb, name: "Pylo Flashlight", model: "\(device) Light",
+    manufacturer: "Pylo", serialNumber: config.serial + "-light", firmwareRevision: fw
   )
 
   let camera = HAPCameraAccessory(
-    aid: 3, name: "Pylo Camera", model: "\(device) Camera", manufacturer: "Pylo",
-    serialNumber: config.serial + "-cam", firmwareRevision: fw
+    aid: AccessoryID.camera, name: "Pylo Camera", model: "\(device) Camera",
+    manufacturer: "Pylo", serialNumber: config.serial + "-cam", firmwareRevision: fw
   )
 
   let lightSensor = HAPLightSensorAccessory(
-    aid: 4, name: "Pylo Light Sensor", model: "\(device) Light Sensor", manufacturer: "Pylo",
+    aid: AccessoryID.lightSensor, name: "Pylo Light Sensor",
+    model: "\(device) Light Sensor", manufacturer: "Pylo",
     serialNumber: config.serial + "-light-sensor", firmwareRevision: fw
   )
 
   let motionSensor = HAPMotionSensorAccessory(
-    aid: 5, name: "Pylo Motion Sensor", model: "\(device) Motion Sensor", manufacturer: "Pylo",
+    aid: AccessoryID.motionSensor, name: "Pylo Motion Sensor",
+    model: "\(device) Motion Sensor", manufacturer: "Pylo",
     serialNumber: config.serial + "-motion", firmwareRevision: fw
   )
 
   let contactSensor = HAPContactSensorAccessory(
-    aid: 6, name: "Pylo Contact Sensor", model: "\(device) Contact Sensor", manufacturer: "Pylo",
+    aid: AccessoryID.contactSensor, name: "Pylo Contact Sensor",
+    model: "\(device) Contact Sensor", manufacturer: "Pylo",
     serialNumber: config.serial + "-contact", firmwareRevision: fw
   )
 
