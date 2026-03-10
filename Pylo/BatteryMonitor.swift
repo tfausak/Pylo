@@ -52,7 +52,7 @@ import os
       // IOKit power source change notifications are delivered via CFRunLoop.
       // Poll on a timer instead for simplicity — battery state changes slowly.
       let timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
-        MainActor.assumeIsolated { self?.batteryDidChange() }
+        Task { @MainActor in self?.batteryDidChange() }
       }
       observers.append(timer as AnyObject)
     #endif

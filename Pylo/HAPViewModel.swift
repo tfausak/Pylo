@@ -1028,7 +1028,9 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
   // Ambient light sensor — derives lux from AVCaptureDevice exposure metadata
   // on every frame (internally throttled by MonitoringCaptureSession).
   var ambientLightDetector: AmbientLightDetector?
-  if config.lightSensorEnabled, let cameraDevice = cameraDeviceForSensors {
+  if config.lightSensorEnabled, AmbientLightDetector.isAvailable,
+    let cameraDevice = cameraDeviceForSensors
+  {
     let detector = AmbientLightDetector()
     detector.device = cameraDevice
     detector.onLuxChange = { [weak lightSensor] lux in
@@ -1294,6 +1296,7 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     // Use the hardware UUID as a stable identifier
     let platformExpert = IOServiceGetMatchingService(
       kIOMainPortDefault, IOServiceMatching("IOPlatformExpertDevice"))
+    guard platformExpert != IO_OBJECT_NULL else { return "000000" }
     defer { IOObjectRelease(platformExpert) }
     if let uuidCF = IORegistryEntryCreateCFProperty(
       platformExpert, "IOPlatformUUID" as CFString, kCFAllocatorDefault, 0)

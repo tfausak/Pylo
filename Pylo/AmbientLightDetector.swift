@@ -8,6 +8,14 @@ import os
 /// Caller is responsible for throttling (e.g., calling every Nth frame).
 nonisolated final class AmbientLightDetector {
 
+  /// Whether ambient light sensing is available on this platform.
+  /// macOS webcams lack meaningful exposure metadata for lux estimation.
+  #if os(iOS)
+    static let isAvailable = true
+  #else
+    static let isAvailable = false
+  #endif
+
   private let _onLuxChange = Locked<((Float) -> Void)?>(initialState: nil)
   var onLuxChange: ((Float) -> Void)? {
     get { _onLuxChange.withLock { $0 } }
