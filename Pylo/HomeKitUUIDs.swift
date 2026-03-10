@@ -43,6 +43,8 @@ nonisolated enum HKServiceUUID {
   static let occupancySensor = "86"
   // HMServiceTypeSwitch
   static let `switch` = "49"
+  // HMServiceTypeDoorbell
+  static let doorbell = "121"
 }
 
 // MARK: - Characteristic UUIDs
@@ -116,6 +118,11 @@ nonisolated enum HKCharacteristicUUID {
   // HMCharacteristicTypeOccupancyDetected
   static let occupancyDetected = "71"
 
+  // Doorbell
+
+  // HMCharacteristicTypeProgrammableSwitchEvent (event-only)
+  static let programmableSwitchEvent = "73"
+
   // Battery
 
   // HMCharacteristicTypeBatteryLevel
@@ -153,6 +160,7 @@ func verifyHomeKitUUIDs() {
     check(HKServiceUUID.contactSensor, HMServiceTypeContactSensor, "contactSensor")
     check(HKServiceUUID.occupancySensor, HMServiceTypeOccupancySensor, "occupancySensor")
     check(HKServiceUUID.switch, HMServiceTypeSwitch, "switch")
+    check(HKServiceUUID.doorbell, HMServiceTypeDoorbell, "doorbell")
 
     // Characteristics
     check(HKCharacteristicUUID.identify, HMCharacteristicTypeIdentify, "identify")
