@@ -81,9 +81,12 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   /// snapshot every 30 (~1fps).
   private var captureFrameCount: Int = 0
   private let motionFrameInterval = 15
-  private let luxFrameInterval = 60
   private let snapshotFrameInterval = 30
-  private let occupancyFrameInterval = 75  // ~2.5s at 30fps
+
+  /// Lux and occupancy intervals scale with fps so the wall-clock cadence stays
+  /// consistent between full mode (30fps) and sensor-only mode (10fps).
+  private var luxFrameInterval: Int { sensorOnly ? 20 : 60 }  // ~2s
+  private var occupancyFrameInterval: Int { sensorOnly ? 25 : 75 }  // ~2.5s
 
   /// Callback to periodically provide a pixel buffer for snapshot caching.
   /// Called every ~1 second on the captureQueue. The receiver should JPEG-encode
