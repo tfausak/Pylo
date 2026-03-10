@@ -72,7 +72,9 @@ nonisolated final class OccupancySensor: @unchecked Sendable {
         let bestConfidence = results.map(\.confidence).max() ?? 0
 
         if !results.isEmpty {
-          self.logger.debug("[occupancy] found \(results.count) results, best confidence is \(bestConfidence, format: .fixed(precision: 3))")
+          self.logger.debug(
+            "[occupancy] found \(results.count) results, best confidence is \(bestConfidence, format: .fixed(precision: 3))"
+          )
         }
 
         return bestConfidence >= 0.5
@@ -87,13 +89,16 @@ nonisolated final class OccupancySensor: @unchecked Sendable {
           }
           return (false, s.cooldown)
         }
-        logger.debug("[occupancy] Check: person=yes, cooldown=\(cooldown, format: .fixed(precision: 0))s")
+        logger.debug(
+          "[occupancy] Check: person=yes, cooldown=\(cooldown, format: .fixed(precision: 0))s")
         if shouldNotify {
-          logger.debug("[occupancy] occupied, clearing in \(cooldown, format: .fixed(precision: 1)) seconds")
+          logger.debug(
+            "[occupancy] occupied, clearing in \(cooldown, format: .fixed(precision: 1)) seconds")
           onOccupancyChange?(true)
         }
       } else {
-        let (elapsed, remaining, shouldClear): (TimeInterval?, TimeInterval?, Bool) = state.withLock { s in
+        let (elapsed, remaining, shouldClear): (TimeInterval?, TimeInterval?, Bool) = state.withLock
+        { s in
           guard s.isOccupied else { return (nil, nil, false) }
           let elapsed = Date().timeIntervalSince(s.lastDetectionDate)
           if elapsed >= s.cooldown {
@@ -103,7 +108,9 @@ nonisolated final class OccupancySensor: @unchecked Sendable {
           return (elapsed, s.cooldown - elapsed, false)
         }
         if let remaining {
-          logger.debug("[occupancy] not occupied, clearing in \(remaining, format: .fixed(precision: 1)) seconds")
+          logger.debug(
+            "[occupancy] not occupied, clearing in \(remaining, format: .fixed(precision: 1)) seconds"
+          )
         } else {
           logger.debug("[occupancy] not occupied")
         }
