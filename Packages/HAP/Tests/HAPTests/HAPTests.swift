@@ -1805,3 +1805,111 @@ struct AdminPairingManagementTests {
     #expect(store.getPairing(identifier: "NEW-ADMIN")?.isAdmin == true)
   }
 }
+
+// MARK: - Siren Accessory Tests
+
+@Suite("HAP Siren Accessory")
+struct HAPSirenAccessoryTests {
+
+  @Test("Initial state is off")
+  func initialState() {
+    let siren = HAPSirenAccessory(aid: AccessoryID.siren)
+    #expect(siren.isOn == false)
+  }
+
+  @Test("Read On characteristic returns current state")
+  func readOn() {
+    let siren = HAPSirenAccessory(aid: AccessoryID.siren)
+    #expect(siren.readCharacteristic(iid: HAPSirenAccessory.iidOn) == .bool(false))
+  }
+
+  @Test("Write bool value updates state")
+  func writeBool() {
+    let siren = HAPSirenAccessory(aid: AccessoryID.siren)
+    let result = siren.writeCharacteristic(iid: HAPSirenAccessory.iidOn, value: .bool(true))
+    #expect(result)
+    #expect(siren.isOn == true)
+    #expect(siren.readCharacteristic(iid: HAPSirenAccessory.iidOn) == .bool(true))
+  }
+
+  @Test("Write int 1/0 updates state")
+  func writeInt() {
+    let siren = HAPSirenAccessory(aid: AccessoryID.siren)
+    let result1 = siren.writeCharacteristic(iid: HAPSirenAccessory.iidOn, value: .int(1))
+    #expect(result1)
+    #expect(siren.isOn == true)
+
+    let result0 = siren.writeCharacteristic(iid: HAPSirenAccessory.iidOn, value: .int(0))
+    #expect(result0)
+    #expect(siren.isOn == false)
+  }
+
+  @Test("Write calls onSirenActivate callback")
+  func writeCallsCallback() {
+    let siren = HAPSirenAccessory(aid: AccessoryID.siren)
+    nonisolated(unsafe) var activatedWith: Bool?
+    siren.onSirenActivate = { on in activatedWith = on }
+    siren.writeCharacteristic(iid: HAPSirenAccessory.iidOn, value: .bool(true))
+    #expect(activatedWith == true)
+  }
+
+  @Test("Write fires state change callback")
+  func writeFiresStateChange() {
+    let siren = HAPSirenAccessory(aid: AccessoryID.siren)
+    nonisolated(unsafe) var receivedValue: HAPValue?
+    siren.onStateChange = { _, iid, value in
+      if iid == HAPSirenAccessory.iidOn { receivedValue = value }
+    }
+    siren.writeCharacteristic(iid: HAPSirenAccessory.iidOn, value: .bool(true))
+    #expect(receivedValue == .bool(true))
+  }
+
+  @Test("updateOn updates state and fires callback")
+  func updateOn() {
+    let siren = HAPSirenAccessory(aid: AccessoryID.siren)
+    nonisolated(unsafe) var receivedValue: HAPValue?
+    siren.onStateChange = { _, iid, value in
+      if iid == HAPSirenAccessory.iidOn { receivedValue = value }
+    }
+    siren.updateOn(true)
+    #expect(siren.isOn == true)
+    #expect(receivedValue == .bool(true))
+  }
+
+  @Test("Battery reads return defaults when batteryState is nil")
+  func batteryDefaults() {
+    let siren = HAPSirenAccessory(aid: AccessoryID.siren)
+    #expect(siren.readCharacteristic(iid: BatteryIID.batteryLevel) == .int(0))
+    #expect(siren.readCharacteristic(iid: BatteryIID.chargingState) == .int(0))
+    #expect(siren.readCharacteristic(iid: BatteryIID.statusLowBattery) == .int(0))
+  }
+
+  @Test("Battery reads return actual state when set")
+  func batteryState() {
+    let siren = HAPSirenAccessory(aid: AccessoryID.siren)
+    let battery = BatteryState()
+    battery.update(level: 75, chargingState: 1, statusLowBattery: 0)
+    siren.batteryState = battery
+    #expect(siren.readCharacteristic(iid: BatteryIID.batteryLevel) == .int(75))
+    #expect(siren.readCharacteristic(iid: BatteryIID.chargingState) == .int(1))
+  }
+
+  @Test("toJSON has switch and battery services")
+  func toJSONServices() {
+    let siren = HAPSirenAccessory(aid: AccessoryID.siren)
+    let json = siren.toJSON()
+    let services = json["services"] as! [[String: Any]]
+    #expect(services.count == 4)  // accessory info + protocol info + switch + battery
+    #expect(services[2]["type"] as? String == "49")  // switch service
+    let chars = services[2]["characteristics"] as! [[String: Any]]
+    #expect(chars[0]["format"] as? String == "bool")
+    #expect(services[3]["type"] as? String == BatteryUUID.service)  // battery
+  }
+
+  @Test("Write to unknown IID returns false")
+  func writeUnknownIID() {
+    let siren = HAPSirenAccessory(aid: AccessoryID.siren)
+    let result = siren.writeCharacteristic(iid: 999, value: .bool(true))
+    #expect(!result)
+  }
+}

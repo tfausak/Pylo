@@ -25,6 +25,7 @@ nonisolated final class SirenPlayer: @unchecked Sendable {
   private struct State {
     var isPlaying = false
     var engine: AVAudioEngine?
+    var sourceNode: AVAudioSourceNode?
     var phases: UnsafeMutablePointer<Float>?
   }
 
@@ -107,6 +108,7 @@ nonisolated final class SirenPlayer: @unchecked Sendable {
 
       _state.withLock {
         $0.engine = engine
+        $0.sourceNode = sourceNode
         $0.phases = phases
         $0.isPlaying = true
       }
@@ -119,16 +121,21 @@ nonisolated final class SirenPlayer: @unchecked Sendable {
     audioQueue.async { [self] in
       guard _state.withLock({ $0.isPlaying }) else { return }
 
-      let (engine, phases) = _state.withLock {
-        state -> (AVAudioEngine?, UnsafeMutablePointer<Float>?) in
+      let (engine, sourceNode, phases) = _state.withLock {
+        state -> (AVAudioEngine?, AVAudioSourceNode?, UnsafeMutablePointer<Float>?) in
         let e = state.engine
+        let s = state.sourceNode
         let p = state.phases
         state.engine = nil
+        state.sourceNode = nil
         state.phases = nil
         state.isPlaying = false
-        return (e, p)
+        return (e, s, p)
       }
 
+      // Detach the source node first to ensure the render callback is no
+      // longer invoked before we deallocate the phase accumulators.
+      if let sourceNode { engine?.detach(sourceNode) }
       engine?.stop()
       phases?.deallocate()
 

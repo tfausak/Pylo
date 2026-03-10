@@ -359,7 +359,8 @@ public nonisolated final class HAPSirenAccessory: HAPAccessoryProtocol, @uncheck
     set { _onStateChange.withLock { $0 = newValue } }
   }
 
-  /// Shared battery state — nil means no battery, omit battery service.
+  /// Shared battery state — nil uses safe defaults (0/0/0) since the battery
+  /// service is always present in `toJSON()` for stable accessory database hashing.
   private let _batteryState = Locked<BatteryState?>(initialState: nil)
   public var batteryState: BatteryState? {
     get { _batteryState.withLock { $0 } }
@@ -416,9 +417,9 @@ public nonisolated final class HAPSirenAccessory: HAPAccessoryProtocol, @uncheck
     case AccessoryInfoIID.firmwareRevision: return .string(firmwareRevision)
     case ProtocolInfoIID.version: return .string(hapProtocolVersion)
     case Self.iidOn: return .bool(isOn)
-    case BatteryIID.batteryLevel: return batteryState.map { .int($0.level) }
-    case BatteryIID.chargingState: return batteryState.map { .int($0.chargingState) }
-    case BatteryIID.statusLowBattery: return batteryState.map { .int($0.statusLowBattery) }
+    case BatteryIID.batteryLevel: return .int(batteryState?.level ?? 0)
+    case BatteryIID.chargingState: return .int(batteryState?.chargingState ?? 0)
+    case BatteryIID.statusLowBattery: return .int(batteryState?.statusLowBattery ?? 0)
     default: return nil
     }
   }
