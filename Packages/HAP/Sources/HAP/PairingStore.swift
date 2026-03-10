@@ -4,7 +4,7 @@ import os
 // MARK: - Pairing Store
 // Stores paired controllers (their Ed25519 public keys and identifiers).
 
-public nonisolated final class PairingStore: @unchecked Sendable {
+public final class PairingStore: @unchecked Sendable {
 
   public struct Pairing: Codable, Sendable {
     public let identifier: String  // Controller's pairing ID (UUID string)

@@ -2,7 +2,7 @@ import os
 
 /// Drop-in replacement for `OSAllocatedUnfairLock` that works back to iOS 15.
 /// Provides the same `withLock` and `withLockUnchecked` API.
-nonisolated final class Locked<State>: @unchecked Sendable {
+final class Locked<State>: @unchecked Sendable {
   private let _lock: os_unfair_lock_t
   private var _state: State
 

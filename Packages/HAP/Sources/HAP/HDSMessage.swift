@@ -3,7 +3,7 @@ import Foundation
 // MARK: - HDS Message
 
 /// Represents an HDS protocol message with header and body.
-public nonisolated struct HDSMessage {
+public struct HDSMessage {
 
   public enum MessageType: UInt8 {
     case event = 1

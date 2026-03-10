@@ -1,6 +1,6 @@
 // MARK: - Characteristic ID (for event subscriptions)
 
-public nonisolated struct CharacteristicID: Hashable, Sendable {
+public struct CharacteristicID: Hashable, Sendable {
   public let aid: Int
   public let iid: Int
 

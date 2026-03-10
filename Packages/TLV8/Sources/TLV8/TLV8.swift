@@ -8,7 +8,7 @@ private let logSubsystem = "me.fausak.taylor.Pylo"
 // for pairing data exchange. Values longer than 255 bytes are split across
 // consecutive TLV items with the same type.
 
-public nonisolated enum TLV8 {
+public enum TLV8 {
 
   // MARK: - HAP TLV Types (Table 5-6 in HAP R2 spec)
 
