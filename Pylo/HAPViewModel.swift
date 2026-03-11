@@ -1079,6 +1079,8 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     enabledAccessories.append(siren)
   }
 
+  if config.doorbellEnabled { enabledAccessories.append(doorbell) }
+
   // NWListener creation — also benefits from being off MainActor
   let server = try HAPServer(
     bridge: bridge, accessories: enabledAccessories,
