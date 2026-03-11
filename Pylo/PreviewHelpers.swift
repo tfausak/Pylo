@@ -62,7 +62,7 @@ extension HAPViewModel {
           occupancyEnabled: occupancyEnabled,
           sensorCameraID: vm.sensorCamera?.id,
           sirenEnabled: sirenEnabled,
-          doorbellEnabled: vm.doorbellEnabled
+          buttonEnabled: vm.buttonEnabled
         )
       } else {
         vm.startedConfig = AccessoryConfig(from: vm)

@@ -19,14 +19,14 @@ struct AccessoryConfig: Equatable {
   var occupancyEnabled: Bool
   var sensorCameraID: String?
   var sirenEnabled: Bool
-  var doorbellEnabled: Bool
+  var buttonEnabled: Bool
 
   init(
     flashlightEnabled: Bool, selectedCameraID: String?,
     motionEnabled: Bool, microphoneEnabled: Bool,
     contactEnabled: Bool, lightSensorEnabled: Bool,
     occupancyEnabled: Bool, sensorCameraID: String?,
-    sirenEnabled: Bool, doorbellEnabled: Bool
+    sirenEnabled: Bool, buttonEnabled: Bool
   ) {
     self.flashlightEnabled = flashlightEnabled
     self.selectedCameraID = selectedCameraID
@@ -37,7 +37,7 @@ struct AccessoryConfig: Equatable {
     self.occupancyEnabled = occupancyEnabled
     self.sensorCameraID = sensorCameraID
     self.sirenEnabled = sirenEnabled
-    self.doorbellEnabled = doorbellEnabled
+    self.buttonEnabled = buttonEnabled
   }
 
   @MainActor
@@ -51,7 +51,7 @@ struct AccessoryConfig: Equatable {
     occupancyEnabled = vm.occupancyEnabled
     sensorCameraID = vm.sensorCamera?.id
     sirenEnabled = vm.sirenEnabled
-    doorbellEnabled = vm.doorbellEnabled
+    buttonEnabled = vm.buttonEnabled
   }
 }
 
@@ -200,10 +200,10 @@ final class HAPViewModel: ObservableObject {
       UserDefaults.standard.set(sirenEnabled, forKey: "sirenEnabled")
     }
   }
-  @Published var doorbellEnabled: Bool = false {
+  @Published var buttonEnabled: Bool = false {
     didSet {
-      guard !isRestoring, doorbellEnabled != oldValue else { return }
-      UserDefaults.standard.set(doorbellEnabled, forKey: "doorbellEnabled")
+      guard !isRestoring, buttonEnabled != oldValue else { return }
+      UserDefaults.standard.set(buttonEnabled, forKey: "buttonEnabled")
     }
   }
   @Published var isSirenActive = false
@@ -273,7 +273,7 @@ final class HAPViewModel: ObservableObject {
   private var batteryMonitor: BatteryMonitor?
   private var lightbulbAccessory: HAPAccessory?
   private var cameraAccessory: HAPCameraAccessory?
-  private var doorbellAccessory: HAPDoorbellAccessory?
+  private var buttonAccessory: HAPButtonAccessory?
   private var monitoringSession: MonitoringCaptureSession?
   private var fragmentWriter: FragmentedMP4Writer?
   private var dataStreamHandler: HAPDataStream?
@@ -423,8 +423,8 @@ final class HAPViewModel: ObservableObject {
     if UserDefaults.standard.object(forKey: "sirenEnabled") != nil {
       sirenEnabled = UserDefaults.standard.bool(forKey: "sirenEnabled")
     }
-    if UserDefaults.standard.object(forKey: "doorbellEnabled") != nil {
-      doorbellEnabled = UserDefaults.standard.bool(forKey: "doorbellEnabled")
+    if UserDefaults.standard.object(forKey: "buttonEnabled") != nil {
+      buttonEnabled = UserDefaults.standard.bool(forKey: "buttonEnabled")
     }
     if UserDefaults.standard.object(forKey: "keepScreenAwake") != nil {
       keepScreenAwake = UserDefaults.standard.bool(forKey: "keepScreenAwake")
@@ -494,7 +494,7 @@ final class HAPViewModel: ObservableObject {
       occupancyCooldown: occupancyCooldown.duration,
       sensorCameraID: sensorCamera?.id,
       sirenEnabled: sirenEnabled,
-      doorbellEnabled: doorbellEnabled
+      buttonEnabled: buttonEnabled
     )
 
     let myGeneration = startGeneration
@@ -534,7 +534,7 @@ final class HAPViewModel: ObservableObject {
       self.motionMonitor = setup.motionMonitor
       self.lightbulbAccessory = config.flashlightEnabled ? setup.lightbulb : nil
       self.cameraAccessory = config.selectedStreamCameraID != nil ? setup.camera : nil
-      self.doorbellAccessory = config.doorbellEnabled ? setup.doorbell : nil
+      self.buttonAccessory = config.buttonEnabled ? setup.button : nil
       self.fragmentWriter = setup.fmp4Writer
       self.dataStreamHandler = setup.dataStream
       self.isMotionAvailable = setup.isMotionAvailable
@@ -646,12 +646,12 @@ final class HAPViewModel: ObservableObject {
         enabledAccessories.append(setup.siren)
       }
 
-      if config.doorbellEnabled {
-        setup.doorbell.onStateChange = {
+      if config.buttonEnabled {
+        setup.button.onStateChange = {
           [weak server = setup.server] aid, iid, value in
           server?.notifySubscribers(aid: aid, iid: iid, value: value)
         }
-        enabledAccessories.append(setup.doorbell)
+        enabledAccessories.append(setup.button)
       }
 
       self.sirenPlayer = setup.sirenPlayer
@@ -701,7 +701,7 @@ final class HAPViewModel: ObservableObject {
         setup.contactSensor.batteryState = sharedBatteryState
         setup.occupancySensor.batteryState = sharedBatteryState
         setup.siren.batteryState = sharedBatteryState
-        setup.doorbell.batteryState = sharedBatteryState
+        setup.button.batteryState = sharedBatteryState
 
         let batteryAIDs = enabledAccessories.map(\.aid)
         battery.onBatteryChange = { [weak server = setup.server] state in
@@ -787,7 +787,7 @@ final class HAPViewModel: ObservableObject {
     lightbulbAccessory?.cancelIdentify()
     lightbulbAccessory = nil
     cameraAccessory = nil
-    doorbellAccessory = nil
+    buttonAccessory = nil
     server?.stop()
     server = nil
     wasListenerReady = false
@@ -823,8 +823,8 @@ final class HAPViewModel: ObservableObject {
     withAnimation { hasPairings = false }
   }
 
-  func ringDoorbell() {
-    doorbellAccessory?.trigger()
+  func pressButton() {
+    buttonAccessory?.trigger()
   }
 }
 
@@ -847,7 +847,7 @@ private struct StartConfig: Sendable {
   /// Camera ID for standalone sensors when the camera accessory is off.
   let sensorCameraID: String?
   let sirenEnabled: Bool
-  let doorbellEnabled: Bool
+  let buttonEnabled: Bool
 }
 
 /// Objects created off MainActor, returned to MainActor for callback wiring and UI updates.
@@ -860,7 +860,7 @@ private struct ServerSetup: @unchecked Sendable {
   let contactSensor: HAPContactSensorAccessory
   let occupancySensor: HAPOccupancySensorAccessory
   let siren: HAPSirenAccessory
-  let doorbell: HAPDoorbellAccessory
+  let button: HAPButtonAccessory
   let server: HAPServer
   let fmp4Writer: FragmentedMP4Writer?
   let dataStream: HAPDataStream?
@@ -924,10 +924,10 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     serialNumber: config.serial + "-siren", firmwareRevision: fw
   )
 
-  let doorbell = HAPDoorbellAccessory(
-    aid: AccessoryID.doorbell, name: "Pylo Doorbell",
-    model: "\(device) Doorbell", manufacturer: "Pylo",
-    serialNumber: config.serial + "-doorbell", firmwareRevision: fw
+  let button = HAPButtonAccessory(
+    aid: AccessoryID.button, name: "Pylo Button",
+    model: "\(device) Button", manufacturer: "Pylo",
+    serialNumber: config.serial + "-button", firmwareRevision: fw
   )
 
   // File I/O and Keychain reads — the main motivation for running off MainActor
@@ -1079,7 +1079,7 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     enabledAccessories.append(siren)
   }
 
-  if config.doorbellEnabled { enabledAccessories.append(doorbell) }
+  if config.buttonEnabled { enabledAccessories.append(button) }
 
   // NWListener creation — also benefits from being off MainActor
   let server = try HAPServer(
@@ -1273,7 +1273,7 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     contactSensor: contactSensor,
     occupancySensor: occupancySensor,
     siren: siren,
-    doorbell: doorbell,
+    button: button,
     server: server, fmp4Writer: fmp4Writer, dataStream: dataStream,
     monitoringSession: monitoringSession,
     motionMonitor: motionMonitor,

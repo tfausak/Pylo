@@ -109,13 +109,13 @@ struct ConfigCardsView: View {
           cameraContent
         }
 
-        // Doorbell
+        // Button
         AccessoryCard(
-          icon: "bell.fill",
-          title: "Doorbell",
-          isOn: $viewModel.doorbellEnabled
+          icon: "button.horizontal.top.press.fill",
+          title: "Button",
+          isOn: $viewModel.buttonEnabled
         ) {
-          doorbellContent
+          buttonContent
         }
 
         // Flashlight
@@ -311,7 +311,7 @@ struct ConfigCardsView: View {
   }
 
   @ViewBuilder
-  private var doorbellContent: some View {
+  private var buttonContent: some View {
     HStack {
       Text("Status")
         .foregroundStyle(.secondary)

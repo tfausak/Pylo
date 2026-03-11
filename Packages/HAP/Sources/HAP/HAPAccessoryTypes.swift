@@ -16,7 +16,7 @@ public enum AccessoryID {
   public static let contactSensor = 6
   public static let occupancySensor = 7
   public static let siren = 8
-  public static let doorbell = 9
+  public static let button = 9
 }
 
 // MARK: - Accessory Category (Table 12-3 in HAP R2 spec)
@@ -928,12 +928,12 @@ public final class HAPLightSensorAccessory: HAPAccessoryProtocol, @unchecked Sen
   }
 }
 
-// MARK: - Doorbell Accessory
+// MARK: - Button Accessory
 
-/// Standalone doorbell accessory using a Stateless Programmable Switch.
+/// Standalone button accessory using a Stateless Programmable Switch.
 /// Shows up as a button tile in Home.app; can be configured with automations
-/// to send notifications, play sounds, etc. — acting as a doorbell.
-public final class HAPDoorbellAccessory: HAPAccessoryProtocol, @unchecked Sendable {
+/// to send notifications, play sounds, etc.
+public final class HAPButtonAccessory: HAPAccessoryProtocol, @unchecked Sendable {
 
   public let aid: Int
   public let name: String
@@ -978,8 +978,8 @@ public final class HAPDoorbellAccessory: HAPAccessoryProtocol, @unchecked Sendab
 
   public init(
     aid: Int,
-    name: String = "Pylo Doorbell",
-    model: String = "iPhone Doorbell",
+    name: String = "Pylo Button",
+    model: String = "iPhone Button",
     manufacturer: String = "Pylo",
     serialNumber: String = "000001",
     firmwareRevision: String = "0.1.0"

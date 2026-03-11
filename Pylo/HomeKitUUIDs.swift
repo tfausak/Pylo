@@ -122,7 +122,7 @@ nonisolated enum HKCharacteristicUUID {
   // HMCharacteristicTypeOccupancyDetected
   static let occupancyDetected = "71"
 
-  // Doorbell
+  // Programmable Switch
 
   // HMCharacteristicTypeProgrammableSwitchEvent (event-only)
   static let programmableSwitchEvent = "73"

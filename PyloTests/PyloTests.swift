@@ -680,53 +680,53 @@ struct VideoMotionDetectorThreadSafetyTests {
   }
 }
 
-// MARK: - Doorbell Accessory Tests
+// MARK: - Button Accessory Tests
 
-@Suite("Doorbell Accessory")
-struct DoorbellTests {
+@Suite("Button Accessory")
+struct ButtonTests {
 
-  private func makeDoorbell() -> HAPDoorbellAccessory {
-    HAPDoorbellAccessory(
-      aid: AccessoryID.doorbell, name: "Test Doorbell", model: "Test",
-      manufacturer: "Test", serialNumber: "SN-BELL", firmwareRevision: "1.0.0"
+  private func makeButton() -> HAPButtonAccessory {
+    HAPButtonAccessory(
+      aid: AccessoryID.button, name: "Test Button", model: "Test",
+      manufacturer: "Test", serialNumber: "SN-BTN", firmwareRevision: "1.0.0"
     )
   }
 
   @Test("ProgrammableSwitchEvent reads as null (event-only)")
   func eventReadNull() {
-    let db = makeDoorbell()
-    #expect(db.readCharacteristic(iid: HAPDoorbellAccessory.iidProgrammableSwitchEvent) == .null)
+    let btn = makeButton()
+    #expect(btn.readCharacteristic(iid: HAPButtonAccessory.iidProgrammableSwitchEvent) == .null)
   }
 
   @Test("ProgrammableSwitchEvent is not writable")
   func eventNotWritable() {
-    let db = makeDoorbell()
+    let btn = makeButton()
     #expect(
-      db.writeCharacteristic(iid: HAPDoorbellAccessory.iidProgrammableSwitchEvent, value: .int(0))
+      btn.writeCharacteristic(iid: HAPButtonAccessory.iidProgrammableSwitchEvent, value: .int(0))
         == false)
   }
 
   @Test("trigger fires onStateChange with single press event")
   func triggerFiresEvent() {
-    let db = makeDoorbell()
+    let btn = makeButton()
     var receivedAID: Int?
     var receivedIID: Int?
     var receivedValue: HAPValue?
-    db.onStateChange = { aid, iid, value in
+    btn.onStateChange = { aid, iid, value in
       receivedAID = aid
       receivedIID = iid
       receivedValue = value
     }
-    db.trigger()
-    #expect(receivedAID == AccessoryID.doorbell)
-    #expect(receivedIID == HAPDoorbellAccessory.iidProgrammableSwitchEvent)
+    btn.trigger()
+    #expect(receivedAID == AccessoryID.button)
+    #expect(receivedIID == HAPButtonAccessory.iidProgrammableSwitchEvent)
     #expect(receivedValue == .int(0))
   }
 
   @Test("toJSON includes programmable switch service with service label")
   func toJSONStructure() {
-    let db = makeDoorbell()
-    let json = db.toJSON()
+    let btn = makeButton()
+    let json = btn.toJSON()
     let services = json["services"] as! [[String: Any]]
 
     // Stateless Programmable Switch service (0x89)

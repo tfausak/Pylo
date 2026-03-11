@@ -5,7 +5,7 @@ struct RunningView: View {
   @State private var showConfig = false
   @State private var pixelOffset = CGSize.zero
   @State private var shiftTimer: Timer?
-  @State private var doorbellCooldown = false
+  @State private var buttonCooldown = false
 
   var body: some View {
     ZStack {
@@ -15,8 +15,8 @@ struct RunningView: View {
       VStack(spacing: 40) {
         statusIndicator
 
-        if viewModel.doorbellEnabled {
-          doorbellButton
+        if viewModel.buttonEnabled {
+          buttonTile
         }
       }
       .offset(pixelOffset)
@@ -44,34 +44,34 @@ struct RunningView: View {
     }
   }
 
-  // MARK: - Doorbell Button
+  // MARK: - Button
 
-  private var doorbellButton: some View {
+  private var buttonTile: some View {
     Button {
-      guard !doorbellCooldown else { return }
-      viewModel.ringDoorbell()
+      guard !buttonCooldown else { return }
+      viewModel.pressButton()
       UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-      doorbellCooldown = true
+      buttonCooldown = true
       Task {
         try? await Task.sleep(nanoseconds: 2_000_000_000)
-        doorbellCooldown = false
+        buttonCooldown = false
       }
     } label: {
       Image(systemName: "bell.fill")
         .font(.system(size: 48))
-        .foregroundStyle(doorbellCooldown ? .gray : .white)
+        .foregroundStyle(buttonCooldown ? .gray : .white)
         .frame(width: 150, height: 150)
         .background(
           ZStack {
             Circle()
-              .fill(doorbellCooldown ? Color.gray.opacity(0.3) : Color.white.opacity(0.15))
+              .fill(buttonCooldown ? Color.gray.opacity(0.3) : Color.white.opacity(0.15))
             Circle()
               .strokeBorder(Color.white.opacity(0.3), lineWidth: 1)
           }
         )
     }
-    .disabled(doorbellCooldown)
-    .animation(.easeInOut(duration: 0.2), value: doorbellCooldown)
+    .disabled(buttonCooldown)
+    .animation(.easeInOut(duration: 0.2), value: buttonCooldown)
   }
 
   // MARK: - Gear Button
