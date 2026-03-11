@@ -14,6 +14,7 @@
 		AA000001304B000100000005 /* HAP in Frameworks */ = {isa = PBXBuildFile; productRef = AA000002304B000100000005 /* HAP */; };
 		AA000001304B000100000006 /* Locked in Frameworks */ = {isa = PBXBuildFile; productRef = AA000002304B000100000006 /* Locked */; };
 		AA000001304B000100000007 /* Sensors in Frameworks */ = {isa = PBXBuildFile; productRef = AA000002304B000100000007 /* Sensors */; };
+		AA000001304B000100000008 /* Streaming in Frameworks */ = {isa = PBXBuildFile; productRef = AA000002304B000100000008 /* Streaming */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -69,6 +70,7 @@
 				AA000001304B000100000005 /* HAP in Frameworks */,
 				AA000001304B000100000006 /* Locked in Frameworks */,
 				AA000001304B000100000007 /* Sensors in Frameworks */,
+				AA000001304B000100000008 /* Streaming in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -127,6 +129,7 @@
 				AA000002304B000100000005 /* HAP */,
 				AA000002304B000100000006 /* Locked */,
 				AA000002304B000100000007 /* Sensors */,
+				AA000002304B000100000008 /* Streaming */,
 			);
 			productName = Pylo;
 			productReference = 34EA21E22F4EA5FF00113A11 /* Pylo.app */;
@@ -192,6 +195,7 @@
 				AA000003304B000100000005 /* XCLocalSwiftPackageReference "Packages/HAP" */,
 				AA000003304B000100000006 /* XCLocalSwiftPackageReference "Packages/Locked" */,
 				AA000003304B000100000007 /* XCLocalSwiftPackageReference "Packages/Sensors" */,
+				AA000003304B000100000008 /* XCLocalSwiftPackageReference "Packages/Streaming" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 34EA21E32F4EA5FF00113A11 /* Products */;
@@ -550,6 +554,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/Sensors;
 		};
+		AA000003304B000100000008 /* XCLocalSwiftPackageReference "Packages/Streaming" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/Streaming;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -580,6 +588,10 @@
 		AA000002304B000100000007 /* Sensors */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = Sensors;
+		};
+		AA000002304B000100000008 /* Streaming */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = Streaming;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

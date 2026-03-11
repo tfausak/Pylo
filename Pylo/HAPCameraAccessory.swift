@@ -6,6 +6,7 @@ import FragmentedMP4
 import HAP
 import Locked
 import Sensors
+import Streaming
 import TLV8
 @preconcurrency import UIKit
 import os
@@ -660,62 +661,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
 
 // MARK: - Device Orientation Cache
 
-/// Thread-safe cache for UIDevice orientation, updated via NotificationCenter.
-/// UIDevice.current.orientation is safe to read from any thread (backed by an
-/// atomic internal property), but UIKit marks it @MainActor. Rather than
-/// suppressing the warning, we observe orientation-change notifications on
-/// MainActor and cache the value atomically for any-thread reads.
 #if os(iOS)
-  // Uses the shared DeviceOrientationCache defined below.
+  // DeviceOrientationCache is defined in the Streaming package.
   private typealias DeviceOrientation = DeviceOrientationCache
-#endif
-
-// MARK: - Shared Device Orientation Cache
-
-/// Thread-safe device orientation cache. Observes orientation-change notifications
-/// on MainActor and caches the value atomically for any-thread reads.
-/// Shared by HAPCameraAccessory and MonitoringCaptureSession to avoid duplicate observers.
-#if os(iOS)
-  nonisolated enum DeviceOrientationCache {
-    private static let state = Locked(
-      initialState: Int(UIDeviceOrientation.portrait.rawValue)
-    )
-
-    private static let token: NSObjectProtocol = {
-      return NotificationCenter.default.addObserver(
-        forName: UIDevice.orientationDidChangeNotification,
-        object: nil,
-        queue: .main
-      ) { _ in
-        let orientation = MainActor.assumeIsolated { UIDevice.current.orientation }
-        // Ignore flat and unknown orientations so the cache retains the last
-        // meaningful value. iPads in stands commonly report .faceUp which would
-        // otherwise be treated as portrait, causing upside-down streams (#40).
-        guard orientation != .faceUp, orientation != .faceDown,
-          orientation != .unknown
-        else { return }
-        state.withLock { $0 = orientation.rawValue }
-      }
-    }()
-
-    /// Seed the cache with the current orientation. Must be called from
-    /// MainActor (e.g. in App.init) before any background access to `current`.
-    /// This is separated from the lazy `token` initializer so that the token
-    /// itself is safe to initialize from any thread.
-    @MainActor
-    static func seed() {
-      _ = token
-      let initial = UIDevice.current.orientation
-      if initial != .unknown, initial != .faceUp, initial != .faceDown {
-        state.withLock { $0 = initial.rawValue }
-      }
-    }
-
-    /// Current device orientation, safe to read from any thread.
-    /// Lazily registers a notification observer on first access.
-    static var current: UIDeviceOrientation {
-      _ = token
-      return UIDeviceOrientation(rawValue: state.withLock { $0 }) ?? .portrait
-    }
-  }
 #endif

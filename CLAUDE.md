@@ -54,14 +54,8 @@ Accessories (aid 1-5: bridge, lightbulb, camera, light sensor, motion sensor)
 | `  +Streaming.swift` | Setup endpoints, RTP stream config, start/stop streaming, local IP |
 | `  +Snapshot.swift` | Silent snapshot capture via `FrameGrabber` |
 | `  +JSON.swift` | `toJSON()` HAP service serialization |
-| `CameraStreamSession.swift` | Video capture, H.264 compression, RTP packetization, BSD sockets |
-| `  +Audio.swift` | Audio encoder/decoder (AAC-ELD), audio RTP/RTCP, playback |
-| `  +RTCP.swift` | `buildRTCPSenderReport()` static helper |
-| `MonitoringCaptureSession.swift` | Background video capture for HKSV pre-buffering |
-| `  +Audio.swift` | Audio encoding pipeline for monitoring (AAC-ELD, PCM conversion) |
 | `HAPTypes.swift` | Keychain helpers (`KeychainKeyStore`) |
 | `HomeKitUUIDs.swift` | HAP short-form UUID mapping, verified against HomeKit constants |
-| `AudioUtilities.swift` | Shared PCM-to-Float32 audio conversion |
 
 **Packages/**
 
@@ -85,6 +79,7 @@ Accessories (aid 1-5: bridge, lightbulb, camera, light sensor, motion sensor)
 | `FragmentedMP4` | `FragmentedMP4Writer.swift` | fMP4 segment generation for HKSV recording |
 | `Locked` | `Locked.swift` | Thread-safe state wrapper (`os_unfair_lock`), shared by all packages |
 | `Sensors` | `AmbientLightDetector.swift`, `BatteryMonitor.swift`, `MotionMonitor.swift`, `VideoMotionDetector.swift`, `OccupancySensor.swift`, `ProximitySensor.swift` | Device sensor abstractions (light, battery, motion, occupancy, proximity) |
+| `Streaming` | `CameraStreamSession.swift`, `MonitoringCaptureSession.swift`, `AudioUtilities.swift`, `CaptureDelegates.swift`, `DeviceOrientationCache.swift` | Video capture, H.264 compression, RTP packetization, audio encoding, HKSV pre-buffering |
 
 ### Data Flow
 

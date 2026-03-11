@@ -1,4 +1,5 @@
 import HAP
+import Streaming
 import SwiftUI
 
 // MARK: - Video Quality

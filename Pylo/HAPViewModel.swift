@@ -4,6 +4,7 @@ import CoreImage.CIFilterBuiltins
 import FragmentedMP4
 import HAP
 import Sensors
+import Streaming
 import SwiftUI
 
 // MARK: - Accessory Config Snapshot

@@ -3,6 +3,7 @@ import CryptoKit
 import Foundation
 import HAP
 import Locked
+import Streaming
 import TLV8
 import os
 
