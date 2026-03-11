@@ -17,18 +17,30 @@ struct CameraOption: Identifiable, Hashable, Sendable {
   let fNumber: Float
 
   static func availableCameras() -> [CameraOption] {
-    let discovery = AVCaptureDevice.DiscoverySession(
-      deviceTypes: [.builtInWideAngleCamera, .builtInUltraWideCamera, .builtInTelephotoCamera],
-      mediaType: .video,
-      position: .unspecified
-    )
-    return discovery.devices.map { device in
-      CameraOption(
-        id: device.uniqueID,
-        name: device.localizedName,
-        fNumber: device.lensAperture
+    let deviceTypes: [AVCaptureDevice.DeviceType] = [
+      .builtInWideAngleCamera, .builtInUltraWideCamera, .builtInTelephotoCamera,
+    ]
+    // Start with .unspecified to preserve default ordering and include external
+    // cameras (e.g. USB on iPadOS), then supplement with per-position queries
+    // to catch devices some iOS versions omit (e.g. front camera on iPhone 6s).
+    var seen = Set<String>()
+    var cameras = [CameraOption]()
+    for position in [AVCaptureDevice.Position.unspecified, .back, .front] {
+      let discovery = AVCaptureDevice.DiscoverySession(
+        deviceTypes: deviceTypes,
+        mediaType: .video,
+        position: position
       )
+      for device in discovery.devices where seen.insert(device.uniqueID).inserted {
+        cameras.append(
+          CameraOption(
+            id: device.uniqueID,
+            name: device.localizedName,
+            fNumber: device.lensAperture
+          ))
+      }
     }
+    return cameras
   }
 }
 
