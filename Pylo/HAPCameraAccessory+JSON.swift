@@ -221,6 +221,8 @@ extension HAPCameraAccessory {
       services.append([
         "iid": Self.iidDoorbellService,
         "type": Self.uuidDoorbell,
+        "primary": true,
+        "linked": [Self.iidCameraService],
         "characteristics": [
           [
             "iid": Self.iidProgrammableSwitchEvent,
@@ -230,7 +232,7 @@ extension HAPCameraAccessory {
             "value": NSNull(),
           ] as [String: Any]
         ],
-      ])
+      ] as [String: Any])
     }
 
     services.append(batteryServiceJSON(state: batteryState))
