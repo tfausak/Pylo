@@ -723,21 +723,31 @@ struct DoorbellTests {
     #expect(receivedValue == .int(0))
   }
 
-  @Test("toJSON includes doorbell service with primary flag")
-  func toJSONIncludesDoorbell() {
+  @Test("toJSON includes programmable switch service with service label")
+  func toJSONStructure() {
     let db = makeDoorbell()
     let json = db.toJSON()
     let services = json["services"] as! [[String: Any]]
-    let doorbellService = services.first { ($0["type"] as? String) == "121" }
-    #expect(doorbellService != nil)
-    #expect(doorbellService!["primary"] as? Bool == true)
-    let chars = doorbellService!["characteristics"] as! [[String: Any]]
+
+    // Stateless Programmable Switch service (0x89)
+    let switchService = services.first { ($0["type"] as? String) == "89" }
+    #expect(switchService != nil)
+    #expect(switchService!["primary"] as? Bool == true)
+    let chars = switchService!["characteristics"] as! [[String: Any]]
     let eventChar = chars.first { ($0["type"] as? String) == "73" }
     #expect(eventChar != nil)
     let perms = eventChar!["perms"] as! [String]
     #expect(perms.contains("pr"))
     #expect(perms.contains("ev"))
     #expect(!perms.contains("pw"))
+    // Service Label Index
+    let labelIndex = chars.first { ($0["type"] as? String) == "CB" }
+    #expect(labelIndex != nil)
+    #expect(labelIndex!["value"] as? Int == 1)
+
+    // Service Label service (0xCC)
+    let labelService = services.first { ($0["type"] as? String) == "CC" }
+    #expect(labelService != nil)
   }
 }
 

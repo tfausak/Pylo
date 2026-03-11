@@ -930,8 +930,9 @@ public final class HAPLightSensorAccessory: HAPAccessoryProtocol, @unchecked Sen
 
 // MARK: - Doorbell Accessory
 
-/// Standalone doorbell accessory for the bridge.
-/// Exposes a Programmable Switch Event characteristic for single-press doorbell events.
+/// Standalone doorbell accessory using a Stateless Programmable Switch.
+/// Shows up as a button tile in Home.app; can be configured with automations
+/// to send notifications, play sounds, etc. — acting as a doorbell.
 public final class HAPDoorbellAccessory: HAPAccessoryProtocol, @unchecked Sendable {
 
   public let aid: Int
@@ -955,12 +956,25 @@ public final class HAPDoorbellAccessory: HAPAccessoryProtocol, @unchecked Sendab
     set { _batteryState.withLock { $0 = newValue } }
   }
 
-  public static let iidDoorbellService = 8
+  // Stateless Programmable Switch service (iid 8-10)
+  public static let iidSwitchService = 8
   public static let iidProgrammableSwitchEvent = 9
+  public static let iidServiceLabelIndex = 10
 
-  private static let uuidDoorbell = "121"  // HMServiceTypeDoorbell
+  // Service Label service (iid 11-12)
+  public static let iidServiceLabelService = 11
+  public static let iidServiceLabelNamespace = 12
+
+  // HMServiceTypeStatelessProgrammableSwitch
+  private static let uuidStatelessProgrammableSwitch = "89"
   // HMCharacteristicTypeProgrammableSwitchEvent
   private static let uuidProgrammableSwitchEvent = "73"
+  // HAP Service Label Index (no public HomeKit constant)
+  private static let uuidServiceLabelIndex = "CB"
+  // HMServiceTypeLabel
+  private static let uuidServiceLabel = "CC"
+  // HAP Service Label Namespace (no public HomeKit constant)
+  private static let uuidServiceLabelNamespace = "CD"
 
   public init(
     aid: Int,
@@ -978,7 +992,7 @@ public final class HAPDoorbellAccessory: HAPAccessoryProtocol, @unchecked Sendab
     self.firmwareRevision = firmwareRevision
   }
 
-  /// Fire a single-press doorbell event.
+  /// Fire a single-press event.
   public func trigger() {
     onStateChange?(aid, Self.iidProgrammableSwitchEvent, .int(0))
   }
@@ -992,6 +1006,8 @@ public final class HAPDoorbellAccessory: HAPAccessoryProtocol, @unchecked Sendab
     case AccessoryInfoIID.firmwareRevision: return .string(firmwareRevision)
     case ProtocolInfoIID.version: return .string(hapProtocolVersion)
     case Self.iidProgrammableSwitchEvent: return .null
+    case Self.iidServiceLabelIndex: return .int(1)
+    case Self.iidServiceLabelNamespace: return .int(1)  // Arabic numerals
     case BatteryIID.batteryLevel: return batteryState.map { .int($0.level) }
     case BatteryIID.chargingState: return batteryState.map { .int($0.chargingState) }
     case BatteryIID.statusLowBattery: return batteryState.map { .int($0.statusLowBattery) }
@@ -1016,9 +1032,10 @@ public final class HAPDoorbellAccessory: HAPAccessoryProtocol, @unchecked Sendab
     var services: [[String: Any]] = [
       accessoryInformationServiceJSON(),
       protocolInformationServiceJSON(),
+      // Stateless Programmable Switch service
       [
-        "iid": Self.iidDoorbellService,
-        "type": Self.uuidDoorbell,
+        "iid": Self.iidSwitchService,
+        "type": Self.uuidStatelessProgrammableSwitch,
         "primary": true,
         "characteristics": [
           [
@@ -1027,9 +1044,28 @@ public final class HAPDoorbellAccessory: HAPAccessoryProtocol, @unchecked Sendab
             "perms": ["pr", "ev"],
             "minValue": 0, "maxValue": 0,
             "value": NSNull(),
-          ] as [String: Any]
+          ] as [String: Any],
+          [
+            "iid": Self.iidServiceLabelIndex,
+            "type": Self.uuidServiceLabelIndex, "format": "uint8",
+            "perms": ["pr"], "value": 1,
+            "minValue": 1,
+          ],
         ],
       ] as [String: Any],
+      // Service Label service (required by HAP spec for programmable switches)
+      [
+        "iid": Self.iidServiceLabelService,
+        "type": Self.uuidServiceLabel,
+        "characteristics": [
+          [
+            "iid": Self.iidServiceLabelNamespace,
+            "type": Self.uuidServiceLabelNamespace, "format": "uint8",
+            "perms": ["pr"], "value": 1,  // 1 = Arabic numerals
+            "minValue": 0, "maxValue": 1,
+          ]
+        ],
+      ],
     ]
     services.append(batteryServiceJSON(state: batteryState))
     return ["aid": aid, "services": services]
