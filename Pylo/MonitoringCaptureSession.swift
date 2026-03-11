@@ -300,6 +300,9 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     } else {
       // Cold start — create a new AVCaptureSession from scratch
       session = AVCaptureSession()
+      if #available(iOS 16.0, *) {
+        session.isMultitaskingCameraAccessEnabled = true
+      }
       session.sessionPreset = sensorOnly ? .vga640x480 : .hd1920x1080
 
       do {
