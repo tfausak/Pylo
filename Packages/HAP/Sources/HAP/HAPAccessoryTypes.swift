@@ -47,6 +47,7 @@ public enum HAPValue: Equatable, Sendable {
   case int(Int)
   case float(Double)
   case string(String)
+  case null
 
   /// Convert to a JSON-serializable value for `JSONSerialization`.
   public var jsonValue: Any {
@@ -55,6 +56,7 @@ public enum HAPValue: Equatable, Sendable {
     case .int(let v): return v
     case .float(let v): return v
     case .string(let v): return v
+    case .null: return NSNull()
     }
   }
 

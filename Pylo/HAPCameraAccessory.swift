@@ -485,7 +485,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     case BatteryIID.statusLowBattery: return batteryState.map { .int($0.statusLowBattery) }
     // Doorbell
     case Self.iidProgrammableSwitchEvent:
-      return nil  // Event-only characteristic, no readable value
+      return .null  // Event-only characteristic, returns null per HAP spec
     default: return nil
     }
   }

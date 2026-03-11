@@ -694,10 +694,10 @@ struct CameraDoorbellTests {
     return cam
   }
 
-  @Test("ProgrammableSwitchEvent reads as nil (event-only)")
-  func eventReadNil() {
+  @Test("ProgrammableSwitchEvent reads as null (event-only)")
+  func eventReadNull() {
     let cam = makeCamera()
-    #expect(cam.readCharacteristic(iid: HAPCameraAccessory.iidProgrammableSwitchEvent) == nil)
+    #expect(cam.readCharacteristic(iid: HAPCameraAccessory.iidProgrammableSwitchEvent) == .null)
   }
 
   @Test("ProgrammableSwitchEvent is not writable")
