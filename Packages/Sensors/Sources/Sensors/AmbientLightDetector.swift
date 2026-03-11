@@ -7,16 +7,16 @@ import os
 /// Designed to piggyback on existing capture sessions — reads `AVCaptureDevice.iso`
 /// and `.exposureDuration` rather than running a separate capture pipeline.
 /// Caller is responsible for throttling (e.g., calling every Nth frame).
-nonisolated final class AmbientLightDetector {
+public nonisolated final class AmbientLightDetector {
 
   private let _onLuxChange = Locked<((Float) -> Void)?>(initialState: nil)
-  var onLuxChange: ((Float) -> Void)? {
+  public var onLuxChange: ((Float) -> Void)? {
     get { _onLuxChange.withLock { $0 } }
     set { _onLuxChange.withLock { $0 = newValue } }
   }
 
   private let _device = Locked<AVCaptureDevice?>(initialState: nil)
-  var device: AVCaptureDevice? {
+  public var device: AVCaptureDevice? {
     get { _device.withLock { $0 } }
     set { _device.withLock { $0 = newValue } }
   }
@@ -28,13 +28,15 @@ nonisolated final class AmbientLightDetector {
 
   private let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "AmbientLight")
 
-  var currentLux: Float {
+  public var currentLux: Float {
     state.withLock { $0.currentLux }
   }
 
+  public init() {}
+
   /// Called from capture delegate callbacks.
   /// Caller is responsible for throttling (e.g., calling every Nth frame).
-  func sample() {
+  public func sample() {
     guard let device = device else { return }
 
     let iso = device.iso
@@ -60,7 +62,7 @@ nonisolated final class AmbientLightDetector {
     }
   }
 
-  func reset() {
+  public func reset() {
     _device.withLock { $0 = nil }
     state.withLock { s in
       s.currentLux = 0

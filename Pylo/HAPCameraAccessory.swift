@@ -5,6 +5,7 @@ import Foundation
 import FragmentedMP4
 import HAP
 import Locked
+import Sensors
 import TLV8
 @preconcurrency import UIKit
 import os

@@ -5,6 +5,7 @@ import CoreImage
 import Foundation
 import Locked
 import SRTP
+import Sensors
 import VideoToolbox
 import os
 

@@ -6,18 +6,18 @@ import os
 /// Detects human presence using Vision framework person detection.
 /// Processes pixel buffers from MonitoringCaptureSession at low frequency (~2.5s).
 /// Maintains occupancy state with configurable cooldown to avoid flapping.
-nonisolated final class OccupancySensor: @unchecked Sendable {
+public nonisolated final class OccupancySensor: @unchecked Sendable {
 
   private let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "OccupancySensor")
 
   private let _onOccupancyChange = Locked<((Bool) -> Void)?>(initialState: nil)
-  var onOccupancyChange: ((Bool) -> Void)? {
+  public var onOccupancyChange: ((Bool) -> Void)? {
     get { _onOccupancyChange.withLock { $0 } }
     set { _onOccupancyChange.withLock { $0 = newValue } }
   }
 
   /// Seconds to stay "occupied" after last person detection before clearing.
-  var cooldown: TimeInterval {
+  public var cooldown: TimeInterval {
     get { state.withLock { $0.cooldown } }
     set { state.withLock { $0.cooldown = newValue } }
   }
@@ -44,12 +44,12 @@ nonisolated final class OccupancySensor: @unchecked Sendable {
   /// no camera frames are being delivered (e.g. app backgrounded, snapshot capture).
   private let _cooldownTimer = Locked<DispatchSourceTimer?>(initialState: nil)
 
-  init() {}
+  public init() {}
 
   /// Process a pixel buffer for person detection.
   /// Safe to call from any queue. Dispatches Vision work to a dedicated queue.
   /// Caller is responsible for throttling (e.g., every ~75 frames at 30fps).
-  func processPixelBuffer(_ pixelBuffer: CVPixelBuffer) {
+  public func processPixelBuffer(_ pixelBuffer: CVPixelBuffer) {
     guard
       _processing.withLock({ p in
         guard !p else { return false }
@@ -178,7 +178,7 @@ nonisolated final class OccupancySensor: @unchecked Sendable {
 
   /// Reset state (call when stopping detection).
   /// Dispatches onto detectionQueue so timer cancel/resume can't race.
-  func reset() {
+  public func reset() {
     detectionQueue.async { [self] in
       cancelCooldownTimer()
       state.withLock { s in

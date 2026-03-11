@@ -4,12 +4,12 @@ import os
 
 /// Monitors device motion using the accelerometer and reports motion detected / not detected.
 /// At rest the accelerometer reads ~1g; significant deviation from that indicates movement.
-nonisolated final class MotionMonitor: @unchecked Sendable {
+public nonisolated final class MotionMonitor: @unchecked Sendable {
 
   /// Callback for motion state changes.
   /// Protected by a lock: written from @MainActor, read from motionQueue.
   private let _onMotionChange = Locked<((Bool) -> Void)?>(initialState: nil)
-  var onMotionChange: ((Bool) -> Void)? {
+  public var onMotionChange: ((Bool) -> Void)? {
     get { _onMotionChange.withLock { $0 } }
     set { _onMotionChange.withLock { $0 = newValue } }
   }
@@ -18,17 +18,17 @@ nonisolated final class MotionMonitor: @unchecked Sendable {
   /// Cached at init so it can be safely read from any queue (CMMotionManager is not thread-safe).
   /// Safe: CMMotionManager init + isAccelerometerAvailable is a single-threaded read at init time,
   /// before the instance is shared across queues.
-  let isAvailable: Bool
+  public let isAvailable: Bool
 
   private let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "Motion")
   private let motionManager = CMMotionManager()
 
-  init() {
+  public init() {
     isAvailable = motionManager.isAccelerometerAvailable
   }
 
   /// Acceleration delta from gravity (in g) required to trigger motion detected.
-  var threshold: Double {
+  public var threshold: Double {
     get { state.withLock { $0.threshold } }
     set { state.withLock { $0.threshold = newValue } }
   }
@@ -52,7 +52,7 @@ nonisolated final class MotionMonitor: @unchecked Sendable {
     return q
   }()
 
-  @MainActor func start() {
+  @MainActor public func start() {
     guard motionManager.isAccelerometerAvailable else {
       logger.warning("Accelerometer not available")
       return
@@ -110,7 +110,7 @@ nonisolated final class MotionMonitor: @unchecked Sendable {
     logger.info("Motion monitor started")
   }
 
-  @MainActor func stop() {
+  @MainActor public func stop() {
     motionManager.stopAccelerometerUpdates()
     state.withLock { $0.isMotionDetected = false }
     logger.info("Motion monitor stopped")

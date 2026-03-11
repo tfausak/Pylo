@@ -3,6 +3,7 @@ import AudioToolbox
 @preconcurrency import CoreMedia
 import FragmentedMP4
 import Locked
+import Sensors
 @preconcurrency import UIKit
 import VideoToolbox
 import os

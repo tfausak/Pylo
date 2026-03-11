@@ -3,6 +3,7 @@ import Combine
 import CoreImage.CIFilterBuiltins
 import FragmentedMP4
 import HAP
+import Sensors
 import SwiftUI
 
 // MARK: - Accessory Config Snapshot
