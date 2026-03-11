@@ -16,6 +16,7 @@ public enum AccessoryID {
   public static let contactSensor = 6
   public static let occupancySensor = 7
   public static let siren = 8
+  public static let doorbell = 9
 }
 
 // MARK: - Accessory Category (Table 12-3 in HAP R2 spec)
@@ -921,6 +922,113 @@ public final class HAPLightSensorAccessory: HAPAccessoryProtocol, @unchecked Sen
           ] as [String: Any]
         ],
       ],
+    ]
+    services.append(batteryServiceJSON(state: batteryState))
+    return ["aid": aid, "services": services]
+  }
+}
+
+// MARK: - Doorbell Accessory
+
+/// Standalone doorbell accessory for the bridge.
+/// Exposes a Programmable Switch Event characteristic for single-press doorbell events.
+public final class HAPDoorbellAccessory: HAPAccessoryProtocol, @unchecked Sendable {
+
+  public let aid: Int
+  public let name: String
+  public let model: String
+  public let manufacturer: String
+  public let serialNumber: String
+  public let firmwareRevision: String
+
+  private let _onStateChange = Locked<
+    (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
+  >(initialState: nil)
+  public var onStateChange: (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)? {
+    get { _onStateChange.withLock { $0 } }
+    set { _onStateChange.withLock { $0 = newValue } }
+  }
+
+  private let _batteryState = Locked<BatteryState?>(initialState: nil)
+  public var batteryState: BatteryState? {
+    get { _batteryState.withLock { $0 } }
+    set { _batteryState.withLock { $0 = newValue } }
+  }
+
+  public static let iidDoorbellService = 8
+  public static let iidProgrammableSwitchEvent = 9
+
+  private static let uuidDoorbell = "121"  // HMServiceTypeDoorbell
+  private static let uuidProgrammableSwitchEvent = "73"  // HMCharacteristicTypeProgrammableSwitchEvent
+
+  public init(
+    aid: Int,
+    name: String = "Pylo Doorbell",
+    model: String = "iPhone Doorbell",
+    manufacturer: String = "Pylo",
+    serialNumber: String = "000001",
+    firmwareRevision: String = "0.1.0"
+  ) {
+    self.aid = aid
+    self.name = name
+    self.model = model
+    self.manufacturer = manufacturer
+    self.serialNumber = serialNumber
+    self.firmwareRevision = firmwareRevision
+  }
+
+  /// Fire a single-press doorbell event.
+  public func trigger() {
+    onStateChange?(aid, Self.iidProgrammableSwitchEvent, .int(0))
+  }
+
+  public func readCharacteristic(iid: Int) -> HAPValue? {
+    switch iid {
+    case AccessoryInfoIID.manufacturer: return .string(manufacturer)
+    case AccessoryInfoIID.model: return .string(model)
+    case AccessoryInfoIID.name: return .string(name)
+    case AccessoryInfoIID.serialNumber: return .string(serialNumber)
+    case AccessoryInfoIID.firmwareRevision: return .string(firmwareRevision)
+    case ProtocolInfoIID.version: return .string(hapProtocolVersion)
+    case Self.iidProgrammableSwitchEvent: return .null
+    case BatteryIID.batteryLevel: return batteryState.map { .int($0.level) }
+    case BatteryIID.chargingState: return batteryState.map { .int($0.chargingState) }
+    case BatteryIID.statusLowBattery: return batteryState.map { .int($0.statusLowBattery) }
+    default: return nil
+    }
+  }
+
+  @discardableResult
+  public func writeCharacteristic(iid: Int, value: HAPValue, sharedSecret: SharedSecret? = nil)
+    -> Bool
+  {
+    if iid == AccessoryInfoIID.identify {
+      identify()
+      return true
+    }
+    return false
+  }
+
+  public func identify() {}
+
+  public func toJSON() -> [String: Any] {
+    var services: [[String: Any]] = [
+      accessoryInformationServiceJSON(),
+      protocolInformationServiceJSON(),
+      [
+        "iid": Self.iidDoorbellService,
+        "type": Self.uuidDoorbell,
+        "primary": true,
+        "characteristics": [
+          [
+            "iid": Self.iidProgrammableSwitchEvent,
+            "type": Self.uuidProgrammableSwitchEvent, "format": "uint8",
+            "perms": ["pr", "ev"],
+            "minValue": 0, "maxValue": 0,
+            "value": NSNull(),
+          ] as [String: Any]
+        ],
+      ] as [String: Any],
     ]
     services.append(batteryServiceJSON(state: batteryState))
     return ["aid": aid, "services": services]

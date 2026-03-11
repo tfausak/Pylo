@@ -113,10 +113,7 @@ struct ConfigCardsView: View {
         AccessoryCard(
           icon: "bell.fill",
           title: "Doorbell",
-          isOn: $viewModel.doorbellEnabled,
-          blocked: viewModel.selectedStreamCamera == nil,
-          blockedMessage: viewModel.selectedStreamCamera == nil
-            ? "Requires camera" : nil
+          isOn: $viewModel.doorbellEnabled
         ) {
           doorbellContent
         }

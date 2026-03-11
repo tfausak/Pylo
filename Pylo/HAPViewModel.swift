@@ -273,6 +273,7 @@ final class HAPViewModel: ObservableObject {
   private var batteryMonitor: BatteryMonitor?
   private var lightbulbAccessory: HAPAccessory?
   private var cameraAccessory: HAPCameraAccessory?
+  private var doorbellAccessory: HAPDoorbellAccessory?
   private var monitoringSession: MonitoringCaptureSession?
   private var fragmentWriter: FragmentedMP4Writer?
   private var dataStreamHandler: HAPDataStream?
@@ -533,6 +534,7 @@ final class HAPViewModel: ObservableObject {
       self.motionMonitor = setup.motionMonitor
       self.lightbulbAccessory = config.flashlightEnabled ? setup.lightbulb : nil
       self.cameraAccessory = config.selectedStreamCameraID != nil ? setup.camera : nil
+      self.doorbellAccessory = config.doorbellEnabled ? setup.doorbell : nil
       self.fragmentWriter = setup.fmp4Writer
       self.dataStreamHandler = setup.dataStream
       self.isMotionAvailable = setup.isMotionAvailable
@@ -644,6 +646,14 @@ final class HAPViewModel: ObservableObject {
         enabledAccessories.append(setup.siren)
       }
 
+      if config.doorbellEnabled {
+        setup.doorbell.onStateChange = {
+          [weak server = setup.server] aid, iid, value in
+          server?.notifySubscribers(aid: aid, iid: iid, value: value)
+        }
+        enabledAccessories.append(setup.doorbell)
+      }
+
       self.sirenPlayer = setup.sirenPlayer
 
       setup.server.onListenerStateChange = { [weak self] ready in
@@ -691,6 +701,7 @@ final class HAPViewModel: ObservableObject {
         setup.contactSensor.batteryState = sharedBatteryState
         setup.occupancySensor.batteryState = sharedBatteryState
         setup.siren.batteryState = sharedBatteryState
+        setup.doorbell.batteryState = sharedBatteryState
 
         let batteryAIDs = enabledAccessories.map(\.aid)
         battery.onBatteryChange = { [weak server = setup.server] state in
@@ -776,6 +787,7 @@ final class HAPViewModel: ObservableObject {
     lightbulbAccessory?.cancelIdentify()
     lightbulbAccessory = nil
     cameraAccessory = nil
+    doorbellAccessory = nil
     server?.stop()
     server = nil
     wasListenerReady = false
@@ -812,7 +824,7 @@ final class HAPViewModel: ObservableObject {
   }
 
   func ringDoorbell() {
-    cameraAccessory?.triggerDoorbell()
+    doorbellAccessory?.trigger()
   }
 }
 
@@ -848,6 +860,7 @@ private struct ServerSetup: @unchecked Sendable {
   let contactSensor: HAPContactSensorAccessory
   let occupancySensor: HAPOccupancySensorAccessory
   let siren: HAPSirenAccessory
+  let doorbell: HAPDoorbellAccessory
   let server: HAPServer
   let fmp4Writer: FragmentedMP4Writer?
   let dataStream: HAPDataStream?
@@ -911,6 +924,12 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     serialNumber: config.serial + "-siren", firmwareRevision: fw
   )
 
+  let doorbell = HAPDoorbellAccessory(
+    aid: AccessoryID.doorbell, name: "Pylo Doorbell",
+    model: "\(device) Doorbell", manufacturer: "Pylo",
+    serialNumber: config.serial + "-doorbell", firmwareRevision: fw
+  )
+
   // File I/O and Keychain reads — the main motivation for running off MainActor
   // PairSetupHandler.keyStore is already set by PyloApp._ensureKeyStore on the
   // main thread before the server starts — no need to re-assign here.
@@ -929,7 +948,6 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     camera.selectedCameraID = config.selectedStreamCameraID
     camera.minimumBitrate = config.minimumBitrate
     camera.microphoneEnabled = config.microphoneEnabled
-    camera.doorbellEnabled = config.doorbellEnabled
     camera.hksvEnabled = true
     camera.videoMotionEnabled = true
 
@@ -1253,6 +1271,7 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     contactSensor: contactSensor,
     occupancySensor: occupancySensor,
     siren: siren,
+    doorbell: doorbell,
     server: server, fmp4Writer: fmp4Writer, dataStream: dataStream,
     monitoringSession: monitoringSession,
     motionMonitor: motionMonitor,

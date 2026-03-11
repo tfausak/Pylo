@@ -680,85 +680,64 @@ struct VideoMotionDetectorThreadSafetyTests {
   }
 }
 
-// MARK: - Camera Doorbell Service Tests
+// MARK: - Doorbell Accessory Tests
 
-@Suite("Camera Doorbell Service")
-struct CameraDoorbellTests {
+@Suite("Doorbell Accessory")
+struct DoorbellTests {
 
-  private func makeCamera(doorbell: Bool = true) -> HAPCameraAccessory {
-    let cam = HAPCameraAccessory(
-      aid: 3, name: "Test Camera", model: "Test",
-      manufacturer: "Test", serialNumber: "SN-CAM", firmwareRevision: "1.0.0"
+  private func makeDoorbell() -> HAPDoorbellAccessory {
+    HAPDoorbellAccessory(
+      aid: AccessoryID.doorbell, name: "Test Doorbell", model: "Test",
+      manufacturer: "Test", serialNumber: "SN-BELL", firmwareRevision: "1.0.0"
     )
-    cam.doorbellEnabled = doorbell
-    return cam
   }
 
   @Test("ProgrammableSwitchEvent reads as null (event-only)")
   func eventReadNull() {
-    let cam = makeCamera()
-    #expect(cam.readCharacteristic(iid: HAPCameraAccessory.iidProgrammableSwitchEvent) == .null)
+    let db = makeDoorbell()
+    #expect(db.readCharacteristic(iid: HAPDoorbellAccessory.iidProgrammableSwitchEvent) == .null)
   }
 
   @Test("ProgrammableSwitchEvent is not writable")
   func eventNotWritable() {
-    let cam = makeCamera()
+    let db = makeDoorbell()
     #expect(
-      cam.writeCharacteristic(iid: HAPCameraAccessory.iidProgrammableSwitchEvent, value: .int(0))
+      db.writeCharacteristic(iid: HAPDoorbellAccessory.iidProgrammableSwitchEvent, value: .int(0))
         == false)
   }
 
-  @Test("triggerDoorbell fires onStateChange with single press event")
+  @Test("trigger fires onStateChange with single press event")
   func triggerFiresEvent() {
-    let cam = makeCamera()
+    let db = makeDoorbell()
     var receivedAID: Int?
     var receivedIID: Int?
     var receivedValue: HAPValue?
-    cam.onStateChange = { aid, iid, value in
+    db.onStateChange = { aid, iid, value in
       receivedAID = aid
       receivedIID = iid
       receivedValue = value
     }
-    cam.triggerDoorbell()
-    #expect(receivedAID == 3)
-    #expect(receivedIID == HAPCameraAccessory.iidProgrammableSwitchEvent)
+    db.trigger()
+    #expect(receivedAID == AccessoryID.doorbell)
+    #expect(receivedIID == HAPDoorbellAccessory.iidProgrammableSwitchEvent)
     #expect(receivedValue == .int(0))
   }
 
-  @Test("triggerDoorbell does nothing when doorbell is disabled")
-  func triggerDoesNothingWhenDisabled() {
-    let cam = makeCamera(doorbell: false)
-    var called = false
-    cam.onStateChange = { _, _, _ in called = true }
-    cam.triggerDoorbell()
-    #expect(!called)
-  }
-
-  @Test("toJSON includes doorbell service when enabled")
+  @Test("toJSON includes doorbell service with primary flag")
   func toJSONIncludesDoorbell() {
-    let cam = makeCamera(doorbell: true)
-    let json = cam.toJSON()
+    let db = makeDoorbell()
+    let json = db.toJSON()
     let services = json["services"] as! [[String: Any]]
-    let doorbellService = services.first { ($0["type"] as? String) == HKServiceUUID.doorbell }
+    let doorbellService = services.first { ($0["type"] as? String) == "121" }
     #expect(doorbellService != nil)
+    #expect(doorbellService!["primary"] as? Bool == true)
     let chars = doorbellService!["characteristics"] as! [[String: Any]]
-    let eventChar = chars.first {
-      ($0["type"] as? String) == HKCharacteristicUUID.programmableSwitchEvent
-    }
+    let eventChar = chars.first { ($0["type"] as? String) == "73" }
     #expect(eventChar != nil)
     let perms = eventChar!["perms"] as! [String]
     #expect(perms.contains("pr"))
     #expect(perms.contains("ev"))
     #expect(!perms.contains("pw"))
-  }
-
-  @Test("toJSON omits doorbell service when disabled")
-  func toJSONOmitsDoorbell() {
-    let cam = makeCamera(doorbell: false)
-    let json = cam.toJSON()
-    let services = json["services"] as! [[String: Any]]
-    let doorbellService = services.first { ($0["type"] as? String) == HKServiceUUID.doorbell }
-    #expect(doorbellService == nil)
   }
 }
 

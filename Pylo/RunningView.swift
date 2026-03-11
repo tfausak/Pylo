@@ -15,7 +15,7 @@ struct RunningView: View {
       VStack(spacing: 40) {
         statusIndicator
 
-        if viewModel.doorbellEnabled, viewModel.selectedStreamCamera != nil {
+        if viewModel.doorbellEnabled {
           doorbellButton
         }
       }
