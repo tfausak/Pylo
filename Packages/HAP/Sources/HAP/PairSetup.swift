@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import Locked
 import SRP
 import TLV8
 import os

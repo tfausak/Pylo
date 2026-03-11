@@ -1,5 +1,6 @@
 import Accelerate
 import CoreVideo
+import Locked
 import os
 
 /// Detects motion by comparing consecutive video frames using vImage.

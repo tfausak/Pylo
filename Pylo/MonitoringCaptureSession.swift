@@ -2,6 +2,7 @@
 import AudioToolbox
 @preconcurrency import CoreMedia
 import FragmentedMP4
+import Locked
 @preconcurrency import UIKit
 import VideoToolbox
 import os

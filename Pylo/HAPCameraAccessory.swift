@@ -4,6 +4,7 @@ import CryptoKit
 import Foundation
 import FragmentedMP4
 import HAP
+import Locked
 import TLV8
 @preconcurrency import UIKit
 import os

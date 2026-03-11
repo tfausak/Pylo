@@ -1,4 +1,5 @@
 import AVFoundation
+import Locked
 import os
 
 /// Estimates ambient light level (lux) from camera auto-exposure metadata.

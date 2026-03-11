@@ -1,4 +1,5 @@
 import CoreVideo
+import Locked
 import Vision
 import os
 

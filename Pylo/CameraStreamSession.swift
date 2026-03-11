@@ -3,6 +3,7 @@ import AudioToolbox
 import CoreImage
 @preconcurrency import CoreMedia
 import Foundation
+import Locked
 import SRTP
 import VideoToolbox
 import os

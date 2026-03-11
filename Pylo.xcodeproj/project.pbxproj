@@ -12,6 +12,7 @@
 		AA000001304B000100000003 /* SRTP in Frameworks */ = {isa = PBXBuildFile; productRef = AA000002304B000100000003 /* SRTP */; };
 		AA000001304B000100000004 /* FragmentedMP4 in Frameworks */ = {isa = PBXBuildFile; productRef = AA000002304B000100000004 /* FragmentedMP4 */; };
 		AA000001304B000100000005 /* HAP in Frameworks */ = {isa = PBXBuildFile; productRef = AA000002304B000100000005 /* HAP */; };
+		AA000001304B000100000006 /* Locked in Frameworks */ = {isa = PBXBuildFile; productRef = AA000002304B000100000006 /* Locked */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -65,6 +66,7 @@
 				AA000001304B000100000003 /* SRTP in Frameworks */,
 				AA000001304B000100000004 /* FragmentedMP4 in Frameworks */,
 				AA000001304B000100000005 /* HAP in Frameworks */,
+				AA000001304B000100000006 /* Locked in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -121,6 +123,7 @@
 				AA000002304B000100000003 /* SRTP */,
 				AA000002304B000100000004 /* FragmentedMP4 */,
 				AA000002304B000100000005 /* HAP */,
+				AA000002304B000100000006 /* Locked */,
 			);
 			productName = Pylo;
 			productReference = 34EA21E22F4EA5FF00113A11 /* Pylo.app */;
@@ -184,6 +187,7 @@
 				AA000003304B000100000003 /* XCLocalSwiftPackageReference "Packages/SRTP" */,
 				AA000003304B000100000004 /* XCLocalSwiftPackageReference "Packages/FragmentedMP4" */,
 				AA000003304B000100000005 /* XCLocalSwiftPackageReference "Packages/HAP" */,
+				AA000003304B000100000006 /* XCLocalSwiftPackageReference "Packages/Locked" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 34EA21E32F4EA5FF00113A11 /* Products */;
@@ -534,6 +538,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/HAP;
 		};
+		AA000003304B000100000006 /* XCLocalSwiftPackageReference "Packages/Locked" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/Locked;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -556,6 +564,10 @@
 		AA000002304B000100000005 /* HAP */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = HAP;
+		};
+		AA000002304B000100000006 /* Locked */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = Locked;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

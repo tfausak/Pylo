@@ -1,6 +1,7 @@
 @preconcurrency import AVFoundation
 import CoreImage
 import Foundation
+import Locked
 import os
 
 // MARK: - Snapshot

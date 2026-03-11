@@ -1,4 +1,5 @@
 import CoreMedia
+import Locked
 import os
 
 private let logSubsystem = "me.fausak.taylor.Pylo"

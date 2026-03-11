@@ -1,4 +1,5 @@
 import CoreMotion
+import Locked
 import os
 
 /// Monitors device motion using the accelerometer and reports motion detected / not detected.
