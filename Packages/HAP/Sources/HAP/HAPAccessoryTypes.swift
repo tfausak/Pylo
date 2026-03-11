@@ -67,6 +67,10 @@ public enum HAPValue: Equatable, Sendable {
       self = .string(s)
       return
     }
+    if value is NSNull {
+      self = .null
+      return
+    }
     if let n = value as? NSNumber {
       if CFGetTypeID(n) == CFBooleanGetTypeID() {
         self = .bool(n.boolValue)

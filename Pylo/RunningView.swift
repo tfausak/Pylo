@@ -52,7 +52,7 @@ struct RunningView: View {
       viewModel.pressButton()
       UIImpactFeedbackGenerator(style: .medium).impactOccurred()
       buttonCooldown = true
-      Task {
+      Task { @MainActor in
         try? await Task.sleep(nanoseconds: 2_000_000_000)
         buttonCooldown = false
       }
@@ -72,6 +72,8 @@ struct RunningView: View {
     }
     .disabled(buttonCooldown)
     .animation(.easeInOut(duration: 0.2), value: buttonCooldown)
+    .accessibilityLabel("Button")
+    .accessibilityHint("Triggers a programmable switch event")
   }
 
   // MARK: - Gear Button
@@ -85,6 +87,7 @@ struct RunningView: View {
         .foregroundStyle(.white.opacity(0.5))
         .padding(20)
     }
+    .accessibilityLabel("Settings")
   }
 
   // MARK: - Pixel Shift
