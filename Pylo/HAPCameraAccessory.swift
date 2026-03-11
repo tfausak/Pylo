@@ -20,11 +20,12 @@ struct CameraOption: Identifiable, Hashable, Sendable {
     let deviceTypes: [AVCaptureDevice.DeviceType] = [
       .builtInWideAngleCamera, .builtInUltraWideCamera, .builtInTelephotoCamera,
     ]
-    // Query each position separately and merge — some devices (e.g. iPhone 6s)
-    // may not return the front camera when using position: .unspecified.
+    // Start with .unspecified to preserve default ordering and include external
+    // cameras (e.g. USB on iPadOS), then supplement with per-position queries
+    // to catch devices some iOS versions omit (e.g. front camera on iPhone 6s).
     var seen = Set<String>()
     var cameras = [CameraOption]()
-    for position in [AVCaptureDevice.Position.back, .front] {
+    for position in [AVCaptureDevice.Position.unspecified, .back, .front] {
       let discovery = AVCaptureDevice.DiscoverySession(
         deviceTypes: deviceTypes,
         mediaType: .video,
