@@ -623,7 +623,6 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     onStateChange?(aid, Self.iidMotionDetected, .bool(detected))
   }
 
-
   // MARK: - Streaming Control
 
   /// Returns (videoRotationAngle, shouldSwapDimensions) based on current device orientation.

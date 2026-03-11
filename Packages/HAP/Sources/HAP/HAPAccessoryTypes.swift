@@ -959,7 +959,8 @@ public final class HAPDoorbellAccessory: HAPAccessoryProtocol, @unchecked Sendab
   public static let iidProgrammableSwitchEvent = 9
 
   private static let uuidDoorbell = "121"  // HMServiceTypeDoorbell
-  private static let uuidProgrammableSwitchEvent = "73"  // HMCharacteristicTypeProgrammableSwitchEvent
+  // HMCharacteristicTypeProgrammableSwitchEvent
+  private static let uuidProgrammableSwitchEvent = "73"
 
   public init(
     aid: Int,
