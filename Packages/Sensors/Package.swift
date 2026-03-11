@@ -8,9 +8,10 @@ let package = Package(
     .library(name: "Sensors", targets: ["Sensors"])
   ],
   dependencies: [
-    .package(path: "../Locked")
+    .package(path: "../HAP"),
+    .package(path: "../Locked"),
   ],
   targets: [
-    .target(name: "Sensors", dependencies: ["Locked"])
+    .target(name: "Sensors", dependencies: ["HAP", "Locked"])
   ]
 )

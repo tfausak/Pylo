@@ -62,7 +62,6 @@ Accessories (aid 1-5: bridge, lightbulb, camera, light sensor, motion sensor)
 | `HAPTypes.swift` | Keychain helpers (`KeychainKeyStore`) |
 | `HomeKitUUIDs.swift` | HAP short-form UUID mapping, verified against HomeKit constants |
 | `AudioUtilities.swift` | Shared PCM-to-Float32 audio conversion |
-| `BatteryMonitor.swift` | Battery level/charging state monitoring via UIDevice |
 
 **Packages/**
 
@@ -85,7 +84,7 @@ Accessories (aid 1-5: bridge, lightbulb, camera, light sensor, motion sensor)
 | `TLV8` | `TLV8.swift` | HomeKit TLV8 binary codec |
 | `FragmentedMP4` | `FragmentedMP4Writer.swift` | fMP4 segment generation for HKSV recording |
 | `Locked` | `Locked.swift` | Thread-safe state wrapper (`os_unfair_lock`), shared by all packages |
-| `Sensors` | `AmbientLightDetector.swift`, `MotionMonitor.swift`, `VideoMotionDetector.swift`, `OccupancySensor.swift`, `ProximitySensor.swift` | Device sensor abstractions (light, motion, occupancy, proximity) |
+| `Sensors` | `AmbientLightDetector.swift`, `BatteryMonitor.swift`, `MotionMonitor.swift`, `VideoMotionDetector.swift`, `OccupancySensor.swift`, `ProximitySensor.swift` | Device sensor abstractions (light, battery, motion, occupancy, proximity) |
 
 ### Data Flow
 

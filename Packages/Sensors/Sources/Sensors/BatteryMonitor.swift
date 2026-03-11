@@ -4,12 +4,12 @@ import os
 
 /// Monitors the host device's battery level and charging state via UIDevice notifications.
 /// All UIDevice access must happen on the main actor.
-@MainActor final class BatteryMonitor {
+@MainActor public final class BatteryMonitor {
 
-  var onBatteryChange: ((BatteryState) -> Void)?
+  public var onBatteryChange: ((BatteryState) -> Void)?
 
   /// Whether the device reports a valid battery level (false on Mac Catalyst / Simulator without battery).
-  private(set) var isAvailable = false
+  public private(set) var isAvailable = false
 
   private let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "Battery")
 
@@ -18,7 +18,9 @@ import os
 
   private var observers: [NSObjectProtocol] = []
 
-  func start() {
+  public init() {}
+
+  public func start() {
     UIDevice.current.isBatteryMonitoringEnabled = true
     isAvailable = UIDevice.current.batteryLevel >= 0
 
@@ -39,7 +41,7 @@ import os
     logger.info("Battery monitor started")
   }
 
-  func stop() {
+  public func stop() {
     for observer in observers {
       NotificationCenter.default.removeObserver(observer)
     }
@@ -50,7 +52,7 @@ import os
   }
 
   /// Read the current battery state from UIDevice.
-  func currentState() -> BatteryState {
+  public func currentState() -> BatteryState {
     let state = BatteryState()
     let rawLevel = UIDevice.current.batteryLevel  // 0.0–1.0, or -1 if unknown
     let level = max(0, min(100, Int(rawLevel * 100)))
