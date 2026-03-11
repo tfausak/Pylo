@@ -43,11 +43,11 @@ import os
       observers.append(
         NotificationCenter.default.addObserver(
           forName: UIDevice.batteryLevelDidChangeNotification, object: nil, queue: .main
-        ) { [weak self] _ in MainActor.assumeIsolated { self?.batteryDidChange() } })
+        ) { [weak self] _ in Task { @MainActor in self?.batteryDidChange() } })
       observers.append(
         NotificationCenter.default.addObserver(
           forName: UIDevice.batteryStateDidChangeNotification, object: nil, queue: .main
-        ) { [weak self] _ in MainActor.assumeIsolated { self?.batteryDidChange() } })
+        ) { [weak self] _ in Task { @MainActor in self?.batteryDidChange() } })
     #elseif os(macOS)
       // IOKit power source change notifications are delivered via CFRunLoop.
       // Poll on a timer instead for simplicity — battery state changes slowly.
