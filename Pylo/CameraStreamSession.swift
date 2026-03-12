@@ -717,24 +717,27 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   private func observeCaptureInterruptions(_ session: AVCaptureSession) {
     removeInterruptionObservers()
     let nc = NotificationCenter.default
+    let queue = OperationQueue()
+    queue.underlyingQueue = captureQueue
     interruptionObservers.append(
       nc.addObserver(
-        forName: .AVCaptureSessionWasInterrupted, object: session, queue: nil
+        forName: .AVCaptureSessionWasInterrupted, object: session, queue: queue
       ) { [weak self] notification in
-        guard let reason = notification.userInfo?[AVCaptureSessionInterruptionReasonKey] as? Int
+        guard
+          let self,
+          let reason = notification.userInfo?[AVCaptureSessionInterruptionReasonKey] as? Int
         else { return }
-        self?.logger.warning(
+        self.logger.warning(
           "Capture session interrupted (reason \(reason))")
       })
     interruptionObservers.append(
       nc.addObserver(
-        forName: .AVCaptureSessionInterruptionEnded, object: session, queue: nil
+        forName: .AVCaptureSessionInterruptionEnded, object: session, queue: queue
       ) { [weak self] _ in
-        guard let self, let session = self.captureSession, !session.isRunning else { return }
+        guard let self else { return }
+        guard !session.isRunning else { return }
         self.logger.info("Capture interruption ended — resuming session")
-        self.captureQueue.async {
-          session.startRunning()
-        }
+        session.startRunning()
       })
   }
 

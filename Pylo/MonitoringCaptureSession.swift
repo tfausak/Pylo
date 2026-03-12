@@ -568,25 +568,30 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   /// iPad split screen on iOS 15 where multitasking camera access is unavailable).
   private func observeCaptureInterruptions(_ session: AVCaptureSession) {
     removeInterruptionObservers()
+    // Guard against a concurrent stop() having already cleared captureSession.
+    guard captureSession === session else { return }
     let nc = NotificationCenter.default
+    let queue = OperationQueue()
+    queue.underlyingQueue = sessionQueue
     interruptionObservers.append(
       nc.addObserver(
-        forName: .AVCaptureSessionWasInterrupted, object: session, queue: nil
+        forName: .AVCaptureSessionWasInterrupted, object: session, queue: queue
       ) { [weak self] notification in
-        guard let reason = notification.userInfo?[AVCaptureSessionInterruptionReasonKey] as? Int
+        guard
+          let self,
+          let reason = notification.userInfo?[AVCaptureSessionInterruptionReasonKey] as? Int
         else { return }
-        self?.logger.warning(
+        self.logger.warning(
           "Capture session interrupted (reason \(reason))")
       })
     interruptionObservers.append(
       nc.addObserver(
-        forName: .AVCaptureSessionInterruptionEnded, object: session, queue: nil
+        forName: .AVCaptureSessionInterruptionEnded, object: session, queue: queue
       ) { [weak self] _ in
-        guard let self, let session = self.captureSession, !session.isRunning else { return }
+        guard let self else { return }
+        guard !session.isRunning else { return }
         self.logger.info("Capture interruption ended — resuming session")
-        self.sessionQueue.async {
-          session.startRunning()
-        }
+        session.startRunning()
       })
   }
 
