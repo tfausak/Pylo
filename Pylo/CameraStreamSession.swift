@@ -35,6 +35,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
 
   // Video pipeline
   private var captureSession: AVCaptureSession?
+  private var interruptionObservers: [NSObjectProtocol] = []
   private var videoOutput: AVCaptureVideoDataOutput?
   private var compressionSession: VTCompressionSession?
   let captureQueue = DispatchQueue(label: "\(Bundle.main.bundleIdentifier!).camera.capture")
@@ -414,6 +415,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     audioRTCPTimer?.cancel()
     audioRTCPTimer = nil
 
+    removeInterruptionObservers()
     let session = captureSession
     if keepCaptureSession, let session {
       // Remove our outputs so the running session stops delivering frames
@@ -699,6 +701,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     self.captureSession = session
     self.videoOutput = output
     self.videoCaptureDelegate = delegate
+    observeCaptureInterruptions(session)
 
     // Pre-create the audio encoder so it's ready when mic samples arrive.
     // Without this, audio samples arriving before the audio UDP is ready are silently dropped.
@@ -706,6 +709,40 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
       self.setupAudioEncoder()
     }
     return true
+  }
+
+  /// Observe AVCaptureSession interruption notifications so we can automatically
+  /// resume the capture session when the interruption ends (e.g. returning from
+  /// iPad split screen on iOS 15 where multitasking camera access is unavailable).
+  private func observeCaptureInterruptions(_ session: AVCaptureSession) {
+    removeInterruptionObservers()
+    let nc = NotificationCenter.default
+    interruptionObservers.append(
+      nc.addObserver(
+        forName: .AVCaptureSessionWasInterrupted, object: session, queue: nil
+      ) { [weak self] notification in
+        guard let reason = notification.userInfo?[AVCaptureSessionInterruptionReasonKey] as? Int
+        else { return }
+        self?.logger.warning(
+          "Capture session interrupted (reason \(reason))")
+      })
+    interruptionObservers.append(
+      nc.addObserver(
+        forName: .AVCaptureSessionInterruptionEnded, object: session, queue: nil
+      ) { [weak self] _ in
+        guard let self, let session = self.captureSession, !session.isRunning else { return }
+        self.logger.info("Capture interruption ended — resuming session")
+        self.captureQueue.async {
+          session.startRunning()
+        }
+      })
+  }
+
+  private func removeInterruptionObservers() {
+    for observer in interruptionObservers {
+      NotificationCenter.default.removeObserver(observer)
+    }
+    interruptionObservers.removeAll()
   }
 
   // MARK: - H.264 Compression
