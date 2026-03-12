@@ -46,6 +46,9 @@ extension HAPCameraAccessory {
     defer { onSnapshotDidCapture?() }
 
     let session = AVCaptureSession()
+    if #available(iOS 16.0, *) {
+      session.isMultitaskingCameraAccessEnabled = true
+    }
     session.sessionPreset = width > 1280 ? .hd1920x1080 : width > 640 ? .hd1280x720 : .medium
 
     guard let input = try? AVCaptureDeviceInput(device: camera),
