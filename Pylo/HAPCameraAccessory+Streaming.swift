@@ -13,7 +13,7 @@ extension HAPCameraAccessory {
 
   func streamingStatusTLV() -> Data {
     var b = TLV8.Builder()
-    let status: UInt8 = streamSession != nil ? 1 : 0  // 0=Available, 1=InUse, 2=Unavailable
+    let status: UInt8 = hasActiveStreamSession ? 1 : 0  // 0=Available, 1=InUse, 2=Unavailable
     b.add(0x01, byte: status)
     return b.build()
   }
@@ -80,9 +80,8 @@ extension HAPCameraAccessory {
       "SetupEndpoints: controller=\(controllerAddress):\(controllerVideoPort)/\(controllerAudioPort)"
     )
 
-    // Stop any existing stream session before creating a new one
-    streamSession?.stopStreaming()
-    streamSession = nil
+    // Atomically detach any existing session to avoid racing with another device
+    detachStreamSession()?.stopStreaming()
 
     let videoSSRC = UInt32.random(in: 1...UInt32.max)
     let audioSSRC = UInt32.random(in: 1...UInt32.max)
@@ -294,7 +293,7 @@ extension HAPCameraAccessory {
       microphoneEnabled: microphoneEnabled)
     if !started {
       logger.error("Stream session failed to start — clearing session")
-      streamSession = nil
+      clearStreamSession(ifIdenticalTo: session)
       onMonitoringCaptureNeeded?(true, nil)
     }
     onStateChange?(
@@ -305,14 +304,15 @@ extension HAPCameraAccessory {
     // Hand off the AVCaptureSession back to monitoring if recording is armed,
     // so it can resume without a cold-start.
     let recordingArmed = hksvState.withLock({ $0.recordingActive }) != 0
+    // Atomically detach the session to avoid racing with another device
+    let session = detachStreamSession()
     let handBackSession: AVCaptureSession?
     if recordingArmed {
-      handBackSession = streamSession?.handoff()
+      handBackSession = session?.handoff()
     } else {
-      streamSession?.stopStreaming()
+      session?.stopStreaming()
       handBackSession = nil
     }
-    streamSession = nil
     onStateChange?(
       aid, Self.iidStreamingStatus, .string(streamingStatusTLV().base64EncodedString()))
     // Resume monitoring capture if recording is still armed
