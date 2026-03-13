@@ -190,6 +190,26 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     set { streamState.withLock { $0.streamSession = newValue } }
   }
 
+  /// Atomically checks whether a stream session is active (avoids TOCTOU race).
+  var hasActiveStreamSession: Bool {
+    streamState.withLock { $0.streamSession != nil }
+  }
+
+  /// Atomically detaches and returns the current stream session, setting it to nil.
+  /// This prevents two concurrent callers from both getting a non-nil session.
+  func detachStreamSession() -> CameraStreamSession? {
+    streamState.withLock { s in
+      let prev = s.streamSession
+      s.streamSession = nil
+      return prev
+    }
+  }
+
+  /// Atomically clears the stream session without returning it.
+  func clearStreamSession() {
+    streamState.withLock { $0.streamSession = nil }
+  }
+
   /// Most recent JPEG snapshot captured during streaming (used as fallback for snapshot requests).
   /// Protected by a lock because it is written from captureQueue (via onSnapshotFrame) and from
   /// a global queue (captureSnapshot), and read from the server queue.
@@ -500,12 +520,12 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
       switch value {
       case .bool(let v):
         audioSettings.withLock { $0.isMuted = v }
-        streamSession?.isMuted = v
+        streamState.withLock({ $0.streamSession })?.isMuted = v
         return true
       case .int(let v):
         let muted = v != 0
         audioSettings.withLock { $0.isMuted = muted }
-        streamSession?.isMuted = muted
+        streamState.withLock({ $0.streamSession })?.isMuted = muted
         return true
       default:
         return false
@@ -514,12 +534,12 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
       switch value {
       case .bool(let v):
         audioSettings.withLock { $0.speakerMuted = v }
-        streamSession?.speakerMuted = v
+        streamState.withLock({ $0.streamSession })?.speakerMuted = v
         return true
       case .int(let v):
         let muted = v != 0
         audioSettings.withLock { $0.speakerMuted = muted }
-        streamSession?.speakerMuted = muted
+        streamState.withLock({ $0.streamSession })?.speakerMuted = muted
         return true
       default:
         return false
@@ -528,7 +548,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
       if case .int(let v) = value {
         let vol = max(0, min(100, v))
         audioSettings.withLock { $0.speakerVolume = vol }
-        streamSession?.speakerVolume = vol
+        streamState.withLock({ $0.streamSession })?.speakerVolume = vol
         return true
       }
       return false
