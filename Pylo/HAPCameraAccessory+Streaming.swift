@@ -293,7 +293,7 @@ extension HAPCameraAccessory {
       microphoneEnabled: microphoneEnabled)
     if !started {
       logger.error("Stream session failed to start — clearing session")
-      clearStreamSession()
+      clearStreamSession(ifIdenticalTo: session)
       onMonitoringCaptureNeeded?(true, nil)
     }
     onStateChange?(

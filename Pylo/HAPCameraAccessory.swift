@@ -205,9 +205,12 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     }
   }
 
-  /// Atomically clears the stream session without returning it.
-  func clearStreamSession() {
-    streamState.withLock { $0.streamSession = nil }
+  /// Atomically clears the stream session only if it is the same instance as `expected`.
+  /// Prevents a stale caller from wiping a newer session installed by another device.
+  func clearStreamSession(ifIdenticalTo expected: CameraStreamSession) {
+    streamState.withLock { s in
+      if s.streamSession === expected { s.streamSession = nil }
+    }
   }
 
   /// Most recent JPEG snapshot captured during streaming (used as fallback for snapshot requests).
