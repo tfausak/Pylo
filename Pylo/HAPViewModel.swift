@@ -702,7 +702,10 @@ final class HAPViewModel: ObservableObject {
         let isPaired = server?.pairingStore.isPaired ?? false
         UserDefaults.standard.set(isPaired, forKey: "hasPairings")
         Task { @MainActor [weak self] in
-          withAnimation { self?.hasPairings = isPaired }
+          withAnimation {
+            self?.hasPairings = isPaired
+            if !isPaired { self?.isWaitingForHomeApp = false }
+          }
           self?.updateIdleTimer()
         }
       }
