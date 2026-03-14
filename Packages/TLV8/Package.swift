@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
   name: "TLV8",
-  platforms: [.macOS(.v13), .iOS(.v15)],
+  platforms: [.macOS(.v12), .iOS(.v15)],
   products: [
     .library(name: "TLV8", targets: ["TLV8"])
   ],

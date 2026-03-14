@@ -691,7 +691,11 @@ private struct NavigationContainer<Content: View>: View {
           .navigationViewStyle(.stack)
       }
     #else
-      NavigationStack(root: content)
+      if #available(macOS 13.0, *) {
+        NavigationStack(root: content)
+      } else {
+        NavigationView(content: content)
+      }
     #endif
   }
 }
