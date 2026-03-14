@@ -5,9 +5,6 @@ struct ContentView: View {
   var forceConfig = false
   @Environment(\.scenePhase) private var scenePhase
   @State private var showUnpairConfirmation = false
-  @State private var isScreenDimmed = false
-  @State private var dimTask: Task<Void, Never>?
-  @State private var isDimTimerResetPending = false
 
   var body: some View {
     ZStack {
@@ -41,7 +38,6 @@ struct ContentView: View {
               .foregroundStyle(.white)
               .contentShape(Rectangle())
               .onTapGesture {
-                resetDimTimer()
                 viewModel.restart()
               }
               .accessibilityAddTraits(.isButton)
@@ -65,18 +61,6 @@ struct ContentView: View {
         .animation(.default, value: viewModel.needsRestart)
         .animation(.default, value: viewModel.isWaitingForHomeApp)
       }
-      .onTapGesture {
-        resetDimTimer()
-      }
-      .simultaneousGesture(
-        DragGesture(minimumDistance: 10)
-          .onChanged { _ in
-            guard !isDimTimerResetPending else { return }
-            isDimTimerResetPending = true
-            resetDimTimer()
-          }
-          .onEnded { _ in isDimTimerResetPending = false }
-      )
       .confirmationDialog(
         "Unpair",
         isPresented: $showUnpairConfirmation,
@@ -100,62 +84,12 @@ struct ContentView: View {
         Text(viewModel.permissionAlert?.message ?? "")
       }
 
-      #if os(iOS)
-        if isScreenDimmed {
-          Color.black
-            .ignoresSafeArea()
-            .accessibilityLabel("Screen dimmed")
-            .accessibilityHint("Tap to wake")
-            .accessibilityAddTraits(.isButton)
-            .onTapGesture { resetDimTimer() }
-        }
-      #endif
     }
-    #if os(iOS)
-      .animation(.default, value: isScreenDimmed)
-      .onChangeCompat(of: viewModel.isRunning) { running in
-        if running {
-          resetDimTimer()
-        } else {
-          dimTask?.cancel()
-          dimTask = nil
-          isScreenDimmed = false
-        }
-      }
-      .onChangeCompat(of: viewModel.keepScreenAwake) { _ in
-        resetDimTimer()
-      }
-      .onChangeCompat(of: viewModel.screenSaverEnabled) { _ in
-        if viewModel.isRunning { resetDimTimer() }
-      }
-      .onChangeCompat(of: viewModel.screenSaverDelay) { _ in
-        if viewModel.isRunning { resetDimTimer() }
-      }
-      .onChangeCompat(of: viewModel.hasPairings) { paired in
-        if !paired {
-          dimTask?.cancel()
-          dimTask = nil
-          isScreenDimmed = false
-        } else if viewModel.isRunning {
-          resetDimTimer()
-        }
-      }
-    #endif
     .onChangeCompat(of: scenePhase) { newPhase in
       if newPhase == .active {
         viewModel.recheckPermissions()
-        #if os(iOS)
-          resetDimTimer()
-        #endif
-      } else {
-        #if os(iOS)
-          dimTask?.cancel()
-          dimTask = nil
-          isScreenDimmed = false
-        #endif
-        if newPhase == .background {
-          viewModel.handleBackgrounding()
-        }
+      } else if newPhase == .background {
+        viewModel.handleBackgrounding()
       }
     }
   }
@@ -512,24 +446,7 @@ struct ContentView: View {
 
   @ViewBuilder
   private var displayContent: some View {
-    VStack(spacing: 12) {
-      Toggle("Screen Saver", isOn: $viewModel.screenSaverEnabled)
-      if viewModel.screenSaverEnabled {
-        HStack {
-          Text("Delay")
-            .foregroundStyle(.secondary)
-          Spacer()
-          Picker("Delay", selection: $viewModel.screenSaverDelay) {
-            Text("1 min").tag(TimeInterval(60))
-            Text("2 min").tag(TimeInterval(120))
-            Text("5 min").tag(TimeInterval(300))
-            Text("10 min").tag(TimeInterval(600))
-          }
-          .labelsHidden()
-          .pickerStyle(.menu)
-        }
-      }
-    }
+    EmptyView()
   }
 
   @ViewBuilder
@@ -700,30 +617,6 @@ struct ContentView: View {
       ?? viewModel.availableCameras.first
   }
 
-  // MARK: - Screen Dimming
-
-  private func resetDimTimer() {
-    dimTask?.cancel()
-    isScreenDimmed = false
-    guard viewModel.isRunning, viewModel.hasPairings, viewModel.keepScreenAwake,
-      viewModel.screenSaverEnabled
-    else {
-      return
-    }
-    dimTask = Task {
-      // Task.sleep throws CancellationError when the task is cancelled,
-      // cleanly preventing the stale isScreenDimmed write.
-      let delaySeconds = viewModel.screenSaverDelay
-      guard delaySeconds.isFinite, delaySeconds > 0 else { return }
-      guard
-        (try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000)))
-          != nil
-      else {
-        return
-      }
-      isScreenDimmed = true
-    }
-  }
 }
 
 // MARK: - Compatibility Helpers

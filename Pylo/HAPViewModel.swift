@@ -229,19 +229,6 @@ final class HAPViewModel: ObservableObject {
       updateIdleTimer()
     }
   }
-  @Published var screenSaverEnabled: Bool = true {
-    didSet {
-      guard !isRestoring, screenSaverEnabled != oldValue else { return }
-      UserDefaults.standard.set(screenSaverEnabled, forKey: "screenSaverEnabled")
-    }
-  }
-  @Published var screenSaverDelay: TimeInterval = 60 {
-    didSet {
-      guard !isRestoring, screenSaverDelay != oldValue else { return }
-      UserDefaults.standard.set(screenSaverDelay, forKey: "screenSaverDelay")
-    }
-  }
-
   /// Whether camera permission has been expressly denied or restricted.
   @Published var cameraPermissionDenied = false
 
@@ -453,12 +440,6 @@ final class HAPViewModel: ObservableObject {
     if UserDefaults.standard.object(forKey: "keepScreenAwake") != nil {
       keepScreenAwake = UserDefaults.standard.bool(forKey: "keepScreenAwake")
     }
-    if UserDefaults.standard.object(forKey: "screenSaverEnabled") != nil {
-      screenSaverEnabled = UserDefaults.standard.bool(forKey: "screenSaverEnabled")
-    }
-    let savedDelay = UserDefaults.standard.double(forKey: "screenSaverDelay")
-    if savedDelay > 0 { screenSaverDelay = savedDelay }
-
     // Discover available cameras and restore stream camera selection
     let cameras = CameraOption.availableCameras()
     availableCameras = cameras
@@ -597,7 +578,7 @@ final class HAPViewModel: ObservableObject {
       // @MainActor inference, and hop to MainActor explicitly via Task for
       // UI updates. Strong ref is safe: stop() tears down the server and
       // clears all callbacks before the view model could be deallocated.
-      nonisolated(unsafe) let vm = self
+      let vm = self
       var enabledAccessories: [any HAPAccessoryProtocol] = []
 
       if config.flashlightEnabled {
