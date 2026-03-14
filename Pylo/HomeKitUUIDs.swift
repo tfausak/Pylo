@@ -124,7 +124,7 @@ nonisolated enum HKCharacteristicUUID {
 
   // Programmable Switch
 
-  // HMCharacteristicTypeProgrammableSwitchEvent (event-only)
+  // HMCharacteristicTypeInputEvent (event-only)
   static let programmableSwitchEvent = "73"
 
   // Battery

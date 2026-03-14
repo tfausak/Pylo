@@ -99,6 +99,7 @@ struct RunningView: View {
   // MARK: - Pixel Shift
 
   private func startPixelShift() {
+    guard shiftTimer == nil else { return }
     shiftTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
       Task { @MainActor in
         withAnimation(.easeInOut(duration: 1.0)) {
@@ -150,6 +151,7 @@ struct RunningConfigView: View {
     #else
       .frame(minWidth: 480, minHeight: 500)
     #endif
+    .interactiveDismissDisabled(viewModel.needsRestart)
     .onAppear {
       savedConfig = AccessoryConfig(from: viewModel)
     }

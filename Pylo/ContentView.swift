@@ -170,121 +170,121 @@ struct ContentView: View {
 
   @ViewBuilder
   private var pairedContent: some View {
-        // Camera
-        AccessoryCard(
-          icon: "camera.fill",
-          title: "Camera",
-          isOn: cameraEnabled,
-          blocked: !viewModel.hasCamera || viewModel.cameraPermissionDenied,
-          blockedMessage: !viewModel.hasCamera
-            ? "Not available on this device"
-            : viewModel.cameraPermissionDenied ? "Permission denied" : nil
-        ) {
-          cameraContent
-        }
+    // Camera
+    AccessoryCard(
+      icon: "camera.fill",
+      title: "Camera",
+      isOn: cameraEnabled,
+      blocked: !viewModel.hasCamera || viewModel.cameraPermissionDenied,
+      blockedMessage: !viewModel.hasCamera
+        ? "Not available on this device"
+        : viewModel.cameraPermissionDenied ? "Permission denied" : nil
+    ) {
+      cameraContent
+    }
 
-        // Flashlight
-        AccessoryCard(
-          icon: "flashlight.off.fill",
-          title: "Flashlight",
-          isOn: flashlightEnabled,
-          blocked: !viewModel.hasTorch || viewModel.cameraPermissionDenied,
-          blockedMessage: !viewModel.hasTorch
-            ? "Not available on this device"
-            : viewModel.cameraPermissionDenied ? "Permission denied" : nil
-        ) {
-          flashlightContent
-        }
+    // Flashlight
+    AccessoryCard(
+      icon: "flashlight.off.fill",
+      title: "Flashlight",
+      isOn: flashlightEnabled,
+      blocked: !viewModel.hasTorch || viewModel.cameraPermissionDenied,
+      blockedMessage: !viewModel.hasTorch
+        ? "Not available on this device"
+        : viewModel.cameraPermissionDenied ? "Permission denied" : nil
+    ) {
+      flashlightContent
+    }
 
-        // Light Sensor
-        AccessoryCard(
-          icon: "light.beacon.max",
-          title: "Light Sensor",
-          isOn: lightSensorEnabled,
-          blocked: !viewModel.hasCamera || !viewModel.hasAmbientLight
-            || viewModel.cameraPermissionDenied,
-          blockedMessage: !viewModel.hasCamera || !viewModel.hasAmbientLight
-            ? "Not available on this device"
-            : viewModel.cameraPermissionDenied ? "Permission denied" : nil
-        ) {
-          lightSensorContent
-        }
+    // Light Sensor
+    AccessoryCard(
+      icon: "light.beacon.max",
+      title: "Light Sensor",
+      isOn: lightSensorEnabled,
+      blocked: !viewModel.hasCamera || !viewModel.hasAmbientLight
+        || viewModel.cameraPermissionDenied,
+      blockedMessage: !viewModel.hasCamera || !viewModel.hasAmbientLight
+        ? "Not available on this device"
+        : viewModel.cameraPermissionDenied ? "Permission denied" : nil
+    ) {
+      lightSensorContent
+    }
 
-        // Occupancy Sensor
-        AccessoryCard(
-          icon: "person.fill.viewfinder",
-          title: "Occupancy Sensor",
-          isOn: occupancyEnabled,
-          blocked: !viewModel.hasCamera || viewModel.cameraPermissionDenied,
-          blockedMessage: !viewModel.hasCamera
-            ? "Not available on this device"
-            : viewModel.cameraPermissionDenied ? "Permission denied" : nil
-        ) {
-          occupancyContent
-        }
+    // Occupancy Sensor
+    AccessoryCard(
+      icon: "person.fill.viewfinder",
+      title: "Occupancy Sensor",
+      isOn: occupancyEnabled,
+      blocked: !viewModel.hasCamera || viewModel.cameraPermissionDenied,
+      blockedMessage: !viewModel.hasCamera
+        ? "Not available on this device"
+        : viewModel.cameraPermissionDenied ? "Permission denied" : nil
+    ) {
+      occupancyContent
+    }
 
-        // Motion Sensor
-        AccessoryCard(
-          icon: "figure.walk.motion",
-          title: "Motion Sensor",
-          isOn: motionEnabled,
-          blocked: !viewModel.hasAccelerometer,
-          blockedMessage: !viewModel.hasAccelerometer
-            ? "Not available on this device" : nil
-        ) {
-          motionContent
-        }
+    // Motion Sensor
+    AccessoryCard(
+      icon: "figure.walk.motion",
+      title: "Motion Sensor",
+      isOn: motionEnabled,
+      blocked: !viewModel.hasAccelerometer,
+      blockedMessage: !viewModel.hasAccelerometer
+        ? "Not available on this device" : nil
+    ) {
+      motionContent
+    }
 
-        // Contact Sensor
-        AccessoryCard(
-          icon: "sensor.tag.radiowaves.forward.fill",
-          title: "Contact Sensor",
-          isOn: contactEnabled,
-          blocked: !viewModel.hasProximity,
-          blockedMessage: !viewModel.hasProximity
-            ? "Not available on this device" : nil
-        ) {
-          contactContent
-        }
+    // Contact Sensor
+    AccessoryCard(
+      icon: "sensor.tag.radiowaves.forward.fill",
+      title: "Contact Sensor",
+      isOn: contactEnabled,
+      blocked: !viewModel.hasProximity,
+      blockedMessage: !viewModel.hasProximity
+        ? "Not available on this device" : nil
+    ) {
+      contactContent
+    }
 
-        // Siren
-        AccessoryCard(
-          icon: "speaker.wave.3.fill",
-          title: "Siren",
-          isOn: $viewModel.sirenEnabled
-        ) {
-          sirenContent
-        }
+    // Siren
+    AccessoryCard(
+      icon: "speaker.wave.3.fill",
+      title: "Siren",
+      isOn: $viewModel.sirenEnabled
+    ) {
+      sirenContent
+    }
 
-        // Button
-        AccessoryCard(
-          icon: "hand.tap",
-          title: "Button",
-          isOn: $viewModel.buttonEnabled
-        ) {
-          Text(
-            "Stateless programmable switch. Trigger from the running screen; configure automations in Home.app."
-          )
-          .font(.caption)
-          .foregroundStyle(.secondary)
-        }
+    // Button
+    AccessoryCard(
+      icon: "hand.tap",
+      title: "Button",
+      isOn: $viewModel.buttonEnabled
+    ) {
+      Text(
+        "Stateless programmable switch. Trigger from the running screen; configure automations in Home.app."
+      )
+      .font(.caption)
+      .foregroundStyle(.secondary)
+    }
 
-        // Display / Sleep
-        #if os(iOS)
-          AccessoryCard(
-            icon: "display",
-            title: "Keep Display On",
-            isOn: $viewModel.keepScreenAwake
-          ) {
-            displayContent
-          }
-        #else
-          AccessoryCard(
-            icon: "moon.zzz",
-            title: "Prevent Sleep",
-            isOn: $viewModel.keepScreenAwake
-          ) {}
-        #endif
+    // Display / Sleep
+    #if os(iOS)
+      AccessoryCard(
+        icon: "display",
+        title: "Keep Display On",
+        isOn: $viewModel.keepScreenAwake
+      ) {
+        displayContent
+      }
+    #else
+      AccessoryCard(
+        icon: "moon.zzz",
+        title: "Prevent Sleep",
+        isOn: $viewModel.keepScreenAwake
+      ) {}
+    #endif
   }
 
   // MARK: - Network Denied
