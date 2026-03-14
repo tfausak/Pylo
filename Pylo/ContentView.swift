@@ -16,7 +16,7 @@ struct ContentView: View {
 
   var body: some View {
     ZStack {
-      NavigationView {
+      navigationContainer {
         Group {
           if viewModel.isNetworkDenied {
             networkDeniedBody
@@ -66,9 +66,6 @@ struct ContentView: View {
         .animation(.default, value: viewModel.needsRestart)
         .animation(.default, value: viewModel.isWaitingForHomeApp)
       }
-      #if os(iOS)
-        .navigationViewStyle(.stack)
-      #endif
       .onTapGesture {
         resetDimTimer()
       }
@@ -114,7 +111,7 @@ struct ContentView: View {
       }
     }
     .animation(.default, value: isScreenDimmed)
-    .onChange(of: viewModel.isRunning) { running in
+    .onChangeCompat(of: viewModel.isRunning) { running in
       if running {
         resetDimTimer()
       } else {
@@ -123,16 +120,16 @@ struct ContentView: View {
         isScreenDimmed = false
       }
     }
-    .onChange(of: viewModel.keepScreenAwake) { _ in
+    .onChangeCompat(of: viewModel.keepScreenAwake) { _ in
       resetDimTimer()
     }
-    .onChange(of: viewModel.screenSaverEnabled) { _ in
+    .onChangeCompat(of: viewModel.screenSaverEnabled) { _ in
       if viewModel.isRunning { resetDimTimer() }
     }
-    .onChange(of: viewModel.screenSaverDelay) { _ in
+    .onChangeCompat(of: viewModel.screenSaverDelay) { _ in
       if viewModel.isRunning { resetDimTimer() }
     }
-    .onChange(of: scenePhase) { newPhase in
+    .onChangeCompat(of: scenePhase) { newPhase in
       if newPhase == .active {
         viewModel.recheckPermissions()
         resetDimTimer()
@@ -147,7 +144,7 @@ struct ContentView: View {
         }
       }
     }
-    .onChange(of: viewModel.hasPairings) { paired in
+    .onChangeCompat(of: viewModel.hasPairings) { paired in
       if !paired {
         dimTask?.cancel()
         dimTask = nil
@@ -675,6 +672,45 @@ struct ContentView: View {
         return
       }
       isScreenDimmed = true
+    }
+  }
+}
+
+// MARK: - Compatibility Helpers
+
+/// Wraps content in NavigationStack (iOS 16+/macOS 14+) or NavigationView+stack (iOS 15).
+private struct NavigationContainer<Content: View>: View {
+  @ViewBuilder let content: () -> Content
+
+  var body: some View {
+    #if os(iOS)
+      if #available(iOS 16.0, *) {
+        NavigationStack(root: content)
+      } else {
+        NavigationView(content: content)
+          .navigationViewStyle(.stack)
+      }
+    #else
+      NavigationStack(root: content)
+    #endif
+  }
+}
+
+private func navigationContainer<Content: View>(
+  @ViewBuilder content: @escaping () -> Content
+) -> NavigationContainer<Content> {
+  NavigationContainer(content: content)
+}
+
+extension View {
+  /// onChange that compiles on both iOS 15 and iOS 17+/macOS 14+.
+  @ViewBuilder
+  func onChangeCompat<V: Equatable>(of value: V, perform action: @escaping (V) -> Void) -> some View
+  {
+    if #available(iOS 17.0, macOS 14.0, *) {
+      self.onChange(of: value) { _, newValue in action(newValue) }
+    } else {
+      self.onChange(of: value, perform: action)
     }
   }
 }
