@@ -63,7 +63,8 @@ struct PairingView: View {
       #if os(iOS)
         qrImage = UIImage(cgImage: cgImage)
       #elseif os(macOS)
-        qrImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+        qrImage = NSImage(
+          cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
       #endif
     }
   }
