@@ -3,6 +3,7 @@ import Combine
 import CoreImage.CIFilterBuiltins
 import FragmentedMP4
 import HAP
+import Locked
 import Sensors
 import Streaming
 import SwiftUI
@@ -29,13 +30,14 @@ struct AccessoryConfig: Equatable {
   var occupancyEnabled: Bool
   var sensorCameraID: String?
   var sirenEnabled: Bool
+  var buttonEnabled: Bool
 
   init(
     flashlightEnabled: Bool, selectedCameraID: String?,
     motionEnabled: Bool, microphoneEnabled: Bool,
     contactEnabled: Bool, lightSensorEnabled: Bool,
     occupancyEnabled: Bool, sensorCameraID: String?,
-    sirenEnabled: Bool
+    sirenEnabled: Bool, buttonEnabled: Bool
   ) {
     self.flashlightEnabled = flashlightEnabled
     self.selectedCameraID = selectedCameraID
@@ -46,6 +48,7 @@ struct AccessoryConfig: Equatable {
     self.occupancyEnabled = occupancyEnabled
     self.sensorCameraID = sensorCameraID
     self.sirenEnabled = sirenEnabled
+    self.buttonEnabled = buttonEnabled
   }
 
   @MainActor
@@ -59,6 +62,7 @@ struct AccessoryConfig: Equatable {
     occupancyEnabled = vm.occupancyEnabled
     sensorCameraID = vm.sensorCamera?.id
     sirenEnabled = vm.sirenEnabled
+    buttonEnabled = vm.buttonEnabled
   }
 }
 
@@ -208,6 +212,12 @@ final class HAPViewModel: ObservableObject {
       UserDefaults.standard.set(sirenEnabled, forKey: "sirenEnabled")
     }
   }
+  @Published var buttonEnabled: Bool = false {
+    didSet {
+      guard !isRestoring, buttonEnabled != oldValue else { return }
+      UserDefaults.standard.set(buttonEnabled, forKey: "buttonEnabled")
+    }
+  }
   @Published var isSirenActive = false
 
   // NOTE: iOS does not offer a background mode suitable for a HAP server.
@@ -220,19 +230,6 @@ final class HAPViewModel: ObservableObject {
       updateIdleTimer()
     }
   }
-  @Published var screenSaverEnabled: Bool = true {
-    didSet {
-      guard !isRestoring, screenSaverEnabled != oldValue else { return }
-      UserDefaults.standard.set(screenSaverEnabled, forKey: "screenSaverEnabled")
-    }
-  }
-  @Published var screenSaverDelay: TimeInterval = 60 {
-    didSet {
-      guard !isRestoring, screenSaverDelay != oldValue else { return }
-      UserDefaults.standard.set(screenSaverDelay, forKey: "screenSaverDelay")
-    }
-  }
-
   /// Whether camera permission has been expressly denied or restricted.
   @Published var cameraPermissionDenied = false
 
@@ -288,6 +285,7 @@ final class HAPViewModel: ObservableObject {
   private var batteryMonitor: BatteryMonitor?
   private var lightbulbAccessory: HAPAccessory?
   private var cameraAccessory: HAPCameraAccessory?
+  private var buttonAccessory: HAPButtonAccessory?
   private var monitoringSession: MonitoringCaptureSession?
   private var fragmentWriter: FragmentedMP4Writer?
   private var dataStreamHandler: HAPDataStream?
@@ -437,15 +435,12 @@ final class HAPViewModel: ObservableObject {
     if UserDefaults.standard.object(forKey: "sirenEnabled") != nil {
       sirenEnabled = UserDefaults.standard.bool(forKey: "sirenEnabled")
     }
+    if UserDefaults.standard.object(forKey: "buttonEnabled") != nil {
+      buttonEnabled = UserDefaults.standard.bool(forKey: "buttonEnabled")
+    }
     if UserDefaults.standard.object(forKey: "keepScreenAwake") != nil {
       keepScreenAwake = UserDefaults.standard.bool(forKey: "keepScreenAwake")
     }
-    if UserDefaults.standard.object(forKey: "screenSaverEnabled") != nil {
-      screenSaverEnabled = UserDefaults.standard.bool(forKey: "screenSaverEnabled")
-    }
-    let savedDelay = UserDefaults.standard.double(forKey: "screenSaverDelay")
-    if savedDelay > 0 { screenSaverDelay = savedDelay }
-
     // Discover available cameras and restore stream camera selection
     let cameras = CameraOption.availableCameras()
     availableCameras = cameras
@@ -527,6 +522,7 @@ final class HAPViewModel: ObservableObject {
       occupancyCooldown: occupancyCooldown.duration,
       sensorCameraID: sensorCamera?.id,
       sirenEnabled: sirenEnabled,
+      buttonEnabled: buttonEnabled,
       hasBattery: battery.isAvailable
     )
 
@@ -567,25 +563,36 @@ final class HAPViewModel: ObservableObject {
       self.motionMonitor = setup.motionMonitor
       self.lightbulbAccessory = config.flashlightEnabled ? setup.lightbulb : nil
       self.cameraAccessory = config.selectedStreamCameraID != nil ? setup.camera : nil
+      self.buttonAccessory = config.buttonEnabled ? setup.button : nil
       self.fragmentWriter = setup.fmp4Writer
       self.dataStreamHandler = setup.dataStream
       self.isMotionAvailable = setup.isMotionAvailable
       self.hasAccelerometer = setup.isMotionAvailable
       self.occupancySensor = setup.occupancyDetector
 
-      // Wire state-change callbacks that update published UI state
+      // Wire state-change callbacks that update published UI state.
+      // IMPORTANT: These closures run on the HAP server's background queue,
+      // NOT the main queue. We must avoid capturing `self` (which is @MainActor)
+      // directly, as Swift 6 with default MainActor isolation would infer
+      // @MainActor on the closure, causing a runtime dispatch_assert_queue
+      // failure. Instead, capture `vm` (a plain `let` copy of `self`) so
+      // the closure doesn't inherit @MainActor, and hop to MainActor
+      // explicitly via Task for UI updates. Strong ref is safe: stop()
+      // tears down the server and clears all callbacks before the view
+      // model could be deallocated.
+      let vm = self
       var enabledAccessories: [any HAPAccessoryProtocol] = []
 
       if config.flashlightEnabled {
         setup.lightbulb.onStateChange = {
-          [weak self, weak server = setup.server] aid, iid, value in
+          [weak server = setup.server] aid, iid, value in
           server?.notifySubscribers(aid: aid, iid: iid, value: value)
-          Task { @MainActor [weak self] in
-            guard let self else { return }
+          Task { @MainActor in
+
             if iid == HAPAccessory.iidOn, case .bool(let on) = value {
-              self.isLightOn = on
+              vm.isLightOn = on
             } else if iid == HAPAccessory.iidBrightness, case .int(let b) = value {
-              self.brightness = b
+              vm.brightness = b
             }
           }
         }
@@ -594,15 +601,15 @@ final class HAPViewModel: ObservableObject {
 
       if config.selectedStreamCameraID != nil {
         setup.camera.onStateChange = {
-          [weak self, weak server = setup.server] aid, iid, value in
+          [weak server = setup.server] aid, iid, value in
           server?.notifySubscribers(aid: aid, iid: iid, value: value)
-          Task { @MainActor [weak self] in
-            guard let self else { return }
+          Task { @MainActor in
+
             if iid == HAPCameraAccessory.iidStreamingStatus,
               case .string(let b64) = value,
               let data = Data(base64Encoded: b64), data.count >= 3
             {
-              self.isCameraStreaming = data[data.startIndex + 2] == 1
+              vm.isCameraStreaming = data[data.startIndex + 2] == 1
             }
           }
         }
@@ -611,14 +618,14 @@ final class HAPViewModel: ObservableObject {
 
       if config.motionEnabled {
         setup.motionSensor.onStateChange = {
-          [weak self, weak server = setup.server] aid, iid, value in
+          [weak server = setup.server] aid, iid, value in
           server?.notifySubscribers(aid: aid, iid: iid, value: value)
-          Task { @MainActor [weak self] in
-            guard let self else { return }
+          Task { @MainActor in
+
             if iid == HAPMotionSensorAccessory.iidMotionDetected,
               case .bool(let detected) = value
             {
-              self.isMotionDetected = detected
+              vm.isMotionDetected = detected
             }
           }
         }
@@ -634,14 +641,14 @@ final class HAPViewModel: ObservableObject {
 
       if config.contactEnabled {
         setup.contactSensor.onStateChange = {
-          [weak self, weak server = setup.server] aid, iid, value in
+          [weak server = setup.server] aid, iid, value in
           server?.notifySubscribers(aid: aid, iid: iid, value: value)
-          Task { @MainActor [weak self] in
-            guard let self else { return }
+          Task { @MainActor in
+
             if iid == HAPContactSensorAccessory.iidContactSensorState,
               case .int(let val) = value
             {
-              self.isContactDetected = val == 0
+              vm.isContactDetected = val == 0
             }
           }
         }
@@ -650,14 +657,14 @@ final class HAPViewModel: ObservableObject {
 
       if config.occupancyEnabled {
         setup.occupancySensor.onStateChange = {
-          [weak self, weak server = setup.server] aid, iid, value in
+          [weak server = setup.server] aid, iid, value in
           server?.notifySubscribers(aid: aid, iid: iid, value: value)
-          Task { @MainActor [weak self] in
-            guard let self else { return }
+          Task { @MainActor in
+
             if iid == HAPOccupancySensorAccessory.iidOccupancyDetected,
               case .int(let val) = value
             {
-              self.isOccupancyDetected = val != 0
+              vm.isOccupancyDetected = val != 0
             }
           }
         }
@@ -666,53 +673,55 @@ final class HAPViewModel: ObservableObject {
 
       if config.sirenEnabled {
         setup.siren.onStateChange = {
-          [weak self, weak server = setup.server] aid, iid, value in
+          [weak server = setup.server] aid, iid, value in
           server?.notifySubscribers(aid: aid, iid: iid, value: value)
-          Task { @MainActor [weak self] in
-            guard let self else { return }
+          Task { @MainActor in
+
             if iid == HAPSirenAccessory.iidOn, case .bool(let on) = value {
-              self.isSirenActive = on
+              vm.isSirenActive = on
             }
           }
         }
         enabledAccessories.append(setup.siren)
       }
 
+      if config.buttonEnabled {
+        setup.button.onStateChange = {
+          [weak server = setup.server] aid, iid, value in
+          server?.notifySubscribers(aid: aid, iid: iid, value: value)
+        }
+        enabledAccessories.append(setup.button)
+      }
+
       self.sirenPlayer = setup.sirenPlayer
 
-      setup.server.onListenerStateChange = { [weak self] ready in
-        Task { @MainActor [weak self] in
-          guard let self else { return }
-          self.listenerActuallyReady = ready
+      setup.server.onListenerStateChange = { ready in
+        Task { @MainActor in
+          vm.listenerActuallyReady = ready
           if ready {
-            self.wasListenerReady = true
-            withAnimation { self.isNetworkDenied = false }
-          } else if !self.wasListenerReady {
-            // Only show "network denied" if the listener has NEVER been ready.
-            // This means it's a genuine permission denial at initial startup.
-            // If wasListenerReady is true, this .waiting is from background
-            // suspension — don't show the denied screen; recheckPermissions()
-            // will handle recovery on foreground.
-            withAnimation { self.isNetworkDenied = true }
+            vm.wasListenerReady = true
+            withAnimation { vm.isNetworkDenied = false }
+          } else if !vm.wasListenerReady {
+            withAnimation { vm.isNetworkDenied = true }
           }
         }
       }
 
-      setup.server.onAccessoriesFetched = { [weak self] in
-        Task { @MainActor [weak self] in
-          withAnimation { self?.isWaitingForHomeApp = false }
+      setup.server.onAccessoriesFetched = {
+        Task { @MainActor in
+          withAnimation { vm.isWaitingForHomeApp = false }
         }
       }
 
-      setup.server.pairingStore.onChange = { [weak self, weak server = setup.server] in
+      setup.server.pairingStore.onChange = { [weak server = setup.server] in
         let isPaired = server?.pairingStore.isPaired ?? false
         UserDefaults.standard.set(isPaired, forKey: "hasPairings")
-        Task { @MainActor [weak self] in
+        Task { @MainActor in
           withAnimation {
-            self?.hasPairings = isPaired
-            if !isPaired { self?.isWaitingForHomeApp = false }
+            vm.hasPairings = isPaired
+            if !isPaired { vm.isWaitingForHomeApp = false }
           }
-          self?.updateIdleTimer()
+          vm.updateIdleTimer()
         }
       }
 
@@ -727,6 +736,7 @@ final class HAPViewModel: ObservableObject {
         setup.contactSensor.batteryState = sharedBatteryState
         setup.occupancySensor.batteryState = sharedBatteryState
         setup.siren.batteryState = sharedBatteryState
+        setup.button.batteryState = sharedBatteryState
 
         let batteryAIDs = enabledAccessories.map(\.aid)
         battery.onBatteryChange = { [weak server = setup.server] state in
@@ -833,6 +843,7 @@ final class HAPViewModel: ObservableObject {
     lightbulbAccessory?.cancelIdentify()
     lightbulbAccessory = nil
     cameraAccessory = nil
+    buttonAccessory = nil
     server?.stop()
     server = nil
     wasListenerReady = false
@@ -851,6 +862,23 @@ final class HAPViewModel: ObservableObject {
       }
     #endif
     statusMessage = "Stopped"
+  }
+
+  /// Restores accessory settings to the given config snapshot (used by cancel in settings).
+  @MainActor
+  func restoreConfig(_ config: AccessoryConfig) {
+    isRestoring = true
+    flashlightEnabled = config.flashlightEnabled
+    selectedStreamCamera = availableCameras.first { $0.id == config.selectedCameraID }
+    motionEnabled = config.motionEnabled
+    microphoneEnabled = config.microphoneEnabled
+    contactEnabled = config.contactEnabled
+    lightSensorEnabled = config.lightSensorEnabled
+    occupancyEnabled = config.occupancyEnabled
+    sensorCamera = availableCameras.first { $0.id == config.sensorCameraID }
+    sirenEnabled = config.sirenEnabled
+    buttonEnabled = config.buttonEnabled
+    isRestoring = false
   }
 
   @MainActor
@@ -874,6 +902,10 @@ final class HAPViewModel: ObservableObject {
     UserDefaults.standard.set(false, forKey: "hasPairings")
     withAnimation { hasPairings = false }
   }
+
+  func pressButton() {
+    buttonAccessory?.trigger()
+  }
 }
 
 // MARK: - Server Setup (off MainActor)
@@ -895,6 +927,7 @@ private struct StartConfig: Sendable {
   /// Camera ID for standalone sensors when the camera accessory is off.
   let sensorCameraID: String?
   let sirenEnabled: Bool
+  let buttonEnabled: Bool
   let hasBattery: Bool
 }
 
@@ -908,6 +941,7 @@ private nonisolated struct ServerSetup: @unchecked Sendable {
   let contactSensor: HAPContactSensorAccessory
   let occupancySensor: HAPOccupancySensorAccessory
   let siren: HAPSirenAccessory
+  let button: HAPButtonAccessory
   let server: HAPServer
   let fmp4Writer: FragmentedMP4Writer?
   let dataStream: HAPDataStream?
@@ -969,6 +1003,12 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     aid: AccessoryID.siren, name: "Pylo Siren", model: "\(device) Siren",
     manufacturer: "Pylo",
     serialNumber: config.serial + "-siren", firmwareRevision: fw
+  )
+
+  let button = HAPButtonAccessory(
+    aid: AccessoryID.button, name: "Pylo Button",
+    model: "\(device) Button", manufacturer: "Pylo",
+    serialNumber: config.serial + "-button", firmwareRevision: fw
   )
 
   // File I/O and Keychain reads — the main motivation for running off MainActor
@@ -1122,6 +1162,8 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     enabledAccessories.append(siren)
   }
 
+  if config.buttonEnabled { enabledAccessories.append(button) }
+
   // Set a placeholder battery state on all accessories before server init
   // so the battery service is included in the c# hash. The actual values
   // are updated when BatteryMonitor wires in on MainActor.
@@ -1134,6 +1176,7 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     contactSensor.batteryState = placeholder
     occupancySensor.batteryState = placeholder
     siren.batteryState = placeholder
+    button.batteryState = placeholder
   }
 
   // NWListener creation — also benefits from being off MainActor
@@ -1190,12 +1233,23 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
         }
       }
 
+      let monitoringBusy = Locked(initialState: false)
       camera.onMonitoringCaptureNeeded = {
         [
           weak monitoring, weak camera, weak occupancyDetector,
           weak ambientLightDetector
         ] needed, existingSession in
         guard let camera else { return }
+        // Re-entrancy guard: start() can synchronously deliver buffered frames
+        // when reusing a handed-off session, which may re-trigger this callback
+        // and cause a stack overflow.
+        let reentrant = monitoringBusy.withLock { (busy: inout Bool) -> Bool in
+          if busy { return true }
+          busy = true
+          return false
+        }
+        guard !reentrant else { return }
+        defer { monitoringBusy.withLock { $0 = false } }
         if needed {
           monitoring?.videoMotionDetector = camera.videoMotionDetector
           monitoring?.ambientLightDetector = camera.ambientLightDetector ?? ambientLightDetector
@@ -1328,6 +1382,7 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     contactSensor: contactSensor,
     occupancySensor: occupancySensor,
     siren: siren,
+    button: button,
     server: server, fmp4Writer: fmp4Writer, dataStream: dataStream,
     monitoringSession: monitoringSession,
     motionMonitor: motionMonitor,

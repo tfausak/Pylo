@@ -358,6 +358,23 @@ struct HAPValueTests {
       #expect(data.count > 0)
     }
   }
+
+  @Test("null round-trips through NSNull and JSONSerialization")
+  func nullRoundTrip() {
+    // .null → NSNull() via jsonValue
+    let nullValue = HAPValue.null
+    #expect(nullValue.jsonValue is NSNull)
+
+    // NSNull() → .null via fromJSON
+    let parsed = HAPValue(fromJSON: NSNull())
+    #expect(parsed == .null)
+
+    // Full round-trip through JSONSerialization
+    let dict: [String: Any] = ["v": nullValue.jsonValue]
+    let data = try! JSONSerialization.data(withJSONObject: dict)
+    let restored = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
+    #expect(HAPValue(fromJSON: restored["v"]!) == .null)
+  }
 }
 
 // MARK: - Accessory Information Service Tests

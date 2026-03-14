@@ -601,6 +601,77 @@ struct VideoMotionDetectorThreadSafetyTests {
   }
 }
 
+// MARK: - Button Accessory Tests
+
+@Suite("Button Accessory")
+struct ButtonTests {
+
+  private func makeButton() -> HAPButtonAccessory {
+    HAPButtonAccessory(
+      aid: AccessoryID.button, name: "Test Button", model: "Test",
+      manufacturer: "Test", serialNumber: "SN-BTN", firmwareRevision: "1.0.0"
+    )
+  }
+
+  @Test("ProgrammableSwitchEvent reads as null (event-only)")
+  func eventReadNull() {
+    let btn = makeButton()
+    #expect(btn.readCharacteristic(iid: HAPButtonAccessory.iidProgrammableSwitchEvent) == .null)
+  }
+
+  @Test("ProgrammableSwitchEvent is not writable")
+  func eventNotWritable() {
+    let btn = makeButton()
+    #expect(
+      btn.writeCharacteristic(iid: HAPButtonAccessory.iidProgrammableSwitchEvent, value: .int(0))
+        == false)
+  }
+
+  @Test("trigger fires onStateChange with single press event")
+  func triggerFiresEvent() {
+    let btn = makeButton()
+    nonisolated(unsafe) var receivedAID: Int?
+    nonisolated(unsafe) var receivedIID: Int?
+    nonisolated(unsafe) var receivedValue: HAPValue?
+    btn.onStateChange = { aid, iid, value in
+      receivedAID = aid
+      receivedIID = iid
+      receivedValue = value
+    }
+    btn.trigger()
+    #expect(receivedAID == AccessoryID.button)
+    #expect(receivedIID == HAPButtonAccessory.iidProgrammableSwitchEvent)
+    #expect(receivedValue == .int(0))
+  }
+
+  @Test("toJSON includes programmable switch service with service label")
+  func toJSONStructure() {
+    let btn = makeButton()
+    let json = btn.toJSON()
+    let services = json["services"] as! [[String: Any]]
+
+    // Stateless Programmable Switch service (0x89)
+    let switchService = services.first { ($0["type"] as? String) == "89" }
+    #expect(switchService != nil)
+    #expect(switchService!["primary"] as? Bool == true)
+    let chars = switchService!["characteristics"] as! [[String: Any]]
+    let eventChar = chars.first { ($0["type"] as? String) == "73" }
+    #expect(eventChar != nil)
+    let perms = eventChar!["perms"] as! [String]
+    #expect(perms.contains("pr"))
+    #expect(perms.contains("ev"))
+    #expect(!perms.contains("pw"))
+    // Service Label Index
+    let labelIndex = chars.first { ($0["type"] as? String) == "CB" }
+    #expect(labelIndex != nil)
+    #expect(labelIndex!["value"] as? Int == 1)
+
+    // Service Label service (0xCC)
+    let labelService = services.first { ($0["type"] as? String) == "CC" }
+    #expect(labelService != nil)
+  }
+}
+
 // MARK: - RTCP Sender Report Tests
 
 @Suite("RTCP Sender Report")

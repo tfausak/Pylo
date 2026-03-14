@@ -63,7 +63,7 @@ public nonisolated final class MotionMonitor: @unchecked Sendable {
     }()
   #endif
 
-  @MainActor public func start() {
+  public func start() {
     #if os(iOS)
       guard motionManager.isAccelerometerAvailable else {
         logger.warning("Accelerometer not available")
@@ -74,49 +74,7 @@ public nonisolated final class MotionMonitor: @unchecked Sendable {
       motionManager.accelerometerUpdateInterval = 0.1  // 10 Hz
 
       motionManager.startAccelerometerUpdates(to: motionQueue) { [weak self] data, error in
-        guard let self, let data else {
-          if let error { self?.logger.error("Accelerometer error: \(error)") }
-          return
-        }
-
-        let accel = data.acceleration
-        // Magnitude of the acceleration vector; subtract 1g (gravity at rest)
-        let magnitude = sqrt(accel.x * accel.x + accel.y * accel.y + accel.z * accel.z)
-        let delta = abs(magnitude - 1.0)
-
-        enum MotionEvent {
-          case detected
-          case cleared(TimeInterval)
-        }
-
-        let event: MotionEvent? = self.state.withLock { state in
-          if delta > state.threshold {
-            state.lastMotionDate = Date()
-            if !state.isMotionDetected {
-              state.isMotionDetected = true
-              return .detected
-            }
-          } else if state.isMotionDetected {
-            let elapsed = Date().timeIntervalSince(state.lastMotionDate)
-            if elapsed >= self.cooldown {
-              state.isMotionDetected = false
-              return .cleared(elapsed)
-            }
-          }
-          return nil
-        }
-
-        switch event {
-        case .detected:
-          self.logger.debug("Motion detected (delta=\(delta, format: .fixed(precision: 3))g)")
-          self.onMotionChange?(true)
-        case .cleared(let elapsed):
-          self.logger.debug(
-            "Motion cleared after \(elapsed, format: .fixed(precision: 1))s cooldown")
-          self.onMotionChange?(false)
-        case nil:
-          break
-        }
+        self?.handleAccelerometerUpdate(data: data, error: error)
       }
 
       logger.info("Motion monitor started")
@@ -125,7 +83,55 @@ public nonisolated final class MotionMonitor: @unchecked Sendable {
     #endif
   }
 
-  @MainActor public func stop() {
+  #if os(iOS)
+    /// Handle accelerometer data on the motionQueue.
+    private func handleAccelerometerUpdate(data: CMAccelerometerData?, error: Error?) {
+      guard let data else {
+        if let error { logger.error("Accelerometer error: \(error)") }
+        return
+      }
+
+      let accel = data.acceleration
+      let magnitude = sqrt(accel.x * accel.x + accel.y * accel.y + accel.z * accel.z)
+      let delta = abs(magnitude - 1.0)
+
+      enum MotionEvent {
+        case detected
+        case cleared(TimeInterval)
+      }
+
+      let event: MotionEvent? = state.withLock { state in
+        if delta > state.threshold {
+          state.lastMotionDate = Date()
+          if !state.isMotionDetected {
+            state.isMotionDetected = true
+            return .detected
+          }
+        } else if state.isMotionDetected {
+          let elapsed = Date().timeIntervalSince(state.lastMotionDate)
+          if elapsed >= cooldown {
+            state.isMotionDetected = false
+            return .cleared(elapsed)
+          }
+        }
+        return nil
+      }
+
+      switch event {
+      case .detected:
+        logger.debug("Motion detected (delta=\(delta, format: .fixed(precision: 3))g)")
+        onMotionChange?(true)
+      case .cleared(let elapsed):
+        logger.debug(
+          "Motion cleared after \(elapsed, format: .fixed(precision: 1))s cooldown")
+        onMotionChange?(false)
+      case nil:
+        break
+      }
+    }
+  #endif
+
+  public func stop() {
     #if os(iOS)
       motionManager.stopAccelerometerUpdates()
     #endif

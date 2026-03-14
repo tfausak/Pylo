@@ -2,76 +2,21 @@ import SwiftUI
 
 struct ContentView: View {
   @ObservedObject var viewModel: HAPViewModel
+  var forceConfig = false
   @Environment(\.scenePhase) private var scenePhase
   @State private var showUnpairConfirmation = false
-  @State private var isScreenDimmed = false
-  @State private var dimTask: Task<Void, Never>?
-  @State private var isDimTimerResetPending = false
 
   var body: some View {
     ZStack {
-      navigationContainer {
-        Group {
-          if viewModel.isNetworkDenied {
-            networkDeniedBody
-          } else if viewModel.hasPairings {
-            pairedBody
-          } else {
-            PairingView(viewModel: viewModel)
+      Group {
+        if forceConfig {
+          configBody
+        } else {
+          navigationContainer {
+            mainBody
           }
         }
-        .navigationTitle("Pylo")
-        .toolbar {
-          ToolbarItem(placement: .primaryAction) {
-            statusIndicator
-          }
-        }
-        .safeAreaInset(edge: .bottom) {
-          if viewModel.needsRestart {
-            Text("Restart to Apply")
-              .font(.subheadline.weight(.medium))
-              .frame(maxWidth: .infinity)
-              .padding(12)
-              .background(.orange, in: .rect(cornerRadius: 12))
-              .foregroundStyle(.white)
-              .contentShape(Rectangle())
-              .onTapGesture {
-                resetDimTimer()
-                viewModel.restart()
-              }
-              .accessibilityAddTraits(.isButton)
-              .padding(.horizontal)
-              .padding(.bottom, 4)
-              .transition(.move(edge: .bottom).combined(with: .opacity))
-          } else if viewModel.isWaitingForHomeApp {
-            HStack(spacing: 8) {
-              ProgressView()
-              Text("Updating Home…")
-                .font(.subheadline.weight(.medium))
-            }
-            .frame(maxWidth: .infinity)
-            .padding(12)
-            .background(.secondary.opacity(0.2), in: .rect(cornerRadius: 12))
-            .padding(.horizontal)
-            .padding(.bottom, 4)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
-          }
-        }
-        .animation(.default, value: viewModel.needsRestart)
-        .animation(.default, value: viewModel.isWaitingForHomeApp)
       }
-      .onTapGesture {
-        resetDimTimer()
-      }
-      .simultaneousGesture(
-        DragGesture(minimumDistance: 10)
-          .onChanged { _ in
-            guard !isDimTimerResetPending else { return }
-            isDimTimerResetPending = true
-            resetDimTimer()
-          }
-          .onEnded { _ in isDimTimerResetPending = false }
-      )
       .confirmationDialog(
         "Unpair",
         isPresented: $showUnpairConfirmation,
@@ -95,63 +40,90 @@ struct ContentView: View {
         Text(viewModel.permissionAlert?.message ?? "")
       }
 
-      #if os(iOS)
-        if isScreenDimmed {
-          Color.black
-            .ignoresSafeArea()
-            .accessibilityLabel("Screen dimmed")
-            .accessibilityHint("Tap to wake")
-            .accessibilityAddTraits(.isButton)
-            .onTapGesture { resetDimTimer() }
-        }
-      #endif
     }
-    #if os(iOS)
-      .animation(.default, value: isScreenDimmed)
-      .onChangeCompat(of: viewModel.isRunning) { running in
-        if running {
-          resetDimTimer()
-        } else {
-          dimTask?.cancel()
-          dimTask = nil
-          isScreenDimmed = false
-        }
-      }
-      .onChangeCompat(of: viewModel.keepScreenAwake) { _ in
-        resetDimTimer()
-      }
-      .onChangeCompat(of: viewModel.screenSaverEnabled) { _ in
-        if viewModel.isRunning { resetDimTimer() }
-      }
-      .onChangeCompat(of: viewModel.screenSaverDelay) { _ in
-        if viewModel.isRunning { resetDimTimer() }
-      }
-      .onChangeCompat(of: viewModel.hasPairings) { paired in
-        if !paired {
-          dimTask?.cancel()
-          dimTask = nil
-          isScreenDimmed = false
-        } else if viewModel.isRunning {
-          resetDimTimer()
-        }
-      }
-    #endif
     .onChangeCompat(of: scenePhase) { newPhase in
       if newPhase == .active {
         viewModel.recheckPermissions()
-        #if os(iOS)
-          resetDimTimer()
-        #endif
+      } else if newPhase == .background {
+        viewModel.handleBackgrounding()
+      }
+    }
+  }
+
+  // MARK: - Main / Config Bodies
+
+  private var mainBody: some View {
+    Group {
+      if viewModel.isNetworkDenied {
+        networkDeniedBody
+      } else if viewModel.hasPairings {
+        if viewModel.isRunning {
+          RunningView(viewModel: viewModel)
+        } else {
+          pairedBody
+        }
       } else {
-        #if os(iOS)
-          dimTask?.cancel()
-          dimTask = nil
-          isScreenDimmed = false
-        #endif
-        if newPhase == .background {
-          viewModel.handleBackgrounding()
+        PairingView(viewModel: viewModel)
+      }
+    }
+    .navigationTitle(viewModel.isRunning ? "" : "Pylo")
+    .toolbar {
+      ToolbarItem(placement: .primaryAction) {
+        if !viewModel.isRunning {
+          statusIndicator
         }
       }
+    }
+    .safeAreaInset(edge: .bottom) {
+      if viewModel.needsRestart {
+        Text("Restart to Apply")
+          .font(.subheadline.weight(.medium))
+          .frame(maxWidth: .infinity)
+          .padding(12)
+          .background(.orange, in: .rect(cornerRadius: 12))
+          .foregroundStyle(.white)
+          .contentShape(Rectangle())
+          .onTapGesture {
+            viewModel.restart()
+          }
+          .accessibilityAddTraits(.isButton)
+          .padding(.horizontal)
+          .padding(.bottom, 4)
+          .transition(.move(edge: .bottom).combined(with: .opacity))
+      } else if viewModel.isWaitingForHomeApp {
+        HStack(spacing: 8) {
+          ProgressView()
+          Text("Updating Home…")
+            .font(.subheadline.weight(.medium))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(12)
+        .background(.secondary.opacity(0.2), in: .rect(cornerRadius: 12))
+        .padding(.horizontal)
+        .padding(.bottom, 4)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+      }
+    }
+    .animation(.default, value: viewModel.needsRestart)
+    .animation(.default, value: viewModel.isWaitingForHomeApp)
+  }
+
+  /// Used by RunningConfigView — paired body plus unpair button.
+  private var configBody: some View {
+    ScrollView {
+      VStack(spacing: 12) {
+        pairedContent
+
+        Button(role: .destructive) {
+          showUnpairConfirmation = true
+        } label: {
+          Text("Unpair")
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .padding(.top, 8)
+      }
+      .padding()
     }
   }
 
@@ -190,111 +162,129 @@ struct ContentView: View {
   private var pairedBody: some View {
     ScrollView {
       VStack(spacing: 12) {
-        // Camera
-        AccessoryCard(
-          icon: "camera.fill",
-          title: "Camera",
-          isOn: cameraEnabled,
-          blocked: !viewModel.hasCamera || viewModel.cameraPermissionDenied,
-          blockedMessage: !viewModel.hasCamera
-            ? "Not available on this device"
-            : viewModel.cameraPermissionDenied ? "Permission denied" : nil
-        ) {
-          cameraContent
-        }
-
-        // Flashlight
-        AccessoryCard(
-          icon: "flashlight.off.fill",
-          title: "Flashlight",
-          isOn: flashlightEnabled,
-          blocked: !viewModel.hasTorch || viewModel.cameraPermissionDenied,
-          blockedMessage: !viewModel.hasTorch
-            ? "Not available on this device"
-            : viewModel.cameraPermissionDenied ? "Permission denied" : nil
-        ) {
-          flashlightContent
-        }
-
-        // Light Sensor
-        AccessoryCard(
-          icon: "light.beacon.max",
-          title: "Light Sensor",
-          isOn: lightSensorEnabled,
-          blocked: !viewModel.hasCamera || !viewModel.hasAmbientLight
-            || viewModel.cameraPermissionDenied,
-          blockedMessage: !viewModel.hasCamera || !viewModel.hasAmbientLight
-            ? "Not available on this device"
-            : viewModel.cameraPermissionDenied ? "Permission denied" : nil
-        ) {
-          lightSensorContent
-        }
-
-        // Occupancy Sensor
-        AccessoryCard(
-          icon: "person.fill.viewfinder",
-          title: "Occupancy Sensor",
-          isOn: occupancyEnabled,
-          blocked: !viewModel.hasCamera || viewModel.cameraPermissionDenied,
-          blockedMessage: !viewModel.hasCamera
-            ? "Not available on this device"
-            : viewModel.cameraPermissionDenied ? "Permission denied" : nil
-        ) {
-          occupancyContent
-        }
-
-        // Motion Sensor
-        AccessoryCard(
-          icon: "figure.walk.motion",
-          title: "Motion Sensor",
-          isOn: motionEnabled,
-          blocked: !viewModel.hasAccelerometer,
-          blockedMessage: !viewModel.hasAccelerometer
-            ? "Not available on this device" : nil
-        ) {
-          motionContent
-        }
-
-        // Contact Sensor
-        AccessoryCard(
-          icon: "sensor.tag.radiowaves.forward.fill",
-          title: "Contact Sensor",
-          isOn: contactEnabled,
-          blocked: !viewModel.hasProximity,
-          blockedMessage: !viewModel.hasProximity
-            ? "Not available on this device" : nil
-        ) {
-          contactContent
-        }
-
-        // Siren
-        AccessoryCard(
-          icon: "speaker.wave.3.fill",
-          title: "Siren",
-          isOn: $viewModel.sirenEnabled
-        ) {
-          sirenContent
-        }
-
-        // Display / Sleep
-        #if os(iOS)
-          AccessoryCard(
-            icon: "display",
-            title: "Keep Display On",
-            isOn: $viewModel.keepScreenAwake
-          ) {
-            displayContent
-          }
-        #else
-          AccessoryCard(
-            icon: "moon.zzz",
-            title: "Prevent Sleep",
-            isOn: $viewModel.keepScreenAwake
-          ) {}
-        #endif
+        pairedContent
       }
       .padding()
     }
+  }
+
+  @ViewBuilder
+  private var pairedContent: some View {
+    // Camera
+    AccessoryCard(
+      icon: "camera.fill",
+      title: "Camera",
+      isOn: cameraEnabled,
+      blocked: !viewModel.hasCamera || viewModel.cameraPermissionDenied,
+      blockedMessage: !viewModel.hasCamera
+        ? "Not available on this device"
+        : viewModel.cameraPermissionDenied ? "Permission denied" : nil
+    ) {
+      cameraContent
+    }
+
+    // Flashlight
+    AccessoryCard(
+      icon: "flashlight.off.fill",
+      title: "Flashlight",
+      isOn: flashlightEnabled,
+      blocked: !viewModel.hasTorch || viewModel.cameraPermissionDenied,
+      blockedMessage: !viewModel.hasTorch
+        ? "Not available on this device"
+        : viewModel.cameraPermissionDenied ? "Permission denied" : nil
+    ) {
+      flashlightContent
+    }
+
+    // Light Sensor
+    AccessoryCard(
+      icon: "light.beacon.max",
+      title: "Light Sensor",
+      isOn: lightSensorEnabled,
+      blocked: !viewModel.hasCamera || !viewModel.hasAmbientLight
+        || viewModel.cameraPermissionDenied,
+      blockedMessage: !viewModel.hasCamera || !viewModel.hasAmbientLight
+        ? "Not available on this device"
+        : viewModel.cameraPermissionDenied ? "Permission denied" : nil
+    ) {
+      lightSensorContent
+    }
+
+    // Occupancy Sensor
+    AccessoryCard(
+      icon: "person.fill.viewfinder",
+      title: "Occupancy Sensor",
+      isOn: occupancyEnabled,
+      blocked: !viewModel.hasCamera || viewModel.cameraPermissionDenied,
+      blockedMessage: !viewModel.hasCamera
+        ? "Not available on this device"
+        : viewModel.cameraPermissionDenied ? "Permission denied" : nil
+    ) {
+      occupancyContent
+    }
+
+    // Motion Sensor
+    AccessoryCard(
+      icon: "figure.walk.motion",
+      title: "Motion Sensor",
+      isOn: motionEnabled,
+      blocked: !viewModel.hasAccelerometer,
+      blockedMessage: !viewModel.hasAccelerometer
+        ? "Not available on this device" : nil
+    ) {
+      motionContent
+    }
+
+    // Contact Sensor
+    AccessoryCard(
+      icon: "sensor.tag.radiowaves.forward.fill",
+      title: "Contact Sensor",
+      isOn: contactEnabled,
+      blocked: !viewModel.hasProximity,
+      blockedMessage: !viewModel.hasProximity
+        ? "Not available on this device" : nil
+    ) {
+      contactContent
+    }
+
+    // Siren
+    AccessoryCard(
+      icon: "speaker.wave.3.fill",
+      title: "Siren",
+      isOn: $viewModel.sirenEnabled
+    ) {
+      sirenContent
+    }
+
+    // Button
+    AccessoryCard(
+      icon: "hand.tap",
+      title: "Button",
+      isOn: $viewModel.buttonEnabled
+    ) {
+      Text(
+        "Stateless programmable switch. Trigger from the running screen; configure automations in Home.app."
+      )
+      .font(.caption)
+      .foregroundStyle(.secondary)
+    }
+
+    // Display / Sleep
+    #if os(iOS)
+      AccessoryCard(
+        icon: "display",
+        title: "Keep Display On",
+        isOn: $viewModel.keepScreenAwake
+      ) {
+        displayContent
+      }
+    #else
+      AccessoryCard(
+        icon: "moon.zzz",
+        title: "Prevent Sleep",
+        isOn: $viewModel.keepScreenAwake
+      ) {}
+    #endif
   }
 
   // MARK: - Network Denied
@@ -477,24 +467,7 @@ struct ContentView: View {
 
   @ViewBuilder
   private var displayContent: some View {
-    VStack(spacing: 12) {
-      Toggle("Screen Saver", isOn: $viewModel.screenSaverEnabled)
-      if viewModel.screenSaverEnabled {
-        HStack {
-          Text("Delay")
-            .foregroundStyle(.secondary)
-          Spacer()
-          Picker("Delay", selection: $viewModel.screenSaverDelay) {
-            Text("1 min").tag(TimeInterval(60))
-            Text("2 min").tag(TimeInterval(120))
-            Text("5 min").tag(TimeInterval(300))
-            Text("10 min").tag(TimeInterval(600))
-          }
-          .labelsHidden()
-          .pickerStyle(.menu)
-        }
-      }
-    }
+    EmptyView()
   }
 
   @ViewBuilder
@@ -665,30 +638,6 @@ struct ContentView: View {
       ?? viewModel.availableCameras.first
   }
 
-  // MARK: - Screen Dimming
-
-  private func resetDimTimer() {
-    dimTask?.cancel()
-    isScreenDimmed = false
-    guard viewModel.isRunning, viewModel.hasPairings, viewModel.keepScreenAwake,
-      viewModel.screenSaverEnabled
-    else {
-      return
-    }
-    dimTask = Task {
-      // Task.sleep throws CancellationError when the task is cancelled,
-      // cleanly preventing the stale isScreenDimmed write.
-      let delaySeconds = viewModel.screenSaverDelay
-      guard delaySeconds.isFinite, delaySeconds > 0 else { return }
-      guard
-        (try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000)))
-          != nil
-      else {
-        return
-      }
-      isScreenDimmed = true
-    }
-  }
 }
 
 // MARK: - Compatibility Helpers

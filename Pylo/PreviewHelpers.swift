@@ -15,8 +15,6 @@ extension HAPViewModel {
     occupancyEnabled: Bool = false,
     occupancyDetected: Bool = false,
     needsRestart: Bool = false,
-    screenSaverEnabled: Bool = true,
-    screenSaverDelay: TimeInterval = 60,
     keepScreenAwake: Bool = true,
     sirenEnabled: Bool = false,
     sirenActive: Bool = false
@@ -40,8 +38,6 @@ extension HAPViewModel {
     vm.hasProximity = true
     vm.occupancyEnabled = occupancyEnabled
     vm.isOccupancyDetected = occupancyDetected
-    vm.screenSaverEnabled = screenSaverEnabled
-    vm.screenSaverDelay = screenSaverDelay
     vm.keepScreenAwake = keepScreenAwake
     vm.sirenEnabled = sirenEnabled
     vm.isSirenActive = sirenActive
@@ -65,7 +61,8 @@ extension HAPViewModel {
           lightSensorEnabled: vm.lightSensorEnabled,
           occupancyEnabled: occupancyEnabled,
           sensorCameraID: vm.sensorCamera?.id,
-          sirenEnabled: sirenEnabled
+          sirenEnabled: sirenEnabled,
+          buttonEnabled: vm.buttonEnabled
         )
       } else {
         vm.startedConfig = AccessoryConfig(from: vm)

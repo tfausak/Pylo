@@ -17,6 +17,7 @@ public enum AccessoryID {
   public static let contactSensor = 6
   public static let occupancySensor = 7
   public static let siren = 8
+  public static let button = 9
 }
 
 // MARK: - Accessory Category (Table 12-3 in HAP R2 spec)
@@ -48,6 +49,7 @@ public enum HAPValue: Equatable, Sendable {
   case int(Int)
   case float(Double)
   case string(String)
+  case null
 
   /// Convert to a JSON-serializable value for `JSONSerialization`.
   public var jsonValue: Any {
@@ -56,6 +58,7 @@ public enum HAPValue: Equatable, Sendable {
     case .int(let v): return v
     case .float(let v): return v
     case .string(let v): return v
+    case .null: return NSNull()
     }
   }
 
@@ -63,6 +66,10 @@ public enum HAPValue: Equatable, Sendable {
   public init?(fromJSON value: Any) {
     if let s = value as? String {
       self = .string(s)
+      return
+    }
+    if value is NSNull {
+      self = .null
       return
     }
     if let n = value as? NSNumber {
@@ -918,6 +925,150 @@ public final class HAPLightSensorAccessory: HAPAccessoryProtocol, @unchecked Sen
             "perms": ["pr", "ev"], "value": max(0.0001, Double(currentLux)),
             "minValue": 0.0001, "maxValue": 100000, "unit": "lux",
           ] as [String: Any]
+        ],
+      ],
+    ]
+    if let battery = batteryServiceJSON(state: batteryState) { services.append(battery) }
+    return ["aid": aid, "services": services]
+  }
+}
+
+// MARK: - Button Accessory
+
+/// Standalone button accessory using a Stateless Programmable Switch.
+/// Shows up as a button tile in Home.app; can be configured with automations
+/// to send notifications, play sounds, etc.
+public final class HAPButtonAccessory: HAPAccessoryProtocol, @unchecked Sendable {
+
+  public let aid: Int
+  public let name: String
+  public let model: String
+  public let manufacturer: String
+  public let serialNumber: String
+  public let firmwareRevision: String
+
+  private let _onStateChange = Locked<
+    (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
+  >(initialState: nil)
+  public var onStateChange: (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)? {
+    get { _onStateChange.withLock { $0 } }
+    set { _onStateChange.withLock { $0 = newValue } }
+  }
+
+  private let _batteryState = Locked<BatteryState?>(initialState: nil)
+  public var batteryState: BatteryState? {
+    get { _batteryState.withLock { $0 } }
+    set { _batteryState.withLock { $0 = newValue } }
+  }
+
+  // Stateless Programmable Switch service (iid 8-10)
+  public static let iidSwitchService = 8
+  public static let iidProgrammableSwitchEvent = 9
+  public static let iidServiceLabelIndex = 10
+
+  // Service Label service (iid 11-12)
+  public static let iidServiceLabelService = 11
+  public static let iidServiceLabelNamespace = 12
+
+  // HMServiceTypeStatelessProgrammableSwitch
+  private static let uuidStatelessProgrammableSwitch = "89"
+  // HMCharacteristicTypeProgrammableSwitchEvent
+  private static let uuidProgrammableSwitchEvent = "73"
+  // HAP Service Label Index (no public HomeKit constant)
+  private static let uuidServiceLabelIndex = "CB"
+  // HMServiceTypeLabel
+  private static let uuidServiceLabel = "CC"
+  // HAP Service Label Namespace (no public HomeKit constant)
+  private static let uuidServiceLabelNamespace = "CD"
+
+  public init(
+    aid: Int,
+    name: String = "Pylo Button",
+    model: String = "iPhone Button",
+    manufacturer: String = "Pylo",
+    serialNumber: String = "000001",
+    firmwareRevision: String = "0.1.0"
+  ) {
+    self.aid = aid
+    self.name = name
+    self.model = model
+    self.manufacturer = manufacturer
+    self.serialNumber = serialNumber
+    self.firmwareRevision = firmwareRevision
+  }
+
+  /// Fire a single-press event.
+  public func trigger() {
+    onStateChange?(aid, Self.iidProgrammableSwitchEvent, .int(0))
+  }
+
+  public func readCharacteristic(iid: Int) -> HAPValue? {
+    switch iid {
+    case AccessoryInfoIID.manufacturer: return .string(manufacturer)
+    case AccessoryInfoIID.model: return .string(model)
+    case AccessoryInfoIID.name: return .string(name)
+    case AccessoryInfoIID.serialNumber: return .string(serialNumber)
+    case AccessoryInfoIID.firmwareRevision: return .string(firmwareRevision)
+    case ProtocolInfoIID.version: return .string(hapProtocolVersion)
+    case Self.iidProgrammableSwitchEvent: return .null
+    case Self.iidServiceLabelIndex: return .int(1)
+    case Self.iidServiceLabelNamespace: return .int(1)  // Arabic numerals
+    case BatteryIID.batteryLevel: return batteryState.map { .int($0.level) }
+    case BatteryIID.chargingState: return batteryState.map { .int($0.chargingState) }
+    case BatteryIID.statusLowBattery: return batteryState.map { .int($0.statusLowBattery) }
+    default: return nil
+    }
+  }
+
+  @discardableResult
+  public func writeCharacteristic(iid: Int, value: HAPValue, sharedSecret: SharedSecret? = nil)
+    -> Bool
+  {
+    if iid == AccessoryInfoIID.identify {
+      identify()
+      return true
+    }
+    return false
+  }
+
+  public func identify() {}
+
+  public func toJSON() -> [String: Any] {
+    var services: [[String: Any]] = [
+      accessoryInformationServiceJSON(),
+      protocolInformationServiceJSON(),
+      // Stateless Programmable Switch service
+      [
+        "iid": Self.iidSwitchService,
+        "type": Self.uuidStatelessProgrammableSwitch,
+        "primary": true,
+        "characteristics": [
+          [
+            "iid": Self.iidProgrammableSwitchEvent,
+            "type": Self.uuidProgrammableSwitchEvent, "format": "uint8",
+            "perms": ["pr", "ev"],
+            "minValue": 0, "maxValue": 2,
+            "value": NSNull(),
+          ] as [String: Any],
+          [
+            "iid": Self.iidServiceLabelIndex,
+            "type": Self.uuidServiceLabelIndex, "format": "uint8",
+            "perms": ["pr"], "value": 1,
+            "minValue": 1,
+          ],
+        ],
+      ] as [String: Any],
+      // Service Label service (required by HAP spec for programmable switches)
+      [
+        "iid": Self.iidServiceLabelService,
+        "type": Self.uuidServiceLabel,
+        "characteristics": [
+          [
+            "iid": Self.iidServiceLabelNamespace,
+            "type": Self.uuidServiceLabelNamespace, "format": "uint8",
+            "perms": ["pr"], "value": 1,  // 1 = Arabic numerals
+            "minValue": 0, "maxValue": 1,
+          ]
         ],
       ],
     ]
