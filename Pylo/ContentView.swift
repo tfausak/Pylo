@@ -247,7 +247,7 @@ struct ContentView: View {
         AccessoryCard(
           icon: "figure.walk.motion",
           title: "Motion Sensor",
-          isOn: $viewModel.motionEnabled,
+          isOn: motionEnabled,
           blocked: !viewModel.hasAccelerometer,
           blockedMessage: !viewModel.hasAccelerometer
             ? "Not available on this device" : nil
@@ -259,7 +259,7 @@ struct ContentView: View {
         AccessoryCard(
           icon: "sensor.tag.radiowaves.forward.fill",
           title: "Contact Sensor",
-          isOn: $viewModel.contactEnabled,
+          isOn: contactEnabled,
           blocked: !viewModel.hasProximity,
           blockedMessage: !viewModel.hasProximity
             ? "Not available on this device" : nil
@@ -545,7 +545,7 @@ struct ContentView: View {
 
   private var flashlightEnabled: Binding<Bool> {
     Binding(
-      get: { viewModel.flashlightEnabled },
+      get: { viewModel.flashlightEnabled && viewModel.hasTorch },
       set: { enabled in
         if enabled {
           Task {
@@ -593,7 +593,7 @@ struct ContentView: View {
 
   private var lightSensorEnabled: Binding<Bool> {
     Binding(
-      get: { viewModel.lightSensorEnabled },
+      get: { viewModel.lightSensorEnabled && viewModel.hasAmbientLight },
       set: { enabled in
         if enabled {
           Task {
@@ -613,7 +613,7 @@ struct ContentView: View {
 
   private var occupancyEnabled: Binding<Bool> {
     Binding(
-      get: { viewModel.occupancyEnabled },
+      get: { viewModel.occupancyEnabled && viewModel.hasCamera },
       set: { enabled in
         if enabled {
           Task {
@@ -628,6 +628,20 @@ struct ContentView: View {
           viewModel.occupancyEnabled = false
         }
       }
+    )
+  }
+
+  private var motionEnabled: Binding<Bool> {
+    Binding(
+      get: { viewModel.motionEnabled && viewModel.hasAccelerometer },
+      set: { viewModel.motionEnabled = $0 }
+    )
+  }
+
+  private var contactEnabled: Binding<Bool> {
+    Binding(
+      get: { viewModel.contactEnabled && viewModel.hasProximity },
+      set: { viewModel.contactEnabled = $0 }
     )
   }
 
