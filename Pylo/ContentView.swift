@@ -235,7 +235,7 @@ struct ContentView: View {
 
         // Button
         AccessoryCard(
-          icon: "bell.fill",
+          icon: "hand.tap",
           title: "Button",
           isOn: $viewModel.buttonEnabled
         ) {

@@ -36,7 +36,7 @@ struct RunningView: View {
   // MARK: - Status Indicator
 
   private var statusIndicator: some View {
-    Image(systemName: "checkmark.circle.fill")
+    Image(systemName: "checkmark.circle")
       .font(.title2)
       .foregroundStyle(.green)
       .padding(20)
@@ -57,7 +57,7 @@ struct RunningView: View {
         buttonCooldown = false
       }
     } label: {
-      Image(systemName: "bell.fill")
+      Image(systemName: "hand.tap")
         .font(.system(size: 48))
         .foregroundStyle(buttonCooldown ? .gray : .white)
         .frame(width: 150, height: 150)
@@ -122,7 +122,7 @@ struct RunningConfigView: View {
         .navigationTitle("Settings")
         .toolbar {
           ToolbarItem(placement: .navigationBarLeading) {
-            Button("Cancel") {
+            Button(viewModel.needsRestart ? "Cancel" : "Close") {
               if let savedConfig {
                 viewModel.restoreConfig(savedConfig)
               }
