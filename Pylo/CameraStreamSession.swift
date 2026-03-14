@@ -543,19 +543,9 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     }
 
     // Configure audio session BEFORE creating capture session so the mic is available
-    #if os(iOS)
-      if microphoneEnabled {
-        do {
-          let audioSession = AVAudioSession.sharedInstance()
-          try audioSession.setCategory(
-            .playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
-          try audioSession.setPreferredSampleRate(16000)
-          try audioSession.setActive(true)
-        } catch {
-          logger.error("AVAudioSession setup error: \(error)")
-        }
-      }
-    #endif
+    if microphoneEnabled {
+      configureAudioSessionForVoiceChat(logger: logger)
+    }
 
     // Build the new video output and delegate (shared between both paths)
     let output = AVCaptureVideoDataOutput()
@@ -634,11 +624,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     } else {
       // Cold start — create a new AVCaptureSession from scratch
       session = AVCaptureSession()
-      #if os(iOS)
-        if #available(iOS 16.0, *), session.isMultitaskingCameraAccessSupported {
-          session.isMultitaskingCameraAccessEnabled = true
-        }
-      #endif
+      session.enableMultitaskingCameraIfSupported()
       session.sessionPreset = width > 1280 ? .hd1920x1080 : width > 640 ? .hd1280x720 : .medium
 
       do {
@@ -726,13 +712,11 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
         forName: .AVCaptureSessionWasInterrupted, object: session, queue: queue
       ) { [weak self] notification in
         guard let self else { return }
-        #if os(iOS)
-          let reason = notification.userInfo?[AVCaptureSessionInterruptionReasonKey] as? Int
-          self.logger.warning(
-            "Capture session interrupted (reason \(reason ?? -1))")
-        #else
+        if let reason = AVCaptureSession.interruptionReason(from: notification) {
+          self.logger.warning("Capture session interrupted (reason \(reason))")
+        } else {
           self.logger.warning("Capture session interrupted")
-        #endif
+        }
       })
     interruptionObservers.append(
       nc.addObserver(

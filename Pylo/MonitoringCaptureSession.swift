@@ -186,22 +186,9 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     }
 
     // Configure audio session BEFORE creating capture session so the mic is available
-    #if os(iOS)
-      if audioRecordingEnabled {
-        do {
-          let audioSession = AVAudioSession.sharedInstance()
-          try audioSession.setCategory(
-            .playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
-          try audioSession.setPreferredSampleRate(16000)
-          try audioSession.setActive(true)
-        } catch {
-          // Non-fatal: continue in video-only mode. The sentinel captureSession
-          // will be replaced with the real session below, or cleared by later
-          // error paths if video setup also fails.
-          logger.error("AVAudioSession setup error: \(error)")
-        }
-      }
-    #endif
+    if audioRecordingEnabled {
+      configureAudioSessionForVoiceChat(logger: logger)
+    }
 
     // Build the new video output and delegate (shared between both paths)
     let output = AVCaptureVideoDataOutput()
@@ -305,11 +292,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     } else {
       // Cold start — create a new AVCaptureSession from scratch
       session = AVCaptureSession()
-      #if os(iOS)
-        if #available(iOS 16.0, *), session.isMultitaskingCameraAccessSupported {
-          session.isMultitaskingCameraAccessEnabled = true
-        }
-      #endif
+      session.enableMultitaskingCameraIfSupported()
       session.sessionPreset = sensorOnly ? .vga640x480 : .hd1920x1080
 
       do {
@@ -583,13 +566,11 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
         forName: .AVCaptureSessionWasInterrupted, object: session, queue: queue
       ) { [weak self] notification in
         guard let self else { return }
-        #if os(iOS)
-          let reason = notification.userInfo?[AVCaptureSessionInterruptionReasonKey] as? Int
-          self.logger.warning(
-            "Capture session interrupted (reason \(reason ?? -1))")
-        #else
+        if let reason = AVCaptureSession.interruptionReason(from: notification) {
+          self.logger.warning("Capture session interrupted (reason \(reason))")
+        } else {
           self.logger.warning("Capture session interrupted")
-        #endif
+        }
       })
     interruptionObservers.append(
       nc.addObserver(
