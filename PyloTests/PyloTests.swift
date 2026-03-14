@@ -814,9 +814,9 @@ struct AudioResamplingTests {
     let outputFrames = result.count / MemoryLayout<Float>.size
     #expect(outputFrames == frameCount)
     result.withUnsafeBytes { buf in
-      let floats = buf.assumingMemoryBound(to: Float.self)
       for i in 0..<outputFrames {
-        #expect(abs(floats[i]) < 0.001)
+        let value = buf.load(fromByteOffset: i * MemoryLayout<Float>.size, as: Float.self)
+        #expect(abs(value) < 0.001)
       }
     }
   }
