@@ -3,6 +3,7 @@ import Combine
 import CoreImage.CIFilterBuiltins
 import FragmentedMP4
 import HAP
+import Locked
 import Sensors
 import Streaming
 import SwiftUI
@@ -1214,12 +1215,23 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
         }
       }
 
+      let monitoringBusy = Locked(initialState: false)
       camera.onMonitoringCaptureNeeded = {
         [
           weak monitoring, weak camera, weak occupancyDetector,
           weak ambientLightDetector
         ] needed, existingSession in
         guard let camera else { return }
+        // Re-entrancy guard: start() can synchronously deliver buffered frames
+        // when reusing a handed-off session, which may re-trigger this callback
+        // and cause a stack overflow.
+        let reentrant = monitoringBusy.withLock { (busy: inout Bool) -> Bool in
+          if busy { return true }
+          busy = true
+          return false
+        }
+        guard !reentrant else { return }
+        defer { monitoringBusy.withLock { $0 = false } }
         if needed {
           monitoring?.videoMotionDetector = camera.videoMotionDetector
           monitoring?.ambientLightDetector = camera.ambientLightDetector ?? ambientLightDetector
