@@ -111,9 +111,9 @@ nonisolated final class HAPAccessory: HAPAccessoryProtocol, @unchecked Sendable 
     case ProtocolInfoIID.version: return .string(hapProtocolVersion)
     case Self.iidOn: return .bool(isOn)
     case Self.iidBrightness: return .int(brightness)
-    case BatteryIID.batteryLevel: return batteryState.map { .int($0.level) }
-    case BatteryIID.chargingState: return batteryState.map { .int($0.chargingState) }
-    case BatteryIID.statusLowBattery: return batteryState.map { .int($0.statusLowBattery) }
+    case BatteryIID.batteryLevel: return .int(batteryState?.level ?? 0)
+    case BatteryIID.chargingState: return .int(batteryState?.chargingState ?? 0)
+    case BatteryIID.statusLowBattery: return .int(batteryState?.statusLowBattery ?? 0)
     default: return nil
     }
   }

@@ -552,9 +552,9 @@ public final class HAPMotionSensorAccessory: HAPAccessoryProtocol, @unchecked Se
     case AccessoryInfoIID.firmwareRevision: return .string(firmwareRevision)
     case ProtocolInfoIID.version: return .string(hapProtocolVersion)
     case Self.iidMotionDetected: return .bool(isMotionDetected)
-    case BatteryIID.batteryLevel: return batteryState.map { .int($0.level) }
-    case BatteryIID.chargingState: return batteryState.map { .int($0.chargingState) }
-    case BatteryIID.statusLowBattery: return batteryState.map { .int($0.statusLowBattery) }
+    case BatteryIID.batteryLevel: return .int(batteryState?.level ?? 0)
+    case BatteryIID.chargingState: return .int(batteryState?.chargingState ?? 0)
+    case BatteryIID.statusLowBattery: return .int(batteryState?.statusLowBattery ?? 0)
     default: return nil
     }
   }
@@ -668,9 +668,9 @@ public final class HAPContactSensorAccessory: HAPAccessoryProtocol,
     case AccessoryInfoIID.firmwareRevision: return .string(firmwareRevision)
     case ProtocolInfoIID.version: return .string(hapProtocolVersion)
     case Self.iidContactSensorState: return .int(contactState)
-    case BatteryIID.batteryLevel: return batteryState.map { .int($0.level) }
-    case BatteryIID.chargingState: return batteryState.map { .int($0.chargingState) }
-    case BatteryIID.statusLowBattery: return batteryState.map { .int($0.statusLowBattery) }
+    case BatteryIID.batteryLevel: return .int(batteryState?.level ?? 0)
+    case BatteryIID.chargingState: return .int(batteryState?.chargingState ?? 0)
+    case BatteryIID.statusLowBattery: return .int(batteryState?.statusLowBattery ?? 0)
     default: return nil
     }
   }
@@ -781,9 +781,9 @@ public final class HAPOccupancySensorAccessory: HAPAccessoryProtocol,
     case AccessoryInfoIID.firmwareRevision: return .string(firmwareRevision)
     case ProtocolInfoIID.version: return .string(hapProtocolVersion)
     case Self.iidOccupancyDetected: return .int(isOccupancyDetected ? 1 : 0)
-    case BatteryIID.batteryLevel: return batteryState.map { .int($0.level) }
-    case BatteryIID.chargingState: return batteryState.map { .int($0.chargingState) }
-    case BatteryIID.statusLowBattery: return batteryState.map { .int($0.statusLowBattery) }
+    case BatteryIID.batteryLevel: return .int(batteryState?.level ?? 0)
+    case BatteryIID.chargingState: return .int(batteryState?.chargingState ?? 0)
+    case BatteryIID.statusLowBattery: return .int(batteryState?.statusLowBattery ?? 0)
     default: return nil
     }
   }
@@ -891,9 +891,9 @@ public final class HAPLightSensorAccessory: HAPAccessoryProtocol, @unchecked Sen
     case AccessoryInfoIID.firmwareRevision: return .string(firmwareRevision)
     case ProtocolInfoIID.version: return .string(hapProtocolVersion)
     case Self.iidCurrentAmbientLightLevel: return .float(Double(currentLux))
-    case BatteryIID.batteryLevel: return batteryState.map { .int($0.level) }
-    case BatteryIID.chargingState: return batteryState.map { .int($0.chargingState) }
-    case BatteryIID.statusLowBattery: return batteryState.map { .int($0.statusLowBattery) }
+    case BatteryIID.batteryLevel: return .int(batteryState?.level ?? 0)
+    case BatteryIID.chargingState: return .int(batteryState?.chargingState ?? 0)
+    case BatteryIID.statusLowBattery: return .int(batteryState?.statusLowBattery ?? 0)
     default: return nil
     }
   }
@@ -1013,9 +1013,9 @@ public final class HAPButtonAccessory: HAPAccessoryProtocol, @unchecked Sendable
     case Self.iidProgrammableSwitchEvent: return .null
     case Self.iidServiceLabelIndex: return .int(1)
     case Self.iidServiceLabelNamespace: return .int(1)  // Arabic numerals
-    case BatteryIID.batteryLevel: return batteryState.map { .int($0.level) }
-    case BatteryIID.chargingState: return batteryState.map { .int($0.chargingState) }
-    case BatteryIID.statusLowBattery: return batteryState.map { .int($0.statusLowBattery) }
+    case BatteryIID.batteryLevel: return .int(batteryState?.level ?? 0)
+    case BatteryIID.chargingState: return .int(batteryState?.chargingState ?? 0)
+    case BatteryIID.statusLowBattery: return .int(batteryState?.statusLowBattery ?? 0)
     default: return nil
     }
   }

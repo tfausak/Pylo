@@ -462,12 +462,12 @@ struct BatteryServiceTests {
     #expect(light.readCharacteristic(iid: BatteryIID.statusLowBattery) == .int(0))
   }
 
-  @Test("readCharacteristic returns nil for battery IIDs when state is nil")
+  @Test("readCharacteristic returns defaults for battery IIDs when state is nil")
   func readBatteryNilState() {
     let light = HAPAccessory(aid: 2)
-    #expect(light.readCharacteristic(iid: BatteryIID.batteryLevel) == nil)
-    #expect(light.readCharacteristic(iid: BatteryIID.chargingState) == nil)
-    #expect(light.readCharacteristic(iid: BatteryIID.statusLowBattery) == nil)
+    #expect(light.readCharacteristic(iid: BatteryIID.batteryLevel) == .int(0))
+    #expect(light.readCharacteristic(iid: BatteryIID.chargingState) == .int(0))
+    #expect(light.readCharacteristic(iid: BatteryIID.statusLowBattery) == .int(0))
   }
 
   @Test("Shared BatteryState reflects updates across all accessories")
@@ -639,9 +639,9 @@ struct ButtonTests {
   @Test("trigger fires onStateChange with single press event")
   func triggerFiresEvent() {
     let btn = makeButton()
-    var receivedAID: Int?
-    var receivedIID: Int?
-    var receivedValue: HAPValue?
+    nonisolated(unsafe) var receivedAID: Int?
+    nonisolated(unsafe) var receivedIID: Int?
+    nonisolated(unsafe) var receivedValue: HAPValue?
     btn.onStateChange = { aid, iid, value in
       receivedAID = aid
       receivedIID = iid
