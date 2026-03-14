@@ -169,7 +169,7 @@ nonisolated func videoOrientation(from angle: Int) -> AVCaptureVideoOrientation 
 // MARK: - Audio Converter Callback Data
 
 /// Helper for passing PCM data through the AudioConverter encoder C callback.
-struct AudioEncoderInput {
+nonisolated struct AudioEncoderInput: @unchecked Sendable {
   var srcData: UnsafeRawPointer?
   var srcSize: UInt32
   var consumed: Bool

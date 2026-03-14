@@ -160,8 +160,8 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   // Snapshot caching — periodically grab a JPEG from the video stream.
   // The callback is set from the server queue and read from captureQueue,
   // so it must be synchronized.
-  private let _onSnapshotFrame = Locked<((Data) -> Void)?>(initialState: nil)
-  var onSnapshotFrame: ((Data) -> Void)? {
+  private let _onSnapshotFrame = Locked<(@Sendable (Data) -> Void)?>(initialState: nil)
+  var onSnapshotFrame: (@Sendable (Data) -> Void)? {
     get { _onSnapshotFrame.withLock { $0 } }
     set { _onSnapshotFrame.withLock { $0 = newValue } }
   }

@@ -863,7 +863,7 @@ private struct StartConfig: Sendable {
 }
 
 /// Objects created off MainActor, returned to MainActor for callback wiring and UI updates.
-private struct ServerSetup: @unchecked Sendable {
+private nonisolated struct ServerSetup: @unchecked Sendable {
   let bridge: HAPBridgeInfo
   let lightbulb: HAPAccessory
   let camera: HAPCameraAccessory
