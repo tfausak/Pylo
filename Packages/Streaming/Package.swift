@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
   name: "Streaming",
-  platforms: [.macOS(.v14), .iOS(.v15)],
+  platforms: [.macOS(.v12), .iOS(.v15)],
   products: [
     .library(name: "Streaming", targets: ["Streaming"])
   ],

@@ -1,9 +1,14 @@
-import CoreMotion
+import Foundation
 import Locked
 import os
 
+#if os(iOS)
+  import CoreMotion
+#endif
+
 /// Monitors device motion using the accelerometer and reports motion detected / not detected.
 /// At rest the accelerometer reads ~1g; significant deviation from that indicates movement.
+/// On macOS, the accelerometer is not available (isAvailable = false).
 public nonisolated final class MotionMonitor: @unchecked Sendable {
 
   /// Callback for motion state changes.
@@ -15,16 +20,20 @@ public nonisolated final class MotionMonitor: @unchecked Sendable {
   }
 
   /// Whether the device has an accelerometer.
-  /// Cached at init so it can be safely read from any queue (CMMotionManager is not thread-safe).
-  /// Safe: CMMotionManager init + isAccelerometerAvailable is a single-threaded read at init time,
-  /// before the instance is shared across queues.
   public let isAvailable: Bool
 
   private let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "Motion")
-  private let motionManager = CMMotionManager()
+
+  #if os(iOS)
+    private let motionManager = CMMotionManager()
+  #endif
 
   public init() {
-    isAvailable = motionManager.isAccelerometerAvailable
+    #if os(iOS)
+      isAvailable = motionManager.isAccelerometerAvailable
+    #else
+      isAvailable = false
+    #endif
   }
 
   /// Acceleration delta from gravity (in g) required to trigger motion detected.
@@ -45,73 +54,81 @@ public nonisolated final class MotionMonitor: @unchecked Sendable {
 
   private let state = Locked(initialState: State())
 
-  private let motionQueue: OperationQueue = {
-    let q = OperationQueue()
-    q.name = "\(Bundle.main.bundleIdentifier!).motion"
-    q.maxConcurrentOperationCount = 1
-    return q
-  }()
+  #if os(iOS)
+    private let motionQueue: OperationQueue = {
+      let q = OperationQueue()
+      q.name = "\(Bundle.main.bundleIdentifier!).motion"
+      q.maxConcurrentOperationCount = 1
+      return q
+    }()
+  #endif
 
   @MainActor public func start() {
-    guard motionManager.isAccelerometerAvailable else {
-      logger.warning("Accelerometer not available")
-      return
-    }
-    guard !motionManager.isAccelerometerActive else { return }
-
-    motionManager.accelerometerUpdateInterval = 0.1  // 10 Hz
-
-    motionManager.startAccelerometerUpdates(to: motionQueue) { [weak self] data, error in
-      guard let self, let data else {
-        if let error { self?.logger.error("Accelerometer error: \(error)") }
+    #if os(iOS)
+      guard motionManager.isAccelerometerAvailable else {
+        logger.warning("Accelerometer not available")
         return
       }
+      guard !motionManager.isAccelerometerActive else { return }
 
-      let accel = data.acceleration
-      // Magnitude of the acceleration vector; subtract 1g (gravity at rest)
-      let magnitude = sqrt(accel.x * accel.x + accel.y * accel.y + accel.z * accel.z)
-      let delta = abs(magnitude - 1.0)
+      motionManager.accelerometerUpdateInterval = 0.1  // 10 Hz
 
-      enum MotionEvent {
-        case detected
-        case cleared(TimeInterval)
-      }
-
-      let event: MotionEvent? = self.state.withLock { state in
-        if delta > state.threshold {
-          state.lastMotionDate = Date()
-          if !state.isMotionDetected {
-            state.isMotionDetected = true
-            return .detected
-          }
-        } else if state.isMotionDetected {
-          let elapsed = Date().timeIntervalSince(state.lastMotionDate)
-          if elapsed >= self.cooldown {
-            state.isMotionDetected = false
-            return .cleared(elapsed)
-          }
+      motionManager.startAccelerometerUpdates(to: motionQueue) { [weak self] data, error in
+        guard let self, let data else {
+          if let error { self?.logger.error("Accelerometer error: \(error)") }
+          return
         }
-        return nil
+
+        let accel = data.acceleration
+        // Magnitude of the acceleration vector; subtract 1g (gravity at rest)
+        let magnitude = sqrt(accel.x * accel.x + accel.y * accel.y + accel.z * accel.z)
+        let delta = abs(magnitude - 1.0)
+
+        enum MotionEvent {
+          case detected
+          case cleared(TimeInterval)
+        }
+
+        let event: MotionEvent? = self.state.withLock { state in
+          if delta > state.threshold {
+            state.lastMotionDate = Date()
+            if !state.isMotionDetected {
+              state.isMotionDetected = true
+              return .detected
+            }
+          } else if state.isMotionDetected {
+            let elapsed = Date().timeIntervalSince(state.lastMotionDate)
+            if elapsed >= self.cooldown {
+              state.isMotionDetected = false
+              return .cleared(elapsed)
+            }
+          }
+          return nil
+        }
+
+        switch event {
+        case .detected:
+          self.logger.debug("Motion detected (delta=\(delta, format: .fixed(precision: 3))g)")
+          self.onMotionChange?(true)
+        case .cleared(let elapsed):
+          self.logger.debug(
+            "Motion cleared after \(elapsed, format: .fixed(precision: 1))s cooldown")
+          self.onMotionChange?(false)
+        case nil:
+          break
+        }
       }
 
-      switch event {
-      case .detected:
-        self.logger.debug("Motion detected (delta=\(delta, format: .fixed(precision: 3))g)")
-        self.onMotionChange?(true)
-      case .cleared(let elapsed):
-        self.logger.debug(
-          "Motion cleared after \(elapsed, format: .fixed(precision: 1))s cooldown")
-        self.onMotionChange?(false)
-      case nil:
-        break
-      }
-    }
-
-    logger.info("Motion monitor started")
+      logger.info("Motion monitor started")
+    #else
+      logger.info("Motion monitor not available on this platform")
+    #endif
   }
 
   @MainActor public func stop() {
-    motionManager.stopAccelerometerUpdates()
+    #if os(iOS)
+      motionManager.stopAccelerometerUpdates()
+    #endif
     state.withLock { $0.isMotionDetected = false }
     logger.info("Motion monitor stopped")
   }

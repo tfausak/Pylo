@@ -4,9 +4,12 @@ import AudioToolbox
 import FragmentedMP4
 import Locked
 import Sensors
-@preconcurrency import UIKit
 import VideoToolbox
 import os
+
+#if os(iOS)
+  @preconcurrency import UIKit
+#endif
 
 /// Lightweight capture-only session for HKSV idle motion detection and fMP4 pre-buffering.
 ///
@@ -67,6 +70,8 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
 
   public let logger = Logger(
     subsystem: Bundle.main.bundleIdentifier!, category: "MonitoringCapture")
+
+  private var interruptionObservers: [NSObjectProtocol] = []
 
   /// Serial queue for AVCaptureSession start/stop — these are not thread-safe.
   private let sessionQueue: DispatchQueue
@@ -184,22 +189,9 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     }
 
     // Configure audio session BEFORE creating capture session so the mic is available
-    #if os(iOS)
-      if audioRecordingEnabled {
-        do {
-          let audioSession = AVAudioSession.sharedInstance()
-          try audioSession.setCategory(
-            .playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
-          try audioSession.setPreferredSampleRate(16000)
-          try audioSession.setActive(true)
-        } catch {
-          // Non-fatal: continue in video-only mode. The sentinel captureSession
-          // will be replaced with the real session below, or cleared by later
-          // error paths if video setup also fails.
-          logger.error("AVAudioSession setup error: \(error)")
-        }
-      }
-    #endif
+    if audioRecordingEnabled {
+      configureAudioSessionForVoiceChat(logger: logger)
+    }
 
     // Build the new video output and delegate (shared between both paths)
     let output = AVCaptureVideoDataOutput()
@@ -303,6 +295,7 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     } else {
       // Cold start — create a new AVCaptureSession from scratch
       session = AVCaptureSession()
+      session.enableMultitaskingCameraIfSupported()
       session.sessionPreset = sensorOnly ? .vga640x480 : .hd1920x1080
 
       do {
@@ -361,7 +354,7 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     // Rotate output to match device orientation.
     let rotationAngle = Self.currentRotationAngle()
     if let connection = output.connection(with: .video) {
-      if #available(iOS 17.0, *) {
+      if #available(iOS 17.0, macOS 14.0, *) {
         if connection.isVideoRotationAngleSupported(CGFloat(rotationAngle)) {
           connection.videoRotationAngle = CGFloat(rotationAngle)
         }
@@ -395,6 +388,7 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       if existingSession == nil {
         sessionQueue.async { session.startRunning() }
       }
+      observeCaptureInterruptions(session)
       logger.info("Monitoring capture started (sensor-only mode, no encoding)")
       return
     }
@@ -454,11 +448,13 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
         sessionQueue.sync(execute: startBlock)
       }
     }
+    observeCaptureInterruptions(session)
     logger.info(
       "Monitoring capture started (audio=\(audioReady), reused=\(existingSession != nil))")
   }
 
   public func stop() {
+    removeInterruptionObservers()
     let (oldSession, oldCS, oldAudioConverter):
       (AVCaptureSession?, VTCompressionSession?, AudioConverterRef?) = mState.withLockUnchecked {
         let s = $0.captureSession
@@ -507,6 +503,7 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   /// but does NOT stop the capture session — the caller takes ownership.
   /// Returns nil if no session is running.
   public func handoff() -> AVCaptureSession? {
+    removeInterruptionObservers()
     let (session, oldCS, oldAudioConverter):
       (AVCaptureSession?, VTCompressionSession?, AudioConverterRef?) = mState.withLockUnchecked {
         let s = $0.captureSession
@@ -553,6 +550,47 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     snapshotCallback = nil
     logger.info("Monitoring capture handed off (session still running)")
     return session
+  }
+
+  // MARK: - Interruption Handling
+
+  /// Observe AVCaptureSession interruption notifications so we can automatically
+  /// resume the capture session when the interruption ends (e.g. returning from
+  /// iPad split screen on iOS 15 where multitasking camera access is unavailable).
+  private func observeCaptureInterruptions(_ session: AVCaptureSession) {
+    removeInterruptionObservers()
+    // Guard against a concurrent stop() having already cleared captureSession.
+    guard captureSession === session else { return }
+    let nc = NotificationCenter.default
+    let queue = OperationQueue()
+    queue.underlyingQueue = sessionQueue
+    interruptionObservers.append(
+      nc.addObserver(
+        forName: .AVCaptureSessionWasInterrupted, object: session, queue: queue
+      ) { [weak self] notification in
+        guard let self else { return }
+        if let reason = AVCaptureSession.interruptionReason(from: notification) {
+          self.logger.warning("Capture session interrupted (reason \(reason))")
+        } else {
+          self.logger.warning("Capture session interrupted")
+        }
+      })
+    interruptionObservers.append(
+      nc.addObserver(
+        forName: .AVCaptureSessionInterruptionEnded, object: session, queue: queue
+      ) { [weak self] _ in
+        guard let self else { return }
+        guard !session.isRunning else { return }
+        self.logger.info("Capture interruption ended — resuming session")
+        session.startRunning()
+      })
+  }
+
+  private func removeInterruptionObservers() {
+    for observer in interruptionObservers {
+      NotificationCenter.default.removeObserver(observer)
+    }
+    interruptionObservers.removeAll()
   }
 
   // MARK: - H.264 Encoding

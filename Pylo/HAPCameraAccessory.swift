@@ -8,8 +8,11 @@ import Locked
 import Sensors
 import Streaming
 import TLV8
-@preconcurrency import UIKit
 import os
+
+#if os(iOS)
+  @preconcurrency import UIKit
+#endif
 
 // MARK: - Camera Option
 
@@ -20,9 +23,17 @@ struct CameraOption: Identifiable, Hashable, Sendable {
   let fNumber: Float
 
   static func availableCameras() -> [CameraOption] {
-    let deviceTypes: [AVCaptureDevice.DeviceType] = [
-      .builtInWideAngleCamera, .builtInUltraWideCamera, .builtInTelephotoCamera,
-    ]
+    #if os(iOS)
+      let deviceTypes: [AVCaptureDevice.DeviceType] = [
+        .builtInWideAngleCamera, .builtInUltraWideCamera, .builtInTelephotoCamera,
+      ]
+    #elseif os(macOS)
+      var deviceTypes: [AVCaptureDevice.DeviceType] = [.builtInWideAngleCamera]
+      if #available(macOS 14.0, *) {
+        deviceTypes.append(.continuityCamera)
+        deviceTypes.append(.external)
+      }
+    #endif
     // Start with .unspecified to preserve default ordering and include external
     // cameras (e.g. USB on iPadOS), then supplement with per-position queries
     // to catch devices some iOS versions omit (e.g. front camera on iPhone 6s).
@@ -35,11 +46,16 @@ struct CameraOption: Identifiable, Hashable, Sendable {
         position: position
       )
       for device in discovery.devices where seen.insert(device.uniqueID).inserted {
+        #if os(iOS)
+          let fNumber = device.lensAperture
+        #else
+          let fNumber: Float = 0
+        #endif
         cameras.append(
           CameraOption(
             id: device.uniqueID,
             name: device.localizedName,
-            fNumber: device.lensAperture
+            fNumber: fNumber
           ))
       }
     }
@@ -191,6 +207,29 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   var streamSession: CameraStreamSession? {
     get { streamState.withLock { $0.streamSession } }
     set { streamState.withLock { $0.streamSession = newValue } }
+  }
+
+  /// Atomically checks whether a stream session is active (avoids TOCTOU race).
+  var hasActiveStreamSession: Bool {
+    streamState.withLock { $0.streamSession != nil }
+  }
+
+  /// Atomically detaches and returns the current stream session, setting it to nil.
+  /// This prevents two concurrent callers from both getting a non-nil session.
+  func detachStreamSession() -> CameraStreamSession? {
+    streamState.withLock { s in
+      let prev = s.streamSession
+      s.streamSession = nil
+      return prev
+    }
+  }
+
+  /// Atomically clears the stream session only if it is the same instance as `expected`.
+  /// Prevents a stale caller from wiping a newer session installed by another device.
+  func clearStreamSession(ifIdenticalTo expected: CameraStreamSession) {
+    streamState.withLock { s in
+      if s.streamSession === expected { s.streamSession = nil }
+    }
   }
 
   /// Most recent JPEG snapshot captured during streaming (used as fallback for snapshot requests).
@@ -503,12 +542,12 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
       switch value {
       case .bool(let v):
         audioSettings.withLock { $0.isMuted = v }
-        streamSession?.isMuted = v
+        streamState.withLock({ $0.streamSession })?.isMuted = v
         return true
       case .int(let v):
         let muted = v != 0
         audioSettings.withLock { $0.isMuted = muted }
-        streamSession?.isMuted = muted
+        streamState.withLock({ $0.streamSession })?.isMuted = muted
         return true
       default:
         return false
@@ -517,12 +556,12 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
       switch value {
       case .bool(let v):
         audioSettings.withLock { $0.speakerMuted = v }
-        streamSession?.speakerMuted = v
+        streamState.withLock({ $0.streamSession })?.speakerMuted = v
         return true
       case .int(let v):
         let muted = v != 0
         audioSettings.withLock { $0.speakerMuted = muted }
-        streamSession?.speakerMuted = muted
+        streamState.withLock({ $0.streamSession })?.speakerMuted = muted
         return true
       default:
         return false
@@ -531,7 +570,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
       if case .int(let v) = value {
         let vol = max(0, min(100, v))
         audioSettings.withLock { $0.speakerVolume = vol }
-        streamSession?.speakerVolume = vol
+        streamState.withLock({ $0.streamSession })?.speakerVolume = vol
         return true
       }
       return false

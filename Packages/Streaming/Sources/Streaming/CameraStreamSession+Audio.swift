@@ -478,7 +478,7 @@ extension CameraStreamSession {
 // MARK: - Audio Converter Callback Data
 
 /// Helper for passing compressed audio data + packet description through the AudioConverter decoder C callback.
-private struct AudioDecoderInput {
+private nonisolated struct AudioDecoderInput: @unchecked Sendable {
   var srcData: UnsafeRawPointer?
   var srcSize: UInt32
   var packetDesc: AudioStreamPacketDescription

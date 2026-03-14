@@ -10,7 +10,7 @@ struct ContentView: View {
 
   var body: some View {
     ZStack {
-      NavigationView {
+      navigationContainer {
         Group {
           if viewModel.isNetworkDenied {
             networkDeniedBody
@@ -22,7 +22,7 @@ struct ContentView: View {
         }
         .navigationTitle("Pylo")
         .toolbar {
-          ToolbarItem(placement: .navigationBarTrailing) {
+          ToolbarItem(placement: .primaryAction) {
             statusIndicator
           }
         }
@@ -60,7 +60,6 @@ struct ContentView: View {
         .animation(.default, value: viewModel.needsRestart)
         .animation(.default, value: viewModel.isWaitingForHomeApp)
       }
-      .navigationViewStyle(.stack)
       .onTapGesture {
         resetDimTimer()
       }
@@ -96,56 +95,62 @@ struct ContentView: View {
         Text(viewModel.permissionAlert?.message ?? "")
       }
 
-      if isScreenDimmed {
-        Color.black
-          .ignoresSafeArea()
-          .accessibilityLabel("Screen dimmed")
-          .accessibilityHint("Tap to wake")
-          .accessibilityAddTraits(.isButton)
-          .onTapGesture { resetDimTimer() }
-      }
+      #if os(iOS)
+        if isScreenDimmed {
+          Color.black
+            .ignoresSafeArea()
+            .accessibilityLabel("Screen dimmed")
+            .accessibilityHint("Tap to wake")
+            .accessibilityAddTraits(.isButton)
+            .onTapGesture { resetDimTimer() }
+        }
+      #endif
     }
-    .animation(.default, value: isScreenDimmed)
-    .onChange(of: viewModel.isRunning) { running in
-      if running {
+    #if os(iOS)
+      .animation(.default, value: isScreenDimmed)
+      .onChangeCompat(of: viewModel.isRunning) { running in
+        if running {
+          resetDimTimer()
+        } else {
+          dimTask?.cancel()
+          dimTask = nil
+          isScreenDimmed = false
+        }
+      }
+      .onChangeCompat(of: viewModel.keepScreenAwake) { _ in
         resetDimTimer()
-      } else {
-        dimTask?.cancel()
-        dimTask = nil
-        isScreenDimmed = false
       }
-    }
-    .onChange(of: viewModel.keepScreenAwake) { _ in
-      resetDimTimer()
-    }
-    .onChange(of: viewModel.screenSaverEnabled) { _ in
-      if viewModel.isRunning { resetDimTimer() }
-    }
-    .onChange(of: viewModel.screenSaverDelay) { _ in
-      if viewModel.isRunning { resetDimTimer() }
-    }
-    .onChange(of: scenePhase) { newPhase in
+      .onChangeCompat(of: viewModel.screenSaverEnabled) { _ in
+        if viewModel.isRunning { resetDimTimer() }
+      }
+      .onChangeCompat(of: viewModel.screenSaverDelay) { _ in
+        if viewModel.isRunning { resetDimTimer() }
+      }
+      .onChangeCompat(of: viewModel.hasPairings) { paired in
+        if !paired {
+          dimTask?.cancel()
+          dimTask = nil
+          isScreenDimmed = false
+        } else if viewModel.isRunning {
+          resetDimTimer()
+        }
+      }
+    #endif
+    .onChangeCompat(of: scenePhase) { newPhase in
       if newPhase == .active {
         viewModel.recheckPermissions()
-        resetDimTimer()
+        #if os(iOS)
+          resetDimTimer()
+        #endif
       } else {
-        // Cancel the dim timer when leaving foreground to prevent it
-        // from firing while backgrounded and causing unnecessary work.
-        dimTask?.cancel()
-        dimTask = nil
-        isScreenDimmed = false
+        #if os(iOS)
+          dimTask?.cancel()
+          dimTask = nil
+          isScreenDimmed = false
+        #endif
         if newPhase == .background {
           viewModel.handleBackgrounding()
         }
-      }
-    }
-    .onChange(of: viewModel.hasPairings) { paired in
-      if !paired {
-        dimTask?.cancel()
-        dimTask = nil
-        isScreenDimmed = false
-      } else if viewModel.isRunning {
-        resetDimTimer()
       }
     }
   }
@@ -216,8 +221,9 @@ struct ContentView: View {
           icon: "light.beacon.max",
           title: "Light Sensor",
           isOn: lightSensorEnabled,
-          blocked: !viewModel.hasCamera || viewModel.cameraPermissionDenied,
-          blockedMessage: !viewModel.hasCamera
+          blocked: !viewModel.hasCamera || !viewModel.hasAmbientLight
+            || viewModel.cameraPermissionDenied,
+          blockedMessage: !viewModel.hasCamera || !viewModel.hasAmbientLight
             ? "Not available on this device"
             : viewModel.cameraPermissionDenied ? "Permission denied" : nil
         ) {
@@ -241,7 +247,7 @@ struct ContentView: View {
         AccessoryCard(
           icon: "figure.walk.motion",
           title: "Motion Sensor",
-          isOn: $viewModel.motionEnabled,
+          isOn: motionEnabled,
           blocked: !viewModel.hasAccelerometer,
           blockedMessage: !viewModel.hasAccelerometer
             ? "Not available on this device" : nil
@@ -253,7 +259,7 @@ struct ContentView: View {
         AccessoryCard(
           icon: "sensor.tag.radiowaves.forward.fill",
           title: "Contact Sensor",
-          isOn: $viewModel.contactEnabled,
+          isOn: contactEnabled,
           blocked: !viewModel.hasProximity,
           blockedMessage: !viewModel.hasProximity
             ? "Not available on this device" : nil
@@ -270,14 +276,22 @@ struct ContentView: View {
           sirenContent
         }
 
-        // Display
-        AccessoryCard(
-          icon: "display",
-          title: "Keep Display On",
-          isOn: $viewModel.keepScreenAwake
-        ) {
-          displayContent
-        }
+        // Display / Sleep
+        #if os(iOS)
+          AccessoryCard(
+            icon: "display",
+            title: "Keep Display On",
+            isOn: $viewModel.keepScreenAwake
+          ) {
+            displayContent
+          }
+        #else
+          AccessoryCard(
+            icon: "moon.zzz",
+            title: "Prevent Sleep",
+            isOn: $viewModel.keepScreenAwake
+          ) {}
+        #endif
       }
       .padding()
     }
@@ -494,9 +508,7 @@ struct ContentView: View {
   }
 
   private static func openSettings() {
-    if let url = URL(string: UIApplication.openSettingsURLString) {
-      UIApplication.shared.open(url)
-    }
+    openAppSettings()
   }
 
   // MARK: - Bindings
@@ -533,7 +545,7 @@ struct ContentView: View {
 
   private var flashlightEnabled: Binding<Bool> {
     Binding(
-      get: { viewModel.flashlightEnabled },
+      get: { viewModel.flashlightEnabled && viewModel.hasTorch },
       set: { enabled in
         if enabled {
           Task {
@@ -581,7 +593,7 @@ struct ContentView: View {
 
   private var lightSensorEnabled: Binding<Bool> {
     Binding(
-      get: { viewModel.lightSensorEnabled },
+      get: { viewModel.lightSensorEnabled && viewModel.hasAmbientLight },
       set: { enabled in
         if enabled {
           Task {
@@ -601,7 +613,7 @@ struct ContentView: View {
 
   private var occupancyEnabled: Binding<Bool> {
     Binding(
-      get: { viewModel.occupancyEnabled },
+      get: { viewModel.occupancyEnabled && viewModel.hasCamera },
       set: { enabled in
         if enabled {
           Task {
@@ -616,6 +628,20 @@ struct ContentView: View {
           viewModel.occupancyEnabled = false
         }
       }
+    )
+  }
+
+  private var motionEnabled: Binding<Bool> {
+    Binding(
+      get: { viewModel.motionEnabled && viewModel.hasAccelerometer },
+      set: { viewModel.motionEnabled = $0 }
+    )
+  }
+
+  private var contactEnabled: Binding<Bool> {
+    Binding(
+      get: { viewModel.contactEnabled && viewModel.hasProximity },
+      set: { viewModel.contactEnabled = $0 }
     )
   }
 
@@ -661,6 +687,49 @@ struct ContentView: View {
         return
       }
       isScreenDimmed = true
+    }
+  }
+}
+
+// MARK: - Compatibility Helpers
+
+/// Wraps content in NavigationStack (iOS 16+/macOS 13+) or NavigationView+stack (older).
+private struct NavigationContainer<Content: View>: View {
+  @ViewBuilder let content: () -> Content
+
+  var body: some View {
+    #if os(iOS)
+      if #available(iOS 16.0, *) {
+        NavigationStack(root: content)
+      } else {
+        NavigationView(content: content)
+          .navigationViewStyle(.stack)
+      }
+    #else
+      if #available(macOS 13.0, *) {
+        NavigationStack(root: content)
+      } else {
+        NavigationView(content: content)
+      }
+    #endif
+  }
+}
+
+private func navigationContainer<Content: View>(
+  @ViewBuilder content: @escaping () -> Content
+) -> NavigationContainer<Content> {
+  NavigationContainer(content: content)
+}
+
+extension View {
+  /// onChange that compiles on both iOS 15 and iOS 17+/macOS 14+.
+  @ViewBuilder
+  func onChangeCompat<V: Equatable>(of value: V, perform action: @escaping (V) -> Void) -> some View
+  {
+    if #available(iOS 17.0, macOS 14.0, *) {
+      self.onChange(of: value) { _, newValue in action(newValue) }
+    } else {
+      self.onChange(of: value, perform: action)
     }
   }
 }

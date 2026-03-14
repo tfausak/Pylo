@@ -15,7 +15,7 @@ extension HAPCameraAccessory {
 
   func streamingStatusTLV() -> Data {
     var b = TLV8.Builder()
-    let status: UInt8 = streamSession != nil ? 1 : 0  // 0=Available, 1=InUse, 2=Unavailable
+    let status: UInt8 = hasActiveStreamSession ? 1 : 0  // 0=Available, 1=InUse, 2=Unavailable
     b.add(0x01, byte: status)
     return b.build()
   }
@@ -82,9 +82,8 @@ extension HAPCameraAccessory {
       "SetupEndpoints: controller=\(controllerAddress):\(controllerVideoPort)/\(controllerAudioPort)"
     )
 
-    // Stop any existing stream session before creating a new one
-    streamSession?.stopStreaming()
-    streamSession = nil
+    // Atomically detach any existing session to avoid racing with another device
+    detachStreamSession()?.stopStreaming()
 
     let videoSSRC = UInt32.random(in: 1...UInt32.max)
     let audioSSRC = UInt32.random(in: 1...UInt32.max)
@@ -296,7 +295,7 @@ extension HAPCameraAccessory {
       microphoneEnabled: microphoneEnabled)
     if !started {
       logger.error("Stream session failed to start — clearing session")
-      streamSession = nil
+      clearStreamSession(ifIdenticalTo: session)
       onMonitoringCaptureNeeded?(true, nil)
     }
     onStateChange?(
@@ -307,14 +306,15 @@ extension HAPCameraAccessory {
     // Hand off the AVCaptureSession back to monitoring if recording is armed,
     // so it can resume without a cold-start.
     let recordingArmed = hksvState.withLock({ $0.recordingActive }) != 0
+    // Atomically detach the session to avoid racing with another device
+    let session = detachStreamSession()
     let handBackSession: AVCaptureSession?
     if recordingArmed {
-      handBackSession = streamSession?.handoff()
+      handBackSession = session?.handoff()
     } else {
-      streamSession?.stopStreaming()
+      session?.stopStreaming()
       handBackSession = nil
     }
-    streamSession = nil
     onStateChange?(
       aid, Self.iidStreamingStatus, .string(streamingStatusTLV().base64EncodedString()))
     // Resume monitoring capture if recording is still armed
@@ -330,7 +330,11 @@ extension HAPCameraAccessory {
     if let id = selectedCameraID, let device = AVCaptureDevice(uniqueID: id) {
       return device
     }
-    return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
+    #if os(iOS)
+      return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
+    #elseif os(macOS)
+      return AVCaptureDevice.default(for: .video)
+    #endif
   }
 
   // MARK: - Utility
@@ -366,7 +370,8 @@ extension HAPCameraAccessory {
           &hostname, socklen_t(hostname.count),
           nil, 0, NI_NUMERICHOST) == 0
       else { continue }
-      let ip = String(cString: hostname)
+      let ip = String(
+        decoding: hostname.map { UInt8(bitPattern: $0) }.prefix(while: { $0 != 0 }), as: UTF8.self)
       // RFC-1918 private ranges: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
       let isPrivate: Bool = {
         if ip.hasPrefix("192.168.") || ip.hasPrefix("10.") { return true }
