@@ -1,6 +1,8 @@
 @preconcurrency import AVFoundation
 import CoreImage
 import Foundation
+import Locked
+import Streaming
 import os
 
 // MARK: - Snapshot

@@ -16,7 +16,7 @@ import Foundation
 /// obtain a single pointer and pass it for both roles, which is safe because
 /// vDSP guarantees correct in-place operation and the closure holds exclusive
 /// access to the buffer for its duration.
-nonisolated func convertToFloat32At16kHz(
+public nonisolated func convertToFloat32At16kHz(
   _ data: Data, sourceASBD: AudioStreamBasicDescription
 ) -> Data {
   let sourceSampleRate = sourceASBD.mSampleRate
@@ -116,7 +116,7 @@ nonisolated func convertToFloat32At16kHz(
 
 /// Create an AAC-ELD encoder (PCM Float32 16kHz mono → AAC-ELD 24kbps).
 /// Used by both CameraStreamSession and MonitoringCaptureSession.
-nonisolated func createAACELDEncoder() -> AudioConverterRef? {
+public nonisolated func createAACELDEncoder() -> AudioConverterRef? {
   var inputDesc = AudioStreamBasicDescription(
     mSampleRate: 16000,
     mFormatID: kAudioFormatLinearPCM,
@@ -157,7 +157,7 @@ nonisolated func createAACELDEncoder() -> AudioConverterRef? {
 
 /// Map a rotation angle (0/90/180/270) to the legacy AVCaptureVideoOrientation
 /// used on iOS <17 where `videoRotationAngle` is unavailable.
-nonisolated func videoOrientation(from angle: Int) -> AVCaptureVideoOrientation {
+public nonisolated func videoOrientation(from angle: Int) -> AVCaptureVideoOrientation {
   switch angle {
   case 0: return .landscapeRight
   case 180: return .landscapeLeft
@@ -169,8 +169,14 @@ nonisolated func videoOrientation(from angle: Int) -> AVCaptureVideoOrientation 
 // MARK: - Audio Converter Callback Data
 
 /// Helper for passing PCM data through the AudioConverter encoder C callback.
-nonisolated struct AudioEncoderInput: @unchecked Sendable {
-  var srcData: UnsafeRawPointer?
-  var srcSize: UInt32
-  var consumed: Bool
+public nonisolated struct AudioEncoderInput: @unchecked Sendable {
+  public var srcData: UnsafeRawPointer?
+  public var srcSize: UInt32
+  public var consumed: Bool
+
+  public init(srcData: UnsafeRawPointer?, srcSize: UInt32, consumed: Bool) {
+    self.srcData = srcData
+    self.srcSize = srcSize
+    self.consumed = consumed
+  }
 }

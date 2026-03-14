@@ -6,16 +6,16 @@ import CoreVideo
 
 /// Reusable delegate that forwards pixel buffers to a closure.
 /// Used by both CameraStreamSession and MonitoringCaptureSession.
-nonisolated final class VideoCaptureDelegate: NSObject,
+public nonisolated final class VideoCaptureDelegate: NSObject,
   AVCaptureVideoDataOutputSampleBufferDelegate
 {
   let handler: (CVPixelBuffer, CMTime) -> Void
 
-  init(handler: @escaping (CVPixelBuffer, CMTime) -> Void) {
+  public init(handler: @escaping (CVPixelBuffer, CMTime) -> Void) {
     self.handler = handler
   }
 
-  func captureOutput(
+  public func captureOutput(
     _ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
     from connection: AVCaptureConnection
   ) {
@@ -29,16 +29,16 @@ nonisolated final class VideoCaptureDelegate: NSObject,
 
 /// Reusable delegate that forwards audio sample buffers to a closure.
 /// Used by both CameraStreamSession and MonitoringCaptureSession.
-nonisolated final class AudioCaptureDelegate: NSObject,
+public nonisolated final class AudioCaptureDelegate: NSObject,
   AVCaptureAudioDataOutputSampleBufferDelegate
 {
   let handler: (CMSampleBuffer) -> Void
 
-  init(handler: @escaping (CMSampleBuffer) -> Void) {
+  public init(handler: @escaping (CMSampleBuffer) -> Void) {
     self.handler = handler
   }
 
-  func captureOutput(
+  public func captureOutput(
     _ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
     from connection: AVCaptureConnection
   ) {

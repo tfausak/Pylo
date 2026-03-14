@@ -8,7 +8,7 @@ extension CameraStreamSession {
   /// Note: RFC 3550 §6.1 requires compound RTCP (SR + SDES with CNAME), but
   /// HomeKit implementations tolerate SR-only packets, and SRTCP does not
   /// require CNAME. Omitting SDES keeps the packet minimal.
-  nonisolated static func buildRTCPSenderReport(
+  public nonisolated static func buildRTCPSenderReport(
     ssrc: UInt32,
     rtpTimestamp: UInt32,
     packetsSent: Int,

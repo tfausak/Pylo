@@ -8,10 +8,11 @@ let package = Package(
     .library(name: "SRP", targets: ["SRP"])
   ],
   dependencies: [
-    .package(url: "https://github.com/attaswift/BigInt.git", from: "5.1.0")
+    .package(path: "../Locked"),
+    .package(url: "https://github.com/attaswift/BigInt.git", from: "5.1.0"),
   ],
   targets: [
-    .target(name: "SRP", dependencies: ["BigInt"]),
+    .target(name: "SRP", dependencies: ["Locked", "BigInt"]),
     .testTarget(name: "SRPTests", dependencies: ["SRP", "BigInt"]),
   ]
 )

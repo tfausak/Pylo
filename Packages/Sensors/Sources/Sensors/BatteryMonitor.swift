@@ -11,12 +11,12 @@ import os
 /// Monitors the host device's battery level and charging state.
 /// On iOS uses UIDevice notifications; on macOS uses IOKit Power Sources.
 /// All access must happen on the main actor.
-@MainActor final class BatteryMonitor {
+@MainActor public final class BatteryMonitor {
 
-  var onBatteryChange: ((BatteryState) -> Void)?
+  public var onBatteryChange: ((BatteryState) -> Void)?
 
   /// Whether the device reports a valid battery level (false on desktops without battery).
-  private(set) var isAvailable = false
+  public private(set) var isAvailable = false
 
   private let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "Battery")
 
@@ -25,7 +25,9 @@ import os
 
   private var observers: [Any] = []
 
-  func start() {
+  public init() {}
+
+  public func start() {
     #if os(iOS)
       UIDevice.current.isBatteryMonitoringEnabled = true
       isAvailable = UIDevice.current.batteryLevel >= 0
@@ -67,7 +69,7 @@ import os
     logger.info("Battery monitor started")
   }
 
-  func stop() {
+  public func stop() {
     for observer in observers {
       if let timer = observer as? Timer {
         timer.invalidate()
@@ -84,7 +86,7 @@ import os
   }
 
   /// Read the current battery state.
-  func currentState() -> BatteryState {
+  public func currentState() -> BatteryState {
     let state = BatteryState()
     #if os(iOS)
       let rawLevel = UIDevice.current.batteryLevel  // 0.0–1.0, or -1 if unknown

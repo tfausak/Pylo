@@ -1,4 +1,5 @@
 import Foundation
+import Locked
 import os
 
 #if os(iOS)
@@ -8,18 +9,18 @@ import os
 /// Monitors device motion using the accelerometer and reports motion detected / not detected.
 /// At rest the accelerometer reads ~1g; significant deviation from that indicates movement.
 /// On macOS, the accelerometer is not available (isAvailable = false).
-nonisolated final class MotionMonitor: @unchecked Sendable {
+public nonisolated final class MotionMonitor: @unchecked Sendable {
 
   /// Callback for motion state changes.
   /// Protected by a lock: written from @MainActor, read from motionQueue.
   private let _onMotionChange = Locked<((Bool) -> Void)?>(initialState: nil)
-  var onMotionChange: ((Bool) -> Void)? {
+  public var onMotionChange: ((Bool) -> Void)? {
     get { _onMotionChange.withLock { $0 } }
     set { _onMotionChange.withLock { $0 = newValue } }
   }
 
   /// Whether the device has an accelerometer.
-  let isAvailable: Bool
+  public let isAvailable: Bool
 
   private let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "Motion")
 
@@ -27,7 +28,7 @@ nonisolated final class MotionMonitor: @unchecked Sendable {
     private let motionManager = CMMotionManager()
   #endif
 
-  init() {
+  public init() {
     #if os(iOS)
       isAvailable = motionManager.isAccelerometerAvailable
     #else
@@ -36,7 +37,7 @@ nonisolated final class MotionMonitor: @unchecked Sendable {
   }
 
   /// Acceleration delta from gravity (in g) required to trigger motion detected.
-  var threshold: Double {
+  public var threshold: Double {
     get { state.withLock { $0.threshold } }
     set { state.withLock { $0.threshold = newValue } }
   }
@@ -62,7 +63,7 @@ nonisolated final class MotionMonitor: @unchecked Sendable {
     }()
   #endif
 
-  @MainActor func start() {
+  @MainActor public func start() {
     #if os(iOS)
       guard motionManager.isAccelerometerAvailable else {
         logger.warning("Accelerometer not available")
@@ -124,7 +125,7 @@ nonisolated final class MotionMonitor: @unchecked Sendable {
     #endif
   }
 
-  @MainActor func stop() {
+  @MainActor public func stop() {
     #if os(iOS)
       motionManager.stopAccelerometerUpdates()
     #endif

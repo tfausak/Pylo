@@ -2,6 +2,7 @@ import AudioToolbox
 @preconcurrency import CoreMedia
 import Foundation
 import FragmentedMP4
+import Locked
 import os
 
 // MARK: - Audio Encoding

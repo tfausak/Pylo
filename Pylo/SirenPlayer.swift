@@ -1,4 +1,5 @@
 import AVFAudio
+import Locked
 import os
 
 /// Generates a two-tone alarm siren via AVAudioEngine.

@@ -2,6 +2,7 @@
 import AudioToolbox
 @preconcurrency import CoreMedia
 import Foundation
+import Locked
 import SRTP
 import os
 

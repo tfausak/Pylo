@@ -9,19 +9,21 @@ import os
 /// Maps proximity state to HomeKit contact sensor: near = closed, far = open.
 /// All UIDevice access must happen on the main actor.
 /// On macOS, the sensor is never available (no hardware).
-@MainActor final class ProximitySensor {
+@MainActor public final class ProximitySensor {
 
-  var onContactChange: ((Bool) -> Void)?
+  public var onContactChange: ((Bool) -> Void)?
 
   /// Whether the device supports proximity monitoring.
-  private(set) var isAvailable = false
+  public private(set) var isAvailable = false
 
   private let logger = Logger(
     subsystem: Bundle.main.bundleIdentifier!, category: "ProximitySensor")
 
   private var observer: NSObjectProtocol?
 
-  func start() {
+  public init() {}
+
+  public func start() {
     #if os(iOS)
       UIDevice.current.isProximityMonitoringEnabled = true
       // If the device doesn't support proximity monitoring, it resets to false.
@@ -43,7 +45,7 @@ import os
     #endif
   }
 
-  func stop() {
+  public func stop() {
     #if os(iOS)
       if let observer {
         NotificationCenter.default.removeObserver(observer)
@@ -56,7 +58,7 @@ import os
   }
 
   /// Current contact state: true = contact detected (near), false = no contact (far).
-  var isContactDetected: Bool {
+  public var isContactDetected: Bool {
     #if os(iOS)
       return UIDevice.current.proximityState
     #else

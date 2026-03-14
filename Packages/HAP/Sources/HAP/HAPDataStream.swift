@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import FragmentedMP4
+import Locked
 import Network
 import TLV8
 import os

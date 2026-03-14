@@ -7,8 +7,11 @@ let package = Package(
   products: [
     .library(name: "FragmentedMP4", targets: ["FragmentedMP4"])
   ],
+  dependencies: [
+    .package(path: "../Locked")
+  ],
   targets: [
-    .target(name: "FragmentedMP4"),
+    .target(name: "FragmentedMP4", dependencies: ["Locked"]),
     .testTarget(name: "FragmentedMP4Tests", dependencies: ["FragmentedMP4"]),
   ]
 )

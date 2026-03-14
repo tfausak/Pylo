@@ -7,8 +7,11 @@ let package = Package(
   products: [
     .library(name: "SRTP", targets: ["SRTP"])
   ],
+  dependencies: [
+    .package(path: "../Locked")
+  ],
   targets: [
-    .target(name: "SRTP"),
+    .target(name: "SRTP", dependencies: ["Locked"]),
     .testTarget(name: "SRTPTests", dependencies: ["SRTP"]),
   ]
 )

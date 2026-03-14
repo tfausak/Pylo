@@ -1,4 +1,5 @@
 import AVFoundation
+import Locked
 import os
 
 /// Estimates ambient light level (lux) from camera auto-exposure metadata.
@@ -6,24 +7,24 @@ import os
 /// Designed to piggyback on existing capture sessions — reads `AVCaptureDevice.iso`
 /// and `.exposureDuration` rather than running a separate capture pipeline.
 /// Caller is responsible for throttling (e.g., calling every Nth frame).
-nonisolated final class AmbientLightDetector {
+public nonisolated final class AmbientLightDetector {
 
   /// Whether ambient light sensing is available on this platform.
   /// macOS webcams lack meaningful exposure metadata for lux estimation.
   #if os(iOS)
-    static let isAvailable = true
+    public static let isAvailable = true
   #else
-    static let isAvailable = false
+    public static let isAvailable = false
   #endif
 
   private let _onLuxChange = Locked<((Float) -> Void)?>(initialState: nil)
-  var onLuxChange: ((Float) -> Void)? {
+  public var onLuxChange: ((Float) -> Void)? {
     get { _onLuxChange.withLock { $0 } }
     set { _onLuxChange.withLock { $0 = newValue } }
   }
 
   private let _device = Locked<AVCaptureDevice?>(initialState: nil)
-  var device: AVCaptureDevice? {
+  public var device: AVCaptureDevice? {
     get { _device.withLock { $0 } }
     set { _device.withLock { $0 = newValue } }
   }
@@ -35,13 +36,15 @@ nonisolated final class AmbientLightDetector {
 
   private let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "AmbientLight")
 
-  var currentLux: Float {
+  public var currentLux: Float {
     state.withLock { $0.currentLux }
   }
 
+  public init() {}
+
   /// Called from capture delegate callbacks.
   /// Caller is responsible for throttling (e.g., calling every Nth frame).
-  func sample() {
+  public func sample() {
     #if os(iOS)
       guard let device = device else { return }
 
@@ -69,7 +72,7 @@ nonisolated final class AmbientLightDetector {
     #endif
   }
 
-  func reset() {
+  public func reset() {
     _device.withLock { $0 = nil }
     state.withLock { s in
       s.currentLux = 0
