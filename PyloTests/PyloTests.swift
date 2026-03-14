@@ -453,12 +453,12 @@ struct BatteryServiceTests {
     #expect(light.readCharacteristic(iid: BatteryIID.statusLowBattery) == .int(0))
   }
 
-  @Test("readCharacteristic returns defaults for battery IIDs when state is nil")
+  @Test("readCharacteristic returns nil for battery IIDs when state is nil")
   func readBatteryNilState() {
     let light = HAPAccessory(aid: 2)
-    #expect(light.readCharacteristic(iid: BatteryIID.batteryLevel) == .int(0))
-    #expect(light.readCharacteristic(iid: BatteryIID.chargingState) == .int(0))
-    #expect(light.readCharacteristic(iid: BatteryIID.statusLowBattery) == .int(0))
+    #expect(light.readCharacteristic(iid: BatteryIID.batteryLevel) == nil)
+    #expect(light.readCharacteristic(iid: BatteryIID.chargingState) == nil)
+    #expect(light.readCharacteristic(iid: BatteryIID.statusLowBattery) == nil)
   }
 
   @Test("Shared BatteryState reflects updates across all accessories")

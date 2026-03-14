@@ -84,8 +84,7 @@ public nonisolated final class MotionMonitor: @unchecked Sendable {
   }
 
   #if os(iOS)
-    /// Handle accelerometer data on the motionQueue. This method is nonisolated
-    /// (the class default) so it does NOT inherit @MainActor from start().
+    /// Handle accelerometer data on the motionQueue.
     private func handleAccelerometerUpdate(data: CMAccelerometerData?, error: Error?) {
       guard let data else {
         if let error { logger.error("Accelerometer error: \(error)") }

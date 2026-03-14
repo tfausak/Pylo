@@ -593,11 +593,10 @@ final class HAPViewModel: ObservableObject {
       // NOT the main queue. We must avoid capturing `self` (which is @MainActor)
       // directly, as Swift 6 with default MainActor isolation would infer
       // @MainActor on the closure, causing a runtime dispatch_assert_queue
-      // failure. Instead, capture a Sendable weak wrapper and hop to
-      // MainActor explicitly via Task for UI updates.
-      // Prevent @MainActor inference on closures that capture this reference.
-      // Strong ref is safe: stop() tears down the server and clears all
-      // callbacks before the view model could be deallocated.
+      // failure. Instead, capture `vm` via `nonisolated(unsafe)` to prevent
+      // @MainActor inference, and hop to MainActor explicitly via Task for
+      // UI updates. Strong ref is safe: stop() tears down the server and
+      // clears all callbacks before the view model could be deallocated.
       nonisolated(unsafe) let vm = self
       var enabledAccessories: [any HAPAccessoryProtocol] = []
 

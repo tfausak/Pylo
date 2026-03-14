@@ -212,6 +212,9 @@ func verifyHomeKitUUIDs() {
     check(
       HKCharacteristicUUID.occupancyDetected, HMCharacteristicTypeOccupancyDetected,
       "occupancyDetected")
-  // programmableSwitchEvent ("73") — no public HMCharacteristicType constant available.
+    check(
+      HKCharacteristicUUID.programmableSwitchEvent,
+      HMCharacteristicTypeInputEvent,
+      "programmableSwitchEvent")
   #endif
 }
