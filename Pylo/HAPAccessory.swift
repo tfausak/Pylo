@@ -237,7 +237,7 @@ nonisolated final class HAPAccessory: HAPAccessoryProtocol, @unchecked Sendable 
         ],
       ],
     ]
-    services.append(batteryServiceJSON(state: batteryState))
+    if let battery = batteryServiceJSON(state: batteryState) { services.append(battery) }
     return ["aid": aid, "services": services]
   }
 
