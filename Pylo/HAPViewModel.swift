@@ -1173,6 +1173,7 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     contactSensor.batteryState = placeholder
     occupancySensor.batteryState = placeholder
     siren.batteryState = placeholder
+    button.batteryState = placeholder
   }
 
   // NWListener creation — also benefits from being off MainActor
