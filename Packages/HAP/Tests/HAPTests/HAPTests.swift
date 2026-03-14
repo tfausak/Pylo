@@ -545,17 +545,16 @@ struct HAPMotionSensorTests {
     #expect(receivedValue == .bool(true))
   }
 
-  @Test("toJSON has motion sensor and battery services")
+  @Test("toJSON has motion sensor service, no battery when batteryState is nil")
   func toJSONService() {
     let sensor = HAPMotionSensorAccessory(aid: 5)
     let json = sensor.toJSON()
     let services = json["services"] as! [[String: Any]]
-    #expect(services.count == 4)  // accessory info + protocol info + motion sensor + battery
+    #expect(services.count == 3)  // accessory info + protocol info + motion sensor (no battery)
     #expect(services[1]["type"] as? String == "A2")  // protocol info
     #expect(services[2]["type"] as? String == "85")  // motion sensor
     let chars = services[2]["characteristics"] as! [[String: Any]]
     #expect(chars[0]["format"] as? String == "bool")
-    #expect(services[3]["type"] as? String == BatteryUUID.service)  // battery
   }
 }
 
@@ -601,17 +600,16 @@ struct HAPContactSensorTests {
     #expect(receivedValue == .int(0))
   }
 
-  @Test("toJSON has contact sensor and battery services")
+  @Test("toJSON has contact sensor service, no battery when batteryState is nil")
   func toJSONService() {
     let sensor = HAPContactSensorAccessory(aid: AccessoryID.contactSensor)
     let json = sensor.toJSON()
     let services = json["services"] as! [[String: Any]]
-    #expect(services.count == 4)  // accessory info + protocol info + contact sensor + battery
+    #expect(services.count == 3)  // accessory info + protocol info + contact sensor (no battery)
     #expect(services[1]["type"] as? String == "A2")  // protocol info
     #expect(services[2]["type"] as? String == "80")  // contact sensor
     let chars = services[2]["characteristics"] as! [[String: Any]]
     #expect(chars[0]["format"] as? String == "uint8")
-    #expect(services[3]["type"] as? String == BatteryUUID.service)  // battery
   }
 }
 
@@ -1876,12 +1874,12 @@ struct HAPSirenAccessoryTests {
     #expect(receivedValue == .bool(true))
   }
 
-  @Test("Battery reads return defaults when batteryState is nil")
+  @Test("Battery reads return nil when batteryState is nil")
   func batteryDefaults() {
     let siren = HAPSirenAccessory(aid: AccessoryID.siren)
-    #expect(siren.readCharacteristic(iid: BatteryIID.batteryLevel) == .int(0))
-    #expect(siren.readCharacteristic(iid: BatteryIID.chargingState) == .int(0))
-    #expect(siren.readCharacteristic(iid: BatteryIID.statusLowBattery) == .int(0))
+    #expect(siren.readCharacteristic(iid: BatteryIID.batteryLevel) == nil)
+    #expect(siren.readCharacteristic(iid: BatteryIID.chargingState) == nil)
+    #expect(siren.readCharacteristic(iid: BatteryIID.statusLowBattery) == nil)
   }
 
   @Test("Battery reads return actual state when set")
@@ -1894,16 +1892,27 @@ struct HAPSirenAccessoryTests {
     #expect(siren.readCharacteristic(iid: BatteryIID.chargingState) == .int(1))
   }
 
-  @Test("toJSON has switch and battery services")
+  @Test("toJSON has switch service, no battery when batteryState is nil")
   func toJSONServices() {
     let siren = HAPSirenAccessory(aid: AccessoryID.siren)
     let json = siren.toJSON()
     let services = json["services"] as! [[String: Any]]
-    #expect(services.count == 4)  // accessory info + protocol info + switch + battery
+    #expect(services.count == 3)  // accessory info + protocol info + switch (no battery)
     #expect(services[2]["type"] as? String == "49")  // switch service
     let chars = services[2]["characteristics"] as! [[String: Any]]
     #expect(chars[0]["format"] as? String == "bool")
-    #expect(services[3]["type"] as? String == BatteryUUID.service)  // battery
+  }
+
+  @Test("toJSON includes battery service when batteryState is set")
+  func toJSONWithBattery() {
+    let siren = HAPSirenAccessory(aid: AccessoryID.siren)
+    let battery = BatteryState()
+    battery.update(level: 50, chargingState: 0, statusLowBattery: 0)
+    siren.batteryState = battery
+    let json = siren.toJSON()
+    let services = json["services"] as! [[String: Any]]
+    #expect(services.count == 4)  // accessory info + protocol info + switch + battery
+    #expect(services[3]["type"] as? String == BatteryUUID.service)
   }
 
   @Test("Write to unknown IID returns false")

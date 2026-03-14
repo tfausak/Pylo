@@ -507,6 +507,11 @@ final class HAPViewModel: ObservableObject {
     statusMessage = "Starting…"
 
     // Stage 1: Capture config values on MainActor before leaving isolation.
+    // Start the battery monitor early so we know whether to include the
+    // battery service in the accessory database (affects c# hashing).
+    let battery = BatteryMonitor()
+    battery.start()
+
     let config = StartConfig(
       serial: deviceSerial(),
       deviceModel: deviceModelName(),
@@ -521,7 +526,8 @@ final class HAPViewModel: ObservableObject {
       occupancyEnabled: occupancyEnabled,
       occupancyCooldown: occupancyCooldown.duration,
       sensorCameraID: sensorCamera?.id,
-      sirenEnabled: sirenEnabled
+      sirenEnabled: sirenEnabled,
+      hasBattery: battery.isAvailable
     )
 
     let myGeneration = startGeneration
@@ -710,9 +716,8 @@ final class HAPViewModel: ObservableObject {
         }
       }
 
-      // Battery monitor — uses UIDevice which requires MainActor
-      let battery = BatteryMonitor()
-      battery.start()
+      // Battery monitor — already created and started before server setup
+      // so hasBattery could be passed to createServerSetup for c# hashing.
       if battery.isAvailable {
         let sharedBatteryState = battery.currentState()
         setup.lightbulb.batteryState = sharedBatteryState
@@ -890,6 +895,7 @@ private struct StartConfig: Sendable {
   /// Camera ID for standalone sensors when the camera accessory is off.
   let sensorCameraID: String?
   let sirenEnabled: Bool
+  let hasBattery: Bool
 }
 
 /// Objects created off MainActor, returned to MainActor for callback wiring and UI updates.
@@ -1114,6 +1120,20 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     }
     sirenPlayer = player
     enabledAccessories.append(siren)
+  }
+
+  // Set a placeholder battery state on all accessories before server init
+  // so the battery service is included in the c# hash. The actual values
+  // are updated when BatteryMonitor wires in on MainActor.
+  if config.hasBattery {
+    let placeholder = BatteryState()
+    lightbulb.batteryState = placeholder
+    camera.batteryState = placeholder
+    motionSensor.batteryState = placeholder
+    lightSensor.batteryState = placeholder
+    contactSensor.batteryState = placeholder
+    occupancySensor.batteryState = placeholder
+    siren.batteryState = placeholder
   }
 
   // NWListener creation — also benefits from being off MainActor
