@@ -634,9 +634,11 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     } else {
       // Cold start — create a new AVCaptureSession from scratch
       session = AVCaptureSession()
-      if #available(iOS 16.0, *), session.isMultitaskingCameraAccessSupported {
-        session.isMultitaskingCameraAccessEnabled = true
-      }
+      #if os(iOS)
+        if #available(iOS 16.0, *), session.isMultitaskingCameraAccessSupported {
+          session.isMultitaskingCameraAccessEnabled = true
+        }
+      #endif
       session.sessionPreset = width > 1280 ? .hd1920x1080 : width > 640 ? .hd1280x720 : .medium
 
       do {
@@ -723,12 +725,14 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
       nc.addObserver(
         forName: .AVCaptureSessionWasInterrupted, object: session, queue: queue
       ) { [weak self] notification in
-        guard
-          let self,
+        guard let self else { return }
+        #if os(iOS)
           let reason = notification.userInfo?[AVCaptureSessionInterruptionReasonKey] as? Int
-        else { return }
-        self.logger.warning(
-          "Capture session interrupted (reason \(reason))")
+          self.logger.warning(
+            "Capture session interrupted (reason \(reason ?? -1))")
+        #else
+          self.logger.warning("Capture session interrupted")
+        #endif
       })
     interruptionObservers.append(
       nc.addObserver(
