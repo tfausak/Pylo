@@ -215,8 +215,9 @@ struct ContentView: View {
           icon: "light.beacon.max",
           title: "Light Sensor",
           isOn: lightSensorEnabled,
-          blocked: !viewModel.hasCamera || viewModel.cameraPermissionDenied,
-          blockedMessage: !viewModel.hasCamera
+          blocked: !viewModel.hasCamera || !viewModel.hasAmbientLight
+            || viewModel.cameraPermissionDenied,
+          blockedMessage: !viewModel.hasCamera || !viewModel.hasAmbientLight
             ? "Not available on this device"
             : viewModel.cameraPermissionDenied ? "Permission denied" : nil
         ) {
@@ -664,7 +665,7 @@ struct ContentView: View {
 
 // MARK: - Compatibility Helpers
 
-/// Wraps content in NavigationStack (iOS 16+/macOS 14+) or NavigationView+stack (iOS 15).
+/// Wraps content in NavigationStack (iOS 16+/macOS 13+) or NavigationView+stack (older).
 private struct NavigationContainer<Content: View>: View {
   @ViewBuilder let content: () -> Content
 

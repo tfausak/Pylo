@@ -94,6 +94,7 @@ final class HAPViewModel: ObservableObject {
   @Published var hasCamera = false
   @Published var hasTorch = false
   @Published var hasAccelerometer = false
+  let hasAmbientLight = AmbientLightDetector.isAvailable
   @Published var isCameraStreaming = false
   @Published var hasPairings = false
   @Published var isNetworkDenied = false
