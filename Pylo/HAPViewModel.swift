@@ -588,19 +588,26 @@ final class HAPViewModel: ObservableObject {
       self.hasAccelerometer = setup.isMotionAvailable
       self.occupancySensor = setup.occupancyDetector
 
-      // Wire state-change callbacks that update published UI state
+      // Wire state-change callbacks that update published UI state.
+      // IMPORTANT: These closures run on the HAP server's background queue,
+      // NOT the main queue. We must avoid capturing `self` (which is @MainActor)
+      // directly, as Swift 6 with default MainActor isolation would infer
+      // @MainActor on the closure, causing a runtime dispatch_assert_queue
+      // failure. Instead, capture a Sendable weak wrapper and hop to
+      // MainActor explicitly via Task for UI updates.
+      nonisolated(unsafe) weak var weakVM = self
       var enabledAccessories: [any HAPAccessoryProtocol] = []
 
       if config.flashlightEnabled {
         setup.lightbulb.onStateChange = {
-          [weak self, weak server = setup.server] aid, iid, value in
+          [weak server = setup.server] aid, iid, value in
           server?.notifySubscribers(aid: aid, iid: iid, value: value)
-          Task { @MainActor [weak self] in
-            guard let self else { return }
+          Task { @MainActor in
+            guard let vm = weakVM else { return }
             if iid == HAPAccessory.iidOn, case .bool(let on) = value {
-              self.isLightOn = on
+              vm.isLightOn = on
             } else if iid == HAPAccessory.iidBrightness, case .int(let b) = value {
-              self.brightness = b
+              vm.brightness = b
             }
           }
         }
@@ -609,15 +616,15 @@ final class HAPViewModel: ObservableObject {
 
       if config.selectedStreamCameraID != nil {
         setup.camera.onStateChange = {
-          [weak self, weak server = setup.server] aid, iid, value in
+          [weak server = setup.server] aid, iid, value in
           server?.notifySubscribers(aid: aid, iid: iid, value: value)
-          Task { @MainActor [weak self] in
-            guard let self else { return }
+          Task { @MainActor in
+            guard let vm = weakVM else { return }
             if iid == HAPCameraAccessory.iidStreamingStatus,
               case .string(let b64) = value,
               let data = Data(base64Encoded: b64), data.count >= 3
             {
-              self.isCameraStreaming = data[data.startIndex + 2] == 1
+              vm.isCameraStreaming = data[data.startIndex + 2] == 1
             }
           }
         }
@@ -626,14 +633,14 @@ final class HAPViewModel: ObservableObject {
 
       if config.motionEnabled {
         setup.motionSensor.onStateChange = {
-          [weak self, weak server = setup.server] aid, iid, value in
+          [weak server = setup.server] aid, iid, value in
           server?.notifySubscribers(aid: aid, iid: iid, value: value)
-          Task { @MainActor [weak self] in
-            guard let self else { return }
+          Task { @MainActor in
+            guard let vm = weakVM else { return }
             if iid == HAPMotionSensorAccessory.iidMotionDetected,
               case .bool(let detected) = value
             {
-              self.isMotionDetected = detected
+              vm.isMotionDetected = detected
             }
           }
         }
@@ -649,14 +656,14 @@ final class HAPViewModel: ObservableObject {
 
       if config.contactEnabled {
         setup.contactSensor.onStateChange = {
-          [weak self, weak server = setup.server] aid, iid, value in
+          [weak server = setup.server] aid, iid, value in
           server?.notifySubscribers(aid: aid, iid: iid, value: value)
-          Task { @MainActor [weak self] in
-            guard let self else { return }
+          Task { @MainActor in
+            guard let vm = weakVM else { return }
             if iid == HAPContactSensorAccessory.iidContactSensorState,
               case .int(let val) = value
             {
-              self.isContactDetected = val == 0
+              vm.isContactDetected = val == 0
             }
           }
         }
@@ -665,14 +672,14 @@ final class HAPViewModel: ObservableObject {
 
       if config.occupancyEnabled {
         setup.occupancySensor.onStateChange = {
-          [weak self, weak server = setup.server] aid, iid, value in
+          [weak server = setup.server] aid, iid, value in
           server?.notifySubscribers(aid: aid, iid: iid, value: value)
-          Task { @MainActor [weak self] in
-            guard let self else { return }
+          Task { @MainActor in
+            guard let vm = weakVM else { return }
             if iid == HAPOccupancySensorAccessory.iidOccupancyDetected,
               case .int(let val) = value
             {
-              self.isOccupancyDetected = val != 0
+              vm.isOccupancyDetected = val != 0
             }
           }
         }
@@ -681,12 +688,12 @@ final class HAPViewModel: ObservableObject {
 
       if config.sirenEnabled {
         setup.siren.onStateChange = {
-          [weak self, weak server = setup.server] aid, iid, value in
+          [weak server = setup.server] aid, iid, value in
           server?.notifySubscribers(aid: aid, iid: iid, value: value)
-          Task { @MainActor [weak self] in
-            guard let self else { return }
+          Task { @MainActor in
+            guard let vm = weakVM else { return }
             if iid == HAPSirenAccessory.iidOn, case .bool(let on) = value {
-              self.isSirenActive = on
+              vm.isSirenActive = on
             }
           }
         }
@@ -703,39 +710,35 @@ final class HAPViewModel: ObservableObject {
 
       self.sirenPlayer = setup.sirenPlayer
 
-      setup.server.onListenerStateChange = { [weak self] ready in
-        Task { @MainActor [weak self] in
-          guard let self else { return }
-          self.listenerActuallyReady = ready
+      setup.server.onListenerStateChange = { ready in
+        Task { @MainActor in
+          guard let vm = weakVM else { return }
+          vm.listenerActuallyReady = ready
           if ready {
-            self.wasListenerReady = true
-            withAnimation { self.isNetworkDenied = false }
-          } else if !self.wasListenerReady {
-            // Only show "network denied" if the listener has NEVER been ready.
-            // This means it's a genuine permission denial at initial startup.
-            // If wasListenerReady is true, this .waiting is from background
-            // suspension — don't show the denied screen; recheckPermissions()
-            // will handle recovery on foreground.
-            withAnimation { self.isNetworkDenied = true }
+            vm.wasListenerReady = true
+            withAnimation { vm.isNetworkDenied = false }
+          } else if !vm.wasListenerReady {
+            withAnimation { vm.isNetworkDenied = true }
           }
         }
       }
 
-      setup.server.onAccessoriesFetched = { [weak self] in
-        Task { @MainActor [weak self] in
-          withAnimation { self?.isWaitingForHomeApp = false }
+      setup.server.onAccessoriesFetched = {
+        Task { @MainActor in
+          withAnimation { weakVM?.isWaitingForHomeApp = false }
         }
       }
 
-      setup.server.pairingStore.onChange = { [weak self, weak server = setup.server] in
+      setup.server.pairingStore.onChange = { [weak server = setup.server] in
         let isPaired = server?.pairingStore.isPaired ?? false
         UserDefaults.standard.set(isPaired, forKey: "hasPairings")
-        Task { @MainActor [weak self] in
+        Task { @MainActor in
+          guard let vm = weakVM else { return }
           withAnimation {
-            self?.hasPairings = isPaired
-            if !isPaired { self?.isWaitingForHomeApp = false }
+            vm.hasPairings = isPaired
+            if !isPaired { vm.isWaitingForHomeApp = false }
           }
-          self?.updateIdleTimer()
+          vm.updateIdleTimer()
         }
       }
 
