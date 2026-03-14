@@ -100,7 +100,7 @@ import os
         charging = 2  // Not Chargeable
       }
     #elseif os(macOS)
-      let level = macOSBatteryLevel() ?? 0
+      let level = max(0, min(100, macOSBatteryLevel() ?? 0))
       let charging = macOSIsCharging() ? 1 : 0
     #endif
 
