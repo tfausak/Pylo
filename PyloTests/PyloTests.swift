@@ -131,8 +131,8 @@ struct HAPAccessoryTests {
     #expect(json["aid"] as? Int == 7)
 
     let services = json["services"] as! [[String: Any]]
-    // Accessory Info + Protocol Info + Lightbulb + Battery = 4 services
-    #expect(services.count == 4)
+    // Accessory Info + Protocol Info + Lightbulb = 3 services (no battery when batteryState is nil)
+    #expect(services.count == 3)
 
     // Accessory Information service
     #expect(services[0]["type"] as? String == "3E")
@@ -159,9 +159,6 @@ struct HAPAccessoryTests {
     #expect(brightChar["minValue"] as? Int == 0)
     #expect(brightChar["maxValue"] as? Int == 100)
     #expect(brightChar["unit"] as? String == "percentage")
-
-    // Battery service (always included for stable c# hashing)
-    #expect(services[3]["type"] as? String == BatteryUUID.service)
   }
 }
 
@@ -384,17 +381,13 @@ struct BatteryServiceTests {
     #expect(chars[2]["value"] as? Int == 0)
   }
 
-  @Test("Lightbulb toJSON always includes battery service")
+  @Test("Lightbulb toJSON omits battery service when batteryState is nil")
   func lightbulbWithoutBattery() {
     let light = HAPAccessory(aid: 2)
     let json = light.toJSON()
     let services = json["services"] as! [[String: Any]]
-    // Accessory Info + Protocol Info + Lightbulb + Battery = 4 services (battery always present for stable c#)
-    #expect(services.count == 4)
-    #expect(services[3]["type"] as? String == BatteryUUID.service)
-    // Verify default values when batteryState is nil
-    let chars = services[3]["characteristics"] as! [[String: Any]]
-    #expect(chars[0]["value"] as? Int == 0)  // level defaults to 0
+    // Accessory Info + Protocol Info + Lightbulb = 3 services (no battery)
+    #expect(services.count == 3)
   }
 
   @Test("Motion sensor toJSON includes battery service when batteryState is set")
@@ -412,14 +405,13 @@ struct BatteryServiceTests {
     #expect(services[3]["type"] as? String == BatteryUUID.service)
   }
 
-  @Test("Motion sensor toJSON always includes battery service")
+  @Test("Motion sensor toJSON omits battery service when batteryState is nil")
   func motionSensorWithoutBattery() {
     let sensor = HAPMotionSensorAccessory(aid: 5)
     let json = sensor.toJSON()
     let services = json["services"] as! [[String: Any]]
-    // Accessory Info + Protocol Info + Motion Sensor + Battery = 4 services
-    #expect(services.count == 4)
-    #expect(services[3]["type"] as? String == BatteryUUID.service)
+    // Accessory Info + Protocol Info + Motion Sensor = 3 services (no battery)
+    #expect(services.count == 3)
   }
 
   @Test("Camera toJSON includes battery service when batteryState is set")
@@ -438,14 +430,13 @@ struct BatteryServiceTests {
     #expect(services[5]["type"] as? String == BatteryUUID.service)
   }
 
-  @Test("Camera toJSON always includes battery service")
+  @Test("Camera toJSON omits battery service when batteryState is nil")
   func cameraWithoutBattery() {
     let camera = HAPCameraAccessory(aid: 3)
     let json = camera.toJSON()
     let services = json["services"] as! [[String: Any]]
-    // Accessory Info + Protocol Info + Camera RTP + Microphone + Speaker + Battery = 6 services
-    #expect(services.count == 6)
-    #expect(services[5]["type"] as? String == BatteryUUID.service)
+    // Accessory Info + Protocol Info + Camera RTP + Microphone + Speaker = 5 services (no battery)
+    #expect(services.count == 5)
   }
 
   @Test("readCharacteristic returns battery values when state is set")

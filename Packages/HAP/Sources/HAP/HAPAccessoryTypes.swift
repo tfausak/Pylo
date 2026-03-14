@@ -239,12 +239,12 @@ extension HAPAccessoryProtocol {
   }
 
   /// Builds the Battery Service JSON (iid 100, characteristics 101-103).
-  /// Always included so the accessory database structure is stable for c# hashing.
-  /// When `batteryState` is nil (not yet wired), uses safe defaults (0/0/0).
-  public func batteryServiceJSON(state: BatteryState?) -> [String: Any] {
-    let level = state?.level ?? 0
-    let chargingState = state?.chargingState ?? 0
-    let statusLowBattery = state?.statusLowBattery ?? 0
+  /// Only included when `batteryState` is non-nil (device has a battery).
+  public func batteryServiceJSON(state: BatteryState?) -> [String: Any]? {
+    guard let state else { return nil }
+    let level = state.level
+    let chargingState = state.chargingState
+    let statusLowBattery = state.statusLowBattery
     return [
       "iid": BatteryIID.service,
       "type": BatteryUUID.service,
@@ -425,9 +425,9 @@ public final class HAPSirenAccessory: HAPAccessoryProtocol, @unchecked Sendable 
     case AccessoryInfoIID.firmwareRevision: return .string(firmwareRevision)
     case ProtocolInfoIID.version: return .string(hapProtocolVersion)
     case Self.iidOn: return .bool(isOn)
-    case BatteryIID.batteryLevel: return .int(batteryState?.level ?? 0)
-    case BatteryIID.chargingState: return .int(batteryState?.chargingState ?? 0)
-    case BatteryIID.statusLowBattery: return .int(batteryState?.statusLowBattery ?? 0)
+    case BatteryIID.batteryLevel: return batteryState.map { .int($0.level) }
+    case BatteryIID.chargingState: return batteryState.map { .int($0.chargingState) }
+    case BatteryIID.statusLowBattery: return batteryState.map { .int($0.statusLowBattery) }
     default: return nil
     }
   }
@@ -479,7 +479,7 @@ public final class HAPSirenAccessory: HAPAccessoryProtocol, @unchecked Sendable 
         ],
       ],
     ]
-    services.append(batteryServiceJSON(state: batteryState))
+    if let battery = batteryServiceJSON(state: batteryState) { services.append(battery) }
     return ["aid": aid, "services": services]
   }
 }
@@ -588,7 +588,7 @@ public final class HAPMotionSensorAccessory: HAPAccessoryProtocol, @unchecked Se
         ],
       ],
     ]
-    services.append(batteryServiceJSON(state: batteryState))
+    if let battery = batteryServiceJSON(state: batteryState) { services.append(battery) }
     return ["aid": aid, "services": services]
   }
 }
@@ -705,7 +705,7 @@ public final class HAPContactSensorAccessory: HAPAccessoryProtocol,
         ],
       ],
     ]
-    services.append(batteryServiceJSON(state: batteryState))
+    if let battery = batteryServiceJSON(state: batteryState) { services.append(battery) }
     return ["aid": aid, "services": services]
   }
 }
@@ -818,7 +818,7 @@ public final class HAPOccupancySensorAccessory: HAPAccessoryProtocol,
         ],
       ],
     ]
-    services.append(batteryServiceJSON(state: batteryState))
+    if let battery = batteryServiceJSON(state: batteryState) { services.append(battery) }
     return ["aid": aid, "services": services]
   }
 }
@@ -928,7 +928,7 @@ public final class HAPLightSensorAccessory: HAPAccessoryProtocol, @unchecked Sen
         ],
       ],
     ]
-    services.append(batteryServiceJSON(state: batteryState))
+    if let battery = batteryServiceJSON(state: batteryState) { services.append(battery) }
     return ["aid": aid, "services": services]
   }
 }
@@ -1072,7 +1072,7 @@ public final class HAPButtonAccessory: HAPAccessoryProtocol, @unchecked Sendable
         ],
       ],
     ]
-    services.append(batteryServiceJSON(state: batteryState))
+    if let battery = batteryServiceJSON(state: batteryState) { services.append(battery) }
     return ["aid": aid, "services": services]
   }
 }
