@@ -16,6 +16,8 @@ extension HAPViewModel {
     occupancyDetected: Bool = false,
     needsRestart: Bool = false,
     keepScreenAwake: Bool = true,
+    screenSaverEnabled: Bool = true,
+    screenSaverDelay: TimeInterval = 60,
     sirenEnabled: Bool = false,
     sirenActive: Bool = false
   ) -> HAPViewModel {
@@ -39,6 +41,8 @@ extension HAPViewModel {
     vm.occupancyEnabled = occupancyEnabled
     vm.isOccupancyDetected = occupancyDetected
     vm.keepScreenAwake = keepScreenAwake
+    vm.screenSaverEnabled = screenSaverEnabled
+    vm.screenSaverDelay = screenSaverDelay
     vm.sirenEnabled = sirenEnabled
     vm.isSirenActive = sirenActive
     vm.setupCode = "123-45-678"

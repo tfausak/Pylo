@@ -1,4 +1,5 @@
 import Foundation
+import Locked
 import os
 
 /// Shared mutable container for battery state, referenced by all accessories.

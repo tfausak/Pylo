@@ -4,9 +4,15 @@ import CryptoKit
 import Foundation
 import FragmentedMP4
 import HAP
+import Locked
+import Sensors
+import Streaming
 import TLV8
-@preconcurrency import UIKit
 import os
+
+#if os(iOS)
+  @preconcurrency import UIKit
+#endif
 
 // MARK: - Camera Option
 
@@ -17,18 +23,43 @@ struct CameraOption: Identifiable, Hashable, Sendable {
   let fNumber: Float
 
   static func availableCameras() -> [CameraOption] {
-    let discovery = AVCaptureDevice.DiscoverySession(
-      deviceTypes: [.builtInWideAngleCamera, .builtInUltraWideCamera, .builtInTelephotoCamera],
-      mediaType: .video,
-      position: .unspecified
-    )
-    return discovery.devices.map { device in
-      CameraOption(
-        id: device.uniqueID,
-        name: device.localizedName,
-        fNumber: device.lensAperture
+    #if os(iOS)
+      let deviceTypes: [AVCaptureDevice.DeviceType] = [
+        .builtInWideAngleCamera, .builtInUltraWideCamera, .builtInTelephotoCamera,
+      ]
+    #elseif os(macOS)
+      var deviceTypes: [AVCaptureDevice.DeviceType] = [.builtInWideAngleCamera]
+      if #available(macOS 14.0, *) {
+        deviceTypes.append(.continuityCamera)
+        deviceTypes.append(.external)
+      }
+    #endif
+    // Start with .unspecified to preserve default ordering and include external
+    // cameras (e.g. USB on iPadOS), then supplement with per-position queries
+    // to catch devices some iOS versions omit (e.g. front camera on iPhone 6s).
+    var seen = Set<String>()
+    var cameras = [CameraOption]()
+    for position in [AVCaptureDevice.Position.unspecified, .back, .front] {
+      let discovery = AVCaptureDevice.DiscoverySession(
+        deviceTypes: deviceTypes,
+        mediaType: .video,
+        position: position
       )
+      for device in discovery.devices where seen.insert(device.uniqueID).inserted {
+        #if os(iOS)
+          let fNumber = device.lensAperture
+        #else
+          let fNumber: Float = 0
+        #endif
+        cameras.append(
+          CameraOption(
+            id: device.uniqueID,
+            name: device.localizedName,
+            fNumber: fNumber
+          ))
+      }
     }
+    return cameras
   }
 }
 
@@ -176,6 +207,29 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   var streamSession: CameraStreamSession? {
     get { streamState.withLock { $0.streamSession } }
     set { streamState.withLock { $0.streamSession = newValue } }
+  }
+
+  /// Atomically checks whether a stream session is active (avoids TOCTOU race).
+  var hasActiveStreamSession: Bool {
+    streamState.withLock { $0.streamSession != nil }
+  }
+
+  /// Atomically detaches and returns the current stream session, setting it to nil.
+  /// This prevents two concurrent callers from both getting a non-nil session.
+  func detachStreamSession() -> CameraStreamSession? {
+    streamState.withLock { s in
+      let prev = s.streamSession
+      s.streamSession = nil
+      return prev
+    }
+  }
+
+  /// Atomically clears the stream session only if it is the same instance as `expected`.
+  /// Prevents a stale caller from wiping a newer session installed by another device.
+  func clearStreamSession(ifIdenticalTo expected: CameraStreamSession) {
+    streamState.withLock { s in
+      if s.streamSession === expected { s.streamSession = nil }
+    }
   }
 
   /// Most recent JPEG snapshot captured during streaming (used as fallback for snapshot requests).
@@ -488,12 +542,12 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
       switch value {
       case .bool(let v):
         audioSettings.withLock { $0.isMuted = v }
-        streamSession?.isMuted = v
+        streamState.withLock({ $0.streamSession })?.isMuted = v
         return true
       case .int(let v):
         let muted = v != 0
         audioSettings.withLock { $0.isMuted = muted }
-        streamSession?.isMuted = muted
+        streamState.withLock({ $0.streamSession })?.isMuted = muted
         return true
       default:
         return false
@@ -502,12 +556,12 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
       switch value {
       case .bool(let v):
         audioSettings.withLock { $0.speakerMuted = v }
-        streamSession?.speakerMuted = v
+        streamState.withLock({ $0.streamSession })?.speakerMuted = v
         return true
       case .int(let v):
         let muted = v != 0
         audioSettings.withLock { $0.speakerMuted = muted }
-        streamSession?.speakerMuted = muted
+        streamState.withLock({ $0.streamSession })?.speakerMuted = muted
         return true
       default:
         return false
@@ -516,7 +570,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
       if case .int(let v) = value {
         let vol = max(0, min(100, v))
         audioSettings.withLock { $0.speakerVolume = vol }
-        streamSession?.speakerVolume = vol
+        streamState.withLock({ $0.streamSession })?.speakerVolume = vol
         return true
       }
       return false
@@ -646,62 +700,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
 
 // MARK: - Device Orientation Cache
 
-/// Thread-safe cache for UIDevice orientation, updated via NotificationCenter.
-/// UIDevice.current.orientation is safe to read from any thread (backed by an
-/// atomic internal property), but UIKit marks it @MainActor. Rather than
-/// suppressing the warning, we observe orientation-change notifications on
-/// MainActor and cache the value atomically for any-thread reads.
 #if os(iOS)
-  // Uses the shared DeviceOrientationCache defined below.
+  // DeviceOrientationCache is defined in the Streaming package.
   private typealias DeviceOrientation = DeviceOrientationCache
-#endif
-
-// MARK: - Shared Device Orientation Cache
-
-/// Thread-safe device orientation cache. Observes orientation-change notifications
-/// on MainActor and caches the value atomically for any-thread reads.
-/// Shared by HAPCameraAccessory and MonitoringCaptureSession to avoid duplicate observers.
-#if os(iOS)
-  nonisolated enum DeviceOrientationCache {
-    private static let state = Locked(
-      initialState: Int(UIDeviceOrientation.portrait.rawValue)
-    )
-
-    private static let token: NSObjectProtocol = {
-      return NotificationCenter.default.addObserver(
-        forName: UIDevice.orientationDidChangeNotification,
-        object: nil,
-        queue: .main
-      ) { _ in
-        let orientation = MainActor.assumeIsolated { UIDevice.current.orientation }
-        // Ignore flat and unknown orientations so the cache retains the last
-        // meaningful value. iPads in stands commonly report .faceUp which would
-        // otherwise be treated as portrait, causing upside-down streams (#40).
-        guard orientation != .faceUp, orientation != .faceDown,
-          orientation != .unknown
-        else { return }
-        state.withLock { $0 = orientation.rawValue }
-      }
-    }()
-
-    /// Seed the cache with the current orientation. Must be called from
-    /// MainActor (e.g. in App.init) before any background access to `current`.
-    /// This is separated from the lazy `token` initializer so that the token
-    /// itself is safe to initialize from any thread.
-    @MainActor
-    static func seed() {
-      _ = token
-      let initial = UIDevice.current.orientation
-      if initial != .unknown, initial != .faceUp, initial != .faceDown {
-        state.withLock { $0 = initial.rawValue }
-      }
-    }
-
-    /// Current device orientation, safe to read from any thread.
-    /// Lazily registers a notification observer on first access.
-    static var current: UIDeviceOrientation {
-      _ = token
-      return UIDeviceOrientation(rawValue: state.withLock { $0 }) ?? .portrait
-    }
-  }
 #endif

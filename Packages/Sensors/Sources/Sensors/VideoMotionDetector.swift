@@ -1,26 +1,27 @@
 import Accelerate
 import CoreVideo
+import Locked
 import os
 
 /// Detects motion by comparing consecutive video frames using vImage.
 /// Downscales each frame to a small grayscale thumbnail and computes the
 /// sum of squared differences against the previous frame.
-nonisolated final class VideoMotionDetector {
+public nonisolated final class VideoMotionDetector {
 
   private let _onMotionChange = Locked<((Bool) -> Void)?>(initialState: nil)
-  var onMotionChange: ((Bool) -> Void)? {
+  public var onMotionChange: ((Bool) -> Void)? {
     get { _onMotionChange.withLock { $0 } }
     set { _onMotionChange.withLock { $0 = newValue } }
   }
 
   /// Fraction of pixels that must differ to trigger motion (0.0–1.0).
-  var threshold: Float {
+  public var threshold: Float {
     get { state.withLock { $0.threshold } }
     set { state.withLock { $0.threshold = newValue } }
   }
 
   /// Seconds of calm required before reporting no motion.
-  var cooldown: TimeInterval {
+  public var cooldown: TimeInterval {
     get { state.withLock { $0.cooldown } }
     set { state.withLock { $0.cooldown = newValue } }
   }
@@ -46,13 +47,13 @@ nonisolated final class VideoMotionDetector {
   /// Scratch buffers are reused across calls and must not be accessed concurrently.
   private let _processing = Locked(initialState: false)
 
-  init() {}
+  public init() {}
 
   /// Process a pixel buffer for motion detection.
   /// Safe to call from any queue — all mutable state is lock-protected.
   /// Must not be called concurrently; scratch buffers are reused across calls.
   /// Caller is responsible for throttling (e.g., calling every Nth frame).
-  func processPixelBuffer(_ pixelBuffer: CVPixelBuffer) {
+  public func processPixelBuffer(_ pixelBuffer: CVPixelBuffer) {
     // Guard against concurrent entry — scratch buffers are not thread-safe.
     // Uses a real lock guard (not just assert) so it works in release builds.
     guard
@@ -125,7 +126,7 @@ nonisolated final class VideoMotionDetector {
   }
 
   /// Reset state (call when stopping detection).
-  func reset() {
+  public func reset() {
     state.withLock { state in
       state.previousFrame = nil
       state.isMotionDetected = false

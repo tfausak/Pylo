@@ -1,5 +1,6 @@
 import Foundation
 import HAP
+import Locked
 import TLV8
 import os
 

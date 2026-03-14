@@ -1,4 +1,5 @@
 import AVFAudio
+import Locked
 import os
 
 /// Generates a two-tone alarm siren via AVAudioEngine.
@@ -46,15 +47,17 @@ nonisolated final class SirenPlayer: @unchecked Sendable {
 
       // Configure audio session for playback. Use .playAndRecord with
       // .mixWithOthers to coexist with the camera's AVCaptureSession audio.
-      do {
-        let session = AVAudioSession.sharedInstance()
-        try session.setCategory(
-          .playAndRecord, mode: .default,
-          options: [.defaultToSpeaker, .mixWithOthers])
-        try session.setActive(true)
-      } catch {
-        logger.error("Failed to configure audio session: \(error)")
-      }
+      #if os(iOS)
+        do {
+          let session = AVAudioSession.sharedInstance()
+          try session.setCategory(
+            .playAndRecord, mode: .default,
+            options: [.defaultToSpeaker, .mixWithOthers])
+          try session.setActive(true)
+        } catch {
+          logger.error("Failed to configure audio session: \(error)")
+        }
+      #endif
 
       let format = AVAudioFormat(standardFormatWithSampleRate: Double(sampleRate), channels: 1)!
 

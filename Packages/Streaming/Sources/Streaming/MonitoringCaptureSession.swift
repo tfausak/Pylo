@@ -2,21 +2,26 @@
 import AudioToolbox
 @preconcurrency import CoreMedia
 import FragmentedMP4
-@preconcurrency import UIKit
+import Locked
+import Sensors
 import VideoToolbox
 import os
+
+#if os(iOS)
+  @preconcurrency import UIKit
+#endif
 
 /// Lightweight capture-only session for HKSV idle motion detection and fMP4 pre-buffering.
 ///
 /// Runs whenever HKSV recording is armed but no live stream is active. Captures video,
 /// runs motion detection, and encodes H.264 for the fMP4 pre-buffer — but performs no
 /// RTP/SRTP/UDP/audio networking.
-nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
+public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
 
   /// Optional video motion detector — called every `motionFrameInterval` frames.
   /// Protected: written from server queue, read from captureQueue.
   private let _videoMotionDetector = Locked<VideoMotionDetector?>(initialState: nil)
-  var videoMotionDetector: VideoMotionDetector? {
+  public var videoMotionDetector: VideoMotionDetector? {
     get { _videoMotionDetector.withLock { $0 } }
     set { _videoMotionDetector.withLock { $0 = newValue } }
   }
@@ -25,7 +30,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   /// Protected: written from server queue, read from captureQueue.
   private let _ambientLightDetector = Locked<AmbientLightDetector?>(
     initialState: nil)
-  var ambientLightDetector: AmbientLightDetector? {
+  public var ambientLightDetector: AmbientLightDetector? {
     get { _ambientLightDetector.withLock { $0 } }
     set { _ambientLightDetector.withLock { $0 = newValue } }
   }
@@ -33,7 +38,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   /// Optional occupancy sensor — called every `occupancyFrameInterval` frames.
   /// Protected: written from server queue, read from captureQueue.
   private let _occupancySensor = Locked<OccupancySensor?>(initialState: nil)
-  var occupancySensor: OccupancySensor? {
+  public var occupancySensor: OccupancySensor? {
     get { _occupancySensor.withLock { $0 } }
     set { _occupancySensor.withLock { $0 = newValue } }
   }
@@ -41,7 +46,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   /// Optional fMP4 writer for HKSV recording — feeds encoded H.264 samples.
   /// Protected: written from server queue, read from VT output handler and start/stop.
   private let _fragmentWriter = Locked<FragmentedMP4Writer?>(initialState: nil)
-  var fragmentWriter: FragmentedMP4Writer? {
+  public var fragmentWriter: FragmentedMP4Writer? {
     get { _fragmentWriter.withLock { $0 } }
     set { _fragmentWriter.withLock { $0 = newValue } }
   }
@@ -50,7 +55,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   /// When false, microphone capture and AAC-ELD encoding are skipped entirely.
   /// Protected: written from server queue, read from start().
   private let _audioRecordingEnabled = Locked(initialState: false)
-  var audioRecordingEnabled: Bool {
+  public var audioRecordingEnabled: Bool {
     get { _audioRecordingEnabled.withLock { $0 } }
     set { _audioRecordingEnabled.withLock { $0 = newValue } }
   }
@@ -58,12 +63,15 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   /// When true, skips VTCompressionSession creation and H.264 encoding entirely.
   /// Used when only sensors (ambient light, occupancy) need camera frames.
   private let _sensorOnly = Locked(initialState: false)
-  var sensorOnly: Bool {
+  public var sensorOnly: Bool {
     get { _sensorOnly.withLock { $0 } }
     set { _sensorOnly.withLock { $0 = newValue } }
   }
 
-  let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "MonitoringCapture")
+  public let logger = Logger(
+    subsystem: Bundle.main.bundleIdentifier!, category: "MonitoringCapture")
+
+  private var interruptionObservers: [NSObjectProtocol] = []
 
   /// Serial queue for AVCaptureSession start/stop — these are not thread-safe.
   private let sessionQueue: DispatchQueue
@@ -94,12 +102,12 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   /// Protected: written from server queue, read from captureQueue.
   private let _snapshotCallback = Locked<((CVPixelBuffer) -> Void)?>(
     initialState: nil)
-  var snapshotCallback: ((CVPixelBuffer) -> Void)? {
+  public var snapshotCallback: ((CVPixelBuffer) -> Void)? {
     get { _snapshotCallback.withLock { $0 } }
     set { _snapshotCallback.withLock { $0 = newValue } }
   }
 
-  init() {
+  public init() {
     let sQueue = DispatchQueue(label: "\(Bundle.main.bundleIdentifier!).monitorSession")
     sQueue.setSpecific(key: sessionQueueKey, value: true)
     self.sessionQueue = sQueue
@@ -107,7 +115,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   }
 
   /// AAC-ELD frame size in samples (480 for 16kHz).
-  let aacFrameSamples = 480
+  public let aacFrameSamples = 480
 
   // @unchecked Sendable because VTCompressionSession and AudioConverterRef are
   // non-Sendable CFTypeRefs. Accesses to these fields use withLockUnchecked
@@ -116,23 +124,23 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   /// Box holding a weak reference to the session, used as the VTCompressionSession refcon.
   /// The box is retained for the lifetime of the compression session, but the weak reference
   /// safely becomes nil if the MonitoringCaptureSession is deallocated first.
-  fileprivate final class RefconBox {
+  final class RefconBox {
     weak var session: MonitoringCaptureSession?
     init(_ session: MonitoringCaptureSession) { self.session = session }
   }
 
-  struct State: @unchecked Sendable {
-    var captureSession: AVCaptureSession?
-    var compressionSession: VTCompressionSession?  // non-Sendable → withLockUnchecked
-    fileprivate var refconBox: RefconBox?
-    var audioConverter: AudioConverterRef?  // non-Sendable → withLockUnchecked
-    var pcmAccumulator = Data()
+  public struct State: @unchecked Sendable {
+    public var captureSession: AVCaptureSession?
+    public var compressionSession: VTCompressionSession?  // non-Sendable → withLockUnchecked
+    var refconBox: RefconBox?
+    public var audioConverter: AudioConverterRef?  // non-Sendable → withLockUnchecked
+    public var pcmAccumulator = Data()
     // Strong references to delegates to prevent premature deallocation.
     // Stored as AnyObject to avoid exposing file-private delegate types.
-    var videoCaptureDelegate: VideoCaptureDelegate?
-    var audioCaptureDelegate: AudioCaptureDelegate?
+    public var videoCaptureDelegate: VideoCaptureDelegate?
+    public var audioCaptureDelegate: AudioCaptureDelegate?
   }
-  let mState = Locked(initialState: State())
+  public let mState = Locked(initialState: State())
 
   private var captureSession: AVCaptureSession? {
     get { mState.withLock { $0.captureSession } }
@@ -146,7 +154,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
 
   // MARK: - Lifecycle
 
-  func start(camera: AVCaptureDevice, existingSession: AVCaptureSession? = nil) {
+  public func start(camera: AVCaptureDevice, existingSession: AVCaptureSession? = nil) {
     // Atomically check-and-mark to prevent concurrent start().
     // Note: the session stored here acts as a sentinel until configuration completes.
     // This is safe because start/stop/handoff are called sequentially from the HAP
@@ -181,22 +189,9 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     }
 
     // Configure audio session BEFORE creating capture session so the mic is available
-    #if os(iOS)
-      if audioRecordingEnabled {
-        do {
-          let audioSession = AVAudioSession.sharedInstance()
-          try audioSession.setCategory(
-            .playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
-          try audioSession.setPreferredSampleRate(16000)
-          try audioSession.setActive(true)
-        } catch {
-          // Non-fatal: continue in video-only mode. The sentinel captureSession
-          // will be replaced with the real session below, or cleared by later
-          // error paths if video setup also fails.
-          logger.error("AVAudioSession setup error: \(error)")
-        }
-      }
-    #endif
+    if audioRecordingEnabled {
+      configureAudioSessionForVoiceChat(logger: logger)
+    }
 
     // Build the new video output and delegate (shared between both paths)
     let output = AVCaptureVideoDataOutput()
@@ -300,6 +295,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     } else {
       // Cold start — create a new AVCaptureSession from scratch
       session = AVCaptureSession()
+      session.enableMultitaskingCameraIfSupported()
       session.sessionPreset = sensorOnly ? .vga640x480 : .hd1920x1080
 
       do {
@@ -358,7 +354,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     // Rotate output to match device orientation.
     let rotationAngle = Self.currentRotationAngle()
     if let connection = output.connection(with: .video) {
-      if #available(iOS 17.0, *) {
+      if #available(iOS 17.0, macOS 14.0, *) {
         if connection.isVideoRotationAngleSupported(CGFloat(rotationAngle)) {
           connection.videoRotationAngle = CGFloat(rotationAngle)
         }
@@ -392,6 +388,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       if existingSession == nil {
         sessionQueue.async { session.startRunning() }
       }
+      observeCaptureInterruptions(session)
       logger.info("Monitoring capture started (sensor-only mode, no encoding)")
       return
     }
@@ -451,11 +448,13 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
         sessionQueue.sync(execute: startBlock)
       }
     }
+    observeCaptureInterruptions(session)
     logger.info(
       "Monitoring capture started (audio=\(audioReady), reused=\(existingSession != nil))")
   }
 
-  func stop() {
+  public func stop() {
+    removeInterruptionObservers()
     let (oldSession, oldCS, oldAudioConverter):
       (AVCaptureSession?, VTCompressionSession?, AudioConverterRef?) = mState.withLockUnchecked {
         let s = $0.captureSession
@@ -503,7 +502,8 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   /// Cleans up monitoring-specific resources (compression, audio encoder, delegates)
   /// but does NOT stop the capture session — the caller takes ownership.
   /// Returns nil if no session is running.
-  func handoff() -> AVCaptureSession? {
+  public func handoff() -> AVCaptureSession? {
+    removeInterruptionObservers()
     let (session, oldCS, oldAudioConverter):
       (AVCaptureSession?, VTCompressionSession?, AudioConverterRef?) = mState.withLockUnchecked {
         let s = $0.captureSession
@@ -550,6 +550,47 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     snapshotCallback = nil
     logger.info("Monitoring capture handed off (session still running)")
     return session
+  }
+
+  // MARK: - Interruption Handling
+
+  /// Observe AVCaptureSession interruption notifications so we can automatically
+  /// resume the capture session when the interruption ends (e.g. returning from
+  /// iPad split screen on iOS 15 where multitasking camera access is unavailable).
+  private func observeCaptureInterruptions(_ session: AVCaptureSession) {
+    removeInterruptionObservers()
+    // Guard against a concurrent stop() having already cleared captureSession.
+    guard captureSession === session else { return }
+    let nc = NotificationCenter.default
+    let queue = OperationQueue()
+    queue.underlyingQueue = sessionQueue
+    interruptionObservers.append(
+      nc.addObserver(
+        forName: .AVCaptureSessionWasInterrupted, object: session, queue: queue
+      ) { [weak self] notification in
+        guard let self else { return }
+        if let reason = AVCaptureSession.interruptionReason(from: notification) {
+          self.logger.warning("Capture session interrupted (reason \(reason))")
+        } else {
+          self.logger.warning("Capture session interrupted")
+        }
+      })
+    interruptionObservers.append(
+      nc.addObserver(
+        forName: .AVCaptureSessionInterruptionEnded, object: session, queue: queue
+      ) { [weak self] _ in
+        guard let self else { return }
+        guard !session.isRunning else { return }
+        self.logger.info("Capture interruption ended — resuming session")
+        session.startRunning()
+      })
+  }
+
+  private func removeInterruptionObservers() {
+    for observer in interruptionObservers {
+      NotificationCenter.default.removeObserver(observer)
+    }
+    interruptionObservers.removeAll()
   }
 
   // MARK: - H.264 Encoding

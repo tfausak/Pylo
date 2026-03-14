@@ -2,6 +2,8 @@ import AudioToolbox
 import CryptoKit
 import Foundation
 import HAP
+import Sensors
+import Streaming
 import TLV8
 import Testing
 
@@ -244,78 +246,6 @@ struct AccessoryIIDConstantsAppTests {
     #expect(
       speakerService["iid"] as? Int
         == HAPCameraAccessory.iidSpeakerService)
-  }
-}
-
-// MARK: - RTCP Sender Report Tests
-
-@Suite("RTCP Sender Report")
-struct RTCPSenderReportTests {
-
-  @Test("Report is 28 bytes with correct header")
-  func headerFormat() {
-    let sr = CameraStreamSession.buildRTCPSenderReport(
-      ssrc: 0x1234_5678, rtpTimestamp: 0,
-      packetsSent: 0, octetsSent: 0)
-    #expect(sr.count == 28)
-    #expect(sr[0] == 0x80)  // V=2, P=0, RC=0
-    #expect(sr[1] == 200)  // PT = Sender Report
-    #expect(sr[2] == 0x00)  // Length MSB
-    #expect(sr[3] == 0x06)  // Length = 6
-  }
-
-  @Test("SSRC is encoded big-endian at bytes 4-7")
-  func ssrcEncoding() {
-    let sr = CameraStreamSession.buildRTCPSenderReport(
-      ssrc: 0xDEAD_BEEF, rtpTimestamp: 0,
-      packetsSent: 0, octetsSent: 0)
-    #expect(sr[4] == 0xDE)
-    #expect(sr[5] == 0xAD)
-    #expect(sr[6] == 0xBE)
-    #expect(sr[7] == 0xEF)
-  }
-
-  @Test("RTP timestamp is encoded big-endian at bytes 16-19")
-  func rtpTimestampEncoding() {
-    let sr = CameraStreamSession.buildRTCPSenderReport(
-      ssrc: 0, rtpTimestamp: 0x00AB_CDEF,
-      packetsSent: 0, octetsSent: 0)
-    #expect(sr[16] == 0x00)
-    #expect(sr[17] == 0xAB)
-    #expect(sr[18] == 0xCD)
-    #expect(sr[19] == 0xEF)
-  }
-
-  @Test("Packet and octet counts at bytes 20-27")
-  func countsEncoding() {
-    let sr = CameraStreamSession.buildRTCPSenderReport(
-      ssrc: 0, rtpTimestamp: 0,
-      packetsSent: 256, octetsSent: 65536)
-    // packetsSent = 256 = 0x00000100
-    #expect(sr[20] == 0x00)
-    #expect(sr[21] == 0x00)
-    #expect(sr[22] == 0x01)
-    #expect(sr[23] == 0x00)
-    // octetsSent = 65536 = 0x00010000
-    #expect(sr[24] == 0x00)
-    #expect(sr[25] == 0x01)
-    #expect(sr[26] == 0x00)
-    #expect(sr[27] == 0x00)
-  }
-
-  @Test("NTP timestamp is non-zero for a known date")
-  func ntpTimestamp() {
-    // 2024-01-01 00:00:00 UTC
-    let date = Date(timeIntervalSince1970: 1_704_067_200)
-    let sr = CameraStreamSession.buildRTCPSenderReport(
-      ssrc: 0, rtpTimestamp: 0,
-      packetsSent: 0, octetsSent: 0, now: date)
-    // NTP seconds at bytes 8-11 should be non-zero
-    let ntpSec =
-      UInt32(sr[8]) << 24 | UInt32(sr[9]) << 16
-      | UInt32(sr[10]) << 8 | UInt32(sr[11])
-    // 1704067200 + 2208988800 = 3913056000
-    #expect(ntpSec == 3_913_056_000)
   }
 }
 
@@ -751,12 +681,84 @@ struct ButtonTests {
   }
 }
 
+// MARK: - RTCP Sender Report Tests
+
+@Suite("RTCP Sender Report")
+struct RTCPSenderReportTests {
+
+  @Test("Report is 28 bytes with correct header")
+  func headerFormat() {
+    let sr = CameraStreamSession.buildRTCPSenderReport(
+      ssrc: 0x1234_5678, rtpTimestamp: 0,
+      packetsSent: 0, octetsSent: 0)
+    #expect(sr.count == 28)
+    #expect(sr[0] == 0x80)  // V=2, P=0, RC=0
+    #expect(sr[1] == 200)  // PT = Sender Report
+    #expect(sr[2] == 0x00)  // Length MSB
+    #expect(sr[3] == 0x06)  // Length = 6
+  }
+
+  @Test("SSRC is encoded big-endian at bytes 4-7")
+  func ssrcEncoding() {
+    let sr = CameraStreamSession.buildRTCPSenderReport(
+      ssrc: 0xDEAD_BEEF, rtpTimestamp: 0,
+      packetsSent: 0, octetsSent: 0)
+    #expect(sr[4] == 0xDE)
+    #expect(sr[5] == 0xAD)
+    #expect(sr[6] == 0xBE)
+    #expect(sr[7] == 0xEF)
+  }
+
+  @Test("RTP timestamp is encoded big-endian at bytes 16-19")
+  func rtpTimestampEncoding() {
+    let sr = CameraStreamSession.buildRTCPSenderReport(
+      ssrc: 0, rtpTimestamp: 0x00AB_CDEF,
+      packetsSent: 0, octetsSent: 0)
+    #expect(sr[16] == 0x00)
+    #expect(sr[17] == 0xAB)
+    #expect(sr[18] == 0xCD)
+    #expect(sr[19] == 0xEF)
+  }
+
+  @Test("Packet and octet counts at bytes 20-27")
+  func countsEncoding() {
+    let sr = CameraStreamSession.buildRTCPSenderReport(
+      ssrc: 0, rtpTimestamp: 0,
+      packetsSent: 256, octetsSent: 65536)
+    // packetsSent = 256 = 0x00000100
+    #expect(sr[20] == 0x00)
+    #expect(sr[21] == 0x00)
+    #expect(sr[22] == 0x01)
+    #expect(sr[23] == 0x00)
+    // octetsSent = 65536 = 0x00010000
+    #expect(sr[24] == 0x00)
+    #expect(sr[25] == 0x01)
+    #expect(sr[26] == 0x00)
+    #expect(sr[27] == 0x00)
+  }
+
+  @Test("NTP timestamp is non-zero for a known date")
+  func ntpTimestamp() {
+    // 2024-01-01 00:00:00 UTC
+    let date = Date(timeIntervalSince1970: 1_704_067_200)
+    let sr = CameraStreamSession.buildRTCPSenderReport(
+      ssrc: 0, rtpTimestamp: 0,
+      packetsSent: 0, octetsSent: 0, now: date)
+    // NTP seconds at bytes 8-11 should be non-zero
+    let ntpSec =
+      UInt32(sr[8]) << 24 | UInt32(sr[9]) << 16
+      | UInt32(sr[10]) << 8 | UInt32(sr[11])
+    // 1704067200 + 2208988800 = 3913056000
+    #expect(ntpSec == 3_913_056_000)
+  }
+}
+
 // MARK: - Audio Resampling Tests
 
 @Suite("Audio Resampling")
 struct AudioResamplingTests {
 
-  @Test("Resample 44.1kHz mono to 16kHz does not crash")
+  @Test("Resample 44.1kHz mono to 16kHz")
   func resample44100to16000() {
     // 1024 frames of 16-bit mono at 44.1kHz
     let frameCount = 1024
@@ -774,13 +776,12 @@ struct AudioResamplingTests {
       mReserved: 0
     )
     let result = convertToFloat32At16kHz(data, sourceASBD: asbd)
-    // Output should be non-empty and have fewer frames than input (16kHz < 44.1kHz)
     let outputFrames = result.count / MemoryLayout<Float>.size
     #expect(outputFrames > 0)
     #expect(outputFrames < frameCount)
   }
 
-  @Test("Resample 48kHz stereo to 16kHz does not crash")
+  @Test("Resample 48kHz stereo to 16kHz")
   func resample48000stereoTo16000() {
     // 960 frames of 16-bit stereo at 48kHz
     let frameCount = 960
@@ -821,7 +822,73 @@ struct AudioResamplingTests {
       mReserved: 0
     )
     let result = convertToFloat32At16kHz(data, sourceASBD: asbd)
-    // Same sample rate — output should match input exactly
     #expect(result.count == data.count)
+  }
+
+  @Test("Empty input returns empty output")
+  func emptyInput() {
+    let asbd = AudioStreamBasicDescription(
+      mSampleRate: 44100,
+      mFormatID: kAudioFormatLinearPCM,
+      mFormatFlags: kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked,
+      mBytesPerPacket: 2,
+      mFramesPerPacket: 1,
+      mBytesPerFrame: 2,
+      mChannelsPerFrame: 1,
+      mBitsPerChannel: 16,
+      mReserved: 0
+    )
+    let result = convertToFloat32At16kHz(Data(), sourceASBD: asbd)
+    #expect(result.isEmpty)
+  }
+
+  @Test("Zero bytesPerFrame returns empty output")
+  func zeroBytesPerFrame() {
+    let asbd = AudioStreamBasicDescription(
+      mSampleRate: 44100,
+      mFormatID: kAudioFormatLinearPCM,
+      mFormatFlags: kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked,
+      mBytesPerPacket: 0,
+      mFramesPerPacket: 1,
+      mBytesPerFrame: 0,
+      mChannelsPerFrame: 1,
+      mBitsPerChannel: 16,
+      mReserved: 0
+    )
+    let result = convertToFloat32At16kHz(Data([0x00, 0x01]), sourceASBD: asbd)
+    #expect(result.isEmpty)
+  }
+
+  @Test("Float32 stereo downmixes to mono")
+  func float32StereoDownmix() {
+    // 100 frames of Float32 stereo: left=1.0, right=-1.0 → mono should be 0.0
+    let frameCount = 100
+    var data = Data()
+    for _ in 0..<frameCount {
+      var left: Float = 1.0
+      var right: Float = -1.0
+      withUnsafeBytes(of: &left) { data.append(contentsOf: $0) }
+      withUnsafeBytes(of: &right) { data.append(contentsOf: $0) }
+    }
+    let asbd = AudioStreamBasicDescription(
+      mSampleRate: 16000,
+      mFormatID: kAudioFormatLinearPCM,
+      mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked,
+      mBytesPerPacket: 8,
+      mFramesPerPacket: 1,
+      mBytesPerFrame: 8,
+      mChannelsPerFrame: 2,
+      mBitsPerChannel: 32,
+      mReserved: 0
+    )
+    let result = convertToFloat32At16kHz(data, sourceASBD: asbd)
+    let outputFrames = result.count / MemoryLayout<Float>.size
+    #expect(outputFrames == frameCount)
+    result.withUnsafeBytes { buf in
+      for i in 0..<outputFrames {
+        let value = buf.load(fromByteOffset: i * MemoryLayout<Float>.size, as: Float.self)
+        #expect(abs(value) < 0.001)
+      }
+    }
   }
 }

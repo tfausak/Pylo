@@ -3,17 +3,18 @@ import PackageDescription
 
 let package = Package(
   name: "HAP",
-  platforms: [.macOS(.v14), .iOS(.v15)],
+  platforms: [.macOS(.v12), .iOS(.v15)],
   products: [
     .library(name: "HAP", targets: ["HAP"])
   ],
   dependencies: [
+    .package(path: "../Locked"),
     .package(path: "../TLV8"),
     .package(path: "../SRP"),
     .package(path: "../FragmentedMP4"),
   ],
   targets: [
-    .target(name: "HAP", dependencies: ["TLV8", "SRP", "FragmentedMP4"]),
+    .target(name: "HAP", dependencies: ["Locked", "TLV8", "SRP", "FragmentedMP4"]),
     .testTarget(name: "HAPTests", dependencies: ["HAP"]),
   ]
 )

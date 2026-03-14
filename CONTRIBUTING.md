@@ -22,13 +22,7 @@ Pylo/                              iOS app
   AccessoryCard.swift              Reusable accessory card component
   HAPViewModel.swift               Central coordinator (server lifecycle, accessory wiring)
   HAPCameraAccessory.swift         Camera accessory (+ StreamConfig, Streaming, Snapshot, JSON extensions)
-  CameraStreamSession.swift        Live streaming pipeline (+ Audio, RTCP extensions)
-  MonitoringCaptureSession.swift   HKSV idle pre-buffering (+ Audio extension)
   HAPAccessory.swift               Lightbulb accessory
-  AmbientLightDetector.swift       Ambient light estimation from camera exposure
-  VideoMotionDetector.swift        Camera-based motion detection
-  MotionMonitor.swift              Accelerometer motion detection
-  BatteryMonitor.swift             Battery level/charging state monitoring
 
 Packages/
   HAP/                             HomeKit Accessory Protocol (server, pairing, encryption)
@@ -40,6 +34,9 @@ Packages/
   SRTP/                            SRTP encryption + RFC 3640 AU headers
   TLV8/                            HomeKit TLV8 binary codec
   FragmentedMP4/                   fMP4 segment generation for HKSV recording
+  Locked/                          Thread-safe state wrapper (os_unfair_lock)
+  Sensors/                         Device sensor abstractions (light, battery, motion, occupancy)
+  Streaming/                       Video capture, H.264 encoding, RTP, audio, HKSV pre-buffering
 
 PyloTests/                         Unit and integration tests
 scripts/                           Build, test, format, and lint scripts

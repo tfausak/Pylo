@@ -3,7 +3,9 @@ import AudioToolbox
 import CoreImage
 @preconcurrency import CoreMedia
 import Foundation
+import Locked
 import SRTP
+import Sensors
 import VideoToolbox
 import os
 
@@ -11,34 +13,35 @@ import os
 
 /// Holds all state for a single streaming session: addresses, ports, SRTP keys, and the
 /// video capture + RTP pipeline.
-nonisolated final class CameraStreamSession: @unchecked Sendable {
+public nonisolated final class CameraStreamSession: @unchecked Sendable {
 
-  let sessionID: Data
-  let controllerAddress: String
-  let controllerVideoPort: UInt16
-  let controllerAudioPort: UInt16
+  public let sessionID: Data
+  public let controllerAddress: String
+  public let controllerVideoPort: UInt16
+  public let controllerAudioPort: UInt16
 
   // Shared SRTP keys (both sides use the same key material)
-  let videoSRTPKey: Data
-  let videoSRTPSalt: Data
-  let audioSRTPKey: Data
-  let audioSRTPSalt: Data
+  public let videoSRTPKey: Data
+  public let videoSRTPSalt: Data
+  public let audioSRTPKey: Data
+  public let audioSRTPSalt: Data
 
-  let localAddress: String
-  let localVideoPort: UInt16
-  let localAudioPort: UInt16
+  public let localAddress: String
+  public let localVideoPort: UInt16
+  public let localAudioPort: UInt16
 
-  let videoSSRC: UInt32
-  let audioSSRC: UInt32
+  public let videoSSRC: UInt32
+  public let audioSSRC: UInt32
 
-  let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "CameraStream")
+  public let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "CameraStream")
 
   // Video pipeline
   private var captureSession: AVCaptureSession?
+  private var interruptionObservers: [NSObjectProtocol] = []
   private var videoOutput: AVCaptureVideoDataOutput?
   private var compressionSession: VTCompressionSession?
-  let captureQueue = DispatchQueue(label: "\(Bundle.main.bundleIdentifier!).camera.capture")
-  let rtpQueue = DispatchQueue(label: "\(Bundle.main.bundleIdentifier!).camera.rtp")
+  public let captureQueue = DispatchQueue(label: "\(Bundle.main.bundleIdentifier!).camera.capture")
+  public let rtpQueue = DispatchQueue(label: "\(Bundle.main.bundleIdentifier!).camera.rtp")
 
   // Video UDP — BSD socket (immune to ICMP route-poisoning that kills NWConnection)
   private var videoSocketFD: Int32 = -1
@@ -87,7 +90,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   /// Optional video motion detector — called every `motionFrameInterval` frames.
   /// Protected by a lock: written from the server queue, read from captureQueue.
   private let _videoMotionDetector = Locked<VideoMotionDetector?>(initialState: nil)
-  var videoMotionDetector: VideoMotionDetector? {
+  public var videoMotionDetector: VideoMotionDetector? {
     get { _videoMotionDetector.withLock { $0 } }
     set { _videoMotionDetector.withLock { $0 = newValue } }
   }
@@ -95,7 +98,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   /// Optional ambient light detector — called every `luxFrameInterval` frames.
   private let _ambientLightDetector = Locked<AmbientLightDetector?>(
     initialState: nil)
-  var ambientLightDetector: AmbientLightDetector? {
+  public var ambientLightDetector: AmbientLightDetector? {
     get { _ambientLightDetector.withLock { $0 } }
     set { _ambientLightDetector.withLock { $0 = newValue } }
   }
@@ -110,22 +113,22 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   private let audioFlags = Locked(initialState: AudioFlags())
 
   // Audio RTP stats — written on captureQueue, read on rtpQueue for RTCP SR.
-  struct AudioRTPStats {
+  public struct AudioRTPStats {
     var timestamp: UInt32 = 0
     var packetsSent: Int = 0
     var octetsSent: Int = 0
   }
-  let audioRTPStats = Locked(initialState: AudioRTPStats())
+  public let audioRTPStats = Locked(initialState: AudioRTPStats())
 
-  var isMuted: Bool {
+  public var isMuted: Bool {
     get { audioFlags.withLock { $0.isMuted } }
     set { audioFlags.withLock { $0.isMuted = newValue } }
   }
-  var speakerMuted: Bool {
+  public var speakerMuted: Bool {
     get { audioFlags.withLock { $0.speakerMuted } }
     set { audioFlags.withLock { $0.speakerMuted = newValue } }
   }
-  var speakerVolume: Int {
+  public var speakerVolume: Int {
     get { audioFlags.withLock { $0.speakerVolume } }
     set { audioFlags.withLock { $0.speakerVolume = newValue } }
   }
@@ -149,7 +152,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   }
   var incomingSRTPContext: SRTPContext?
   /// Cached audio format for playback buffers (Float32, 16kHz, mono).
-  let playbackFormat = AVAudioFormat(
+  public let playbackFormat = AVAudioFormat(
     commonFormat: .pcmFormatFloat32, sampleRate: 16000, channels: 1, interleaved: false)
 
   // Delegate retention — stored as properties instead of ObjC associated objects
@@ -159,8 +162,8 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   // Snapshot caching — periodically grab a JPEG from the video stream.
   // The callback is set from the server queue and read from captureQueue,
   // so it must be synchronized.
-  private let _onSnapshotFrame = Locked<((Data) -> Void)?>(initialState: nil)
-  var onSnapshotFrame: ((Data) -> Void)? {
+  private let _onSnapshotFrame = Locked<(@Sendable (Data) -> Void)?>(initialState: nil)
+  public var onSnapshotFrame: (@Sendable (Data) -> Void)? {
     get { _onSnapshotFrame.withLock { $0 } }
     set { _onSnapshotFrame.withLock { $0 = newValue } }
   }
@@ -170,12 +173,12 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
 
   // Audio encoder state — accumulates PCM until we have a full AAC-ELD frame
   var pcmAccumulator = Data()
-  let aacFrameSamples = 480  // AAC-ELD frame size at 16kHz
+  public let aacFrameSamples = 480  // AAC-ELD frame size at 16kHz
 
   var audioSampleCount: Int = 0  // captureQueue only
   var incomingAudioPacketCount: Int = 0  // rtpQueue only
 
-  init(
+  public init(
     sessionID: Data,
     controllerAddress: String, controllerVideoPort: UInt16, controllerAudioPort: UInt16,
     videoSRTPKey: Data, videoSRTPSalt: Data,
@@ -215,7 +218,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   /// If `existingCaptureSession` is provided (handed off from monitoring), the session
   /// is reconfigured in-place without stopping the camera — saving ~500ms of startup.
   @discardableResult
-  func startStreaming(
+  public func startStreaming(
     width: Int, height: Int, fps: Int, bitrate: Int, payloadType: UInt8,
     audioPayloadType: UInt8 = 110, camera: AVCaptureDevice, rotationAngle: Int = 90,
     swapDimensions: Bool = true, existingCaptureSession: AVCaptureSession? = nil,
@@ -384,14 +387,14 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     return true
   }
 
-  func stopStreaming() {
+  public func stopStreaming() {
     tearDown(keepCaptureSession: false)
   }
 
   /// Hand off the running AVCaptureSession for reuse by the monitoring session.
   /// Tears down all streaming resources (sockets, SRTP, audio, timers) but
   /// leaves the AVCaptureSession running. Returns nil if no session is active.
-  func handoff() -> AVCaptureSession? {
+  public func handoff() -> AVCaptureSession? {
     return tearDown(keepCaptureSession: true)
   }
 
@@ -414,6 +417,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     audioRTCPTimer?.cancel()
     audioRTCPTimer = nil
 
+    removeInterruptionObservers()
     let session = captureSession
     if keepCaptureSession, let session {
       // Remove our outputs so the running session stops delivering frames
@@ -541,19 +545,9 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     }
 
     // Configure audio session BEFORE creating capture session so the mic is available
-    #if os(iOS)
-      if microphoneEnabled {
-        do {
-          let audioSession = AVAudioSession.sharedInstance()
-          try audioSession.setCategory(
-            .playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
-          try audioSession.setPreferredSampleRate(16000)
-          try audioSession.setActive(true)
-        } catch {
-          logger.error("AVAudioSession setup error: \(error)")
-        }
-      }
-    #endif
+    if microphoneEnabled {
+      configureAudioSessionForVoiceChat(logger: logger)
+    }
 
     // Build the new video output and delegate (shared between both paths)
     let output = AVCaptureVideoDataOutput()
@@ -632,6 +626,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     } else {
       // Cold start — create a new AVCaptureSession from scratch
       session = AVCaptureSession()
+      session.enableMultitaskingCameraIfSupported()
       session.sessionPreset = width > 1280 ? .hd1920x1080 : width > 640 ? .hd1280x720 : .medium
 
       do {
@@ -681,7 +676,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
 
     // Rotate output to match device orientation.
     if let connection = output.connection(with: .video) {
-      if #available(iOS 17.0, *) {
+      if #available(iOS 17.0, macOS 14.0, *) {
         if connection.isVideoRotationAngleSupported(CGFloat(rotationAngle)) {
           connection.videoRotationAngle = CGFloat(rotationAngle)
         }
@@ -696,6 +691,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     self.captureSession = session
     self.videoOutput = output
     self.videoCaptureDelegate = delegate
+    observeCaptureInterruptions(session)
 
     // Pre-create the audio encoder so it's ready when mic samples arrive.
     // Without this, audio samples arriving before the audio UDP is ready are silently dropped.
@@ -703,6 +699,43 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
       self.setupAudioEncoder()
     }
     return true
+  }
+
+  /// Observe AVCaptureSession interruption notifications so we can automatically
+  /// resume the capture session when the interruption ends (e.g. returning from
+  /// iPad split screen on iOS 15 where multitasking camera access is unavailable).
+  private func observeCaptureInterruptions(_ session: AVCaptureSession) {
+    removeInterruptionObservers()
+    let nc = NotificationCenter.default
+    let queue = OperationQueue()
+    queue.underlyingQueue = captureQueue
+    interruptionObservers.append(
+      nc.addObserver(
+        forName: .AVCaptureSessionWasInterrupted, object: session, queue: queue
+      ) { [weak self] notification in
+        guard let self else { return }
+        if let reason = AVCaptureSession.interruptionReason(from: notification) {
+          self.logger.warning("Capture session interrupted (reason \(reason))")
+        } else {
+          self.logger.warning("Capture session interrupted")
+        }
+      })
+    interruptionObservers.append(
+      nc.addObserver(
+        forName: .AVCaptureSessionInterruptionEnded, object: session, queue: queue
+      ) { [weak self] _ in
+        guard let self else { return }
+        guard !session.isRunning else { return }
+        self.logger.info("Capture interruption ended — resuming session")
+        session.startRunning()
+      })
+  }
+
+  private func removeInterruptionObservers() {
+    for observer in interruptionObservers {
+      NotificationCenter.default.removeObserver(observer)
+    }
+    interruptionObservers.removeAll()
   }
 
   // MARK: - H.264 Compression

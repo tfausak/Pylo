@@ -1,4 +1,5 @@
 import Foundation
+import Locked
 import os
 
 // MARK: - Pairing Store

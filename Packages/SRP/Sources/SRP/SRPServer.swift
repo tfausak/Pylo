@@ -1,6 +1,7 @@
 import BigInt
 import CryptoKit
 import Foundation
+import Locked
 import os
 
 // MARK: - SRP-6a Server Implementation

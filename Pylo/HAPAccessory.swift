@@ -2,6 +2,7 @@ import AVFoundation
 import CryptoKit
 import Foundation
 import HAP
+import Locked
 import os
 
 // MARK: - HAP Accessory

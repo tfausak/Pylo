@@ -3,43 +3,175 @@ import SwiftUI
 struct ContentView: View {
   @ObservedObject var viewModel: HAPViewModel
   @Environment(\.scenePhase) private var scenePhase
+  @State private var showUnpairConfirmation = false
+  @State private var isScreenDimmed = false
+  @State private var dimTask: Task<Void, Never>?
+  @State private var isDimTimerResetPending = false
 
   var body: some View {
-    Group {
-      if viewModel.isNetworkDenied {
-        networkDeniedBody
-      } else if viewModel.hasPairings {
-        if viewModel.isRunning {
-          RunningView(viewModel: viewModel)
-        } else {
-          configBody
+    ZStack {
+      navigationContainer {
+        Group {
+          if viewModel.isNetworkDenied {
+            networkDeniedBody
+          } else if viewModel.hasPairings {
+            pairedBody
+          } else {
+            PairingView(viewModel: viewModel)
+          }
         }
-      } else {
-        PairingView(viewModel: viewModel)
+        .navigationTitle("Pylo")
+        .toolbar {
+          ToolbarItem(placement: .primaryAction) {
+            statusIndicator
+          }
+        }
+        .safeAreaInset(edge: .bottom) {
+          if viewModel.needsRestart {
+            Text("Restart to Apply")
+              .font(.subheadline.weight(.medium))
+              .frame(maxWidth: .infinity)
+              .padding(12)
+              .background(.orange, in: .rect(cornerRadius: 12))
+              .foregroundStyle(.white)
+              .contentShape(Rectangle())
+              .onTapGesture {
+                resetDimTimer()
+                viewModel.restart()
+              }
+              .accessibilityAddTraits(.isButton)
+              .padding(.horizontal)
+              .padding(.bottom, 4)
+              .transition(.move(edge: .bottom).combined(with: .opacity))
+          } else if viewModel.isWaitingForHomeApp {
+            HStack(spacing: 8) {
+              ProgressView()
+              Text("Updating Home…")
+                .font(.subheadline.weight(.medium))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(12)
+            .background(.secondary.opacity(0.2), in: .rect(cornerRadius: 12))
+            .padding(.horizontal)
+            .padding(.bottom, 4)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+          }
+        }
+        .animation(.default, value: viewModel.needsRestart)
+        .animation(.default, value: viewModel.isWaitingForHomeApp)
       }
+      .onTapGesture {
+        resetDimTimer()
+      }
+      .simultaneousGesture(
+        DragGesture(minimumDistance: 10)
+          .onChanged { _ in
+            guard !isDimTimerResetPending else { return }
+            isDimTimerResetPending = true
+            resetDimTimer()
+          }
+          .onEnded { _ in isDimTimerResetPending = false }
+      )
+      .confirmationDialog(
+        "Unpair",
+        isPresented: $showUnpairConfirmation,
+        titleVisibility: .visible
+      ) {
+        Button("Unpair", role: .destructive) {
+          viewModel.resetPairings()
+        }
+      } message: {
+        Text(
+          "This will remove all HomeKit pairings. You will need to re-add this bridge in the Home app."
+        )
+      }
+      .alert(
+        viewModel.permissionAlert?.title ?? "",
+        isPresented: permissionAlertPresented
+      ) {
+        Button("Open Settings") { Self.openSettings() }
+        Button("Cancel", role: .cancel) {}
+      } message: {
+        Text(viewModel.permissionAlert?.message ?? "")
+      }
+
+      #if os(iOS)
+        if isScreenDimmed {
+          Color.black
+            .ignoresSafeArea()
+            .accessibilityLabel("Screen dimmed")
+            .accessibilityHint("Tap to wake")
+            .accessibilityAddTraits(.isButton)
+            .onTapGesture { resetDimTimer() }
+        }
+      #endif
     }
-    .onChange(of: scenePhase) { newPhase in
+    #if os(iOS)
+      .animation(.default, value: isScreenDimmed)
+      .onChangeCompat(of: viewModel.isRunning) { running in
+        if running {
+          resetDimTimer()
+        } else {
+          dimTask?.cancel()
+          dimTask = nil
+          isScreenDimmed = false
+        }
+      }
+      .onChangeCompat(of: viewModel.keepScreenAwake) { _ in
+        resetDimTimer()
+      }
+      .onChangeCompat(of: viewModel.screenSaverEnabled) { _ in
+        if viewModel.isRunning { resetDimTimer() }
+      }
+      .onChangeCompat(of: viewModel.screenSaverDelay) { _ in
+        if viewModel.isRunning { resetDimTimer() }
+      }
+      .onChangeCompat(of: viewModel.hasPairings) { paired in
+        if !paired {
+          dimTask?.cancel()
+          dimTask = nil
+          isScreenDimmed = false
+        } else if viewModel.isRunning {
+          resetDimTimer()
+        }
+      }
+    #endif
+    .onChangeCompat(of: scenePhase) { newPhase in
       if newPhase == .active {
         viewModel.recheckPermissions()
-      } else if newPhase == .background {
-        viewModel.handleBackgrounding()
+        #if os(iOS)
+          resetDimTimer()
+        #endif
+      } else {
+        #if os(iOS)
+          dimTask?.cancel()
+          dimTask = nil
+          isScreenDimmed = false
+        #endif
+        if newPhase == .background {
+          viewModel.handleBackgrounding()
+        }
       }
     }
   }
 
-  // MARK: - Config Body (brief state while server starts)
+  // MARK: - Status Indicator
 
-  private var configBody: some View {
-    NavigationView {
-      ConfigCardsView(viewModel: viewModel)
-        .navigationTitle("Pylo")
-        .toolbar {
-          ToolbarItem(placement: .navigationBarTrailing) {
-            statusLabel(running: false)
-          }
+  @ViewBuilder
+  private var statusIndicator: some View {
+    let isRunning = viewModel.isRunning
+
+    if viewModel.hasPairings {
+      Menu {
+        Button("Unpair", role: .destructive) {
+          showUnpairConfirmation = true
         }
+      } label: {
+        statusLabel(running: isRunning)
+      }
+    } else {
+      statusLabel(running: isRunning)
     }
-    .navigationViewStyle(.stack)
   }
 
   private func statusLabel(running: Bool) -> some View {
@@ -53,47 +185,9 @@ struct ContentView: View {
     }
   }
 
-  // MARK: - Network Denied
+  // MARK: - Paired Body
 
-  private var networkDeniedBody: some View {
-    NavigationView {
-      VStack(spacing: 16) {
-        Spacer()
-        Image(systemName: "wifi.exclamationmark")
-          .font(.system(size: 56))
-          .foregroundStyle(.secondary)
-        Text("Local Network Access Required")
-          .font(.title3.weight(.semibold))
-        Text(
-          "Pylo needs local network access to communicate with the Home app. Enable it in Settings."
-        )
-        .font(.subheadline)
-        .foregroundStyle(.secondary)
-        .multilineTextAlignment(.center)
-        Button("Open Settings") { Self.openSettings() }
-          .buttonStyle(.borderedProminent)
-        Spacer()
-      }
-      .padding()
-      .navigationTitle("Pylo")
-    }
-    .navigationViewStyle(.stack)
-  }
-
-  static func openSettings() {
-    if let url = URL(string: UIApplication.openSettingsURLString) {
-      UIApplication.shared.open(url)
-    }
-  }
-}
-
-// MARK: - Config Cards View
-
-struct ConfigCardsView: View {
-  @ObservedObject var viewModel: HAPViewModel
-  @State private var showUnpairConfirmation = false
-
-  var body: some View {
+  private var pairedBody: some View {
     ScrollView {
       VStack(spacing: 12) {
         // Camera
@@ -136,8 +230,9 @@ struct ConfigCardsView: View {
           icon: "light.beacon.max",
           title: "Light Sensor",
           isOn: lightSensorEnabled,
-          blocked: !viewModel.hasCamera || viewModel.cameraPermissionDenied,
-          blockedMessage: !viewModel.hasCamera
+          blocked: !viewModel.hasCamera || !viewModel.hasAmbientLight
+            || viewModel.cameraPermissionDenied,
+          blockedMessage: !viewModel.hasCamera || !viewModel.hasAmbientLight
             ? "Not available on this device"
             : viewModel.cameraPermissionDenied ? "Permission denied" : nil
         ) {
@@ -161,7 +256,7 @@ struct ConfigCardsView: View {
         AccessoryCard(
           icon: "figure.walk.motion",
           title: "Motion Sensor",
-          isOn: $viewModel.motionEnabled,
+          isOn: motionEnabled,
           blocked: !viewModel.hasAccelerometer,
           blockedMessage: !viewModel.hasAccelerometer
             ? "Not available on this device" : nil
@@ -173,7 +268,7 @@ struct ConfigCardsView: View {
         AccessoryCard(
           icon: "sensor.tag.radiowaves.forward.fill",
           title: "Contact Sensor",
-          isOn: $viewModel.contactEnabled,
+          isOn: contactEnabled,
           blocked: !viewModel.hasProximity,
           blockedMessage: !viewModel.hasProximity
             ? "Not available on this device" : nil
@@ -190,83 +285,48 @@ struct ConfigCardsView: View {
           sirenContent
         }
 
-        // Keep Display On
-        Toggle("Keep Display On", isOn: $viewModel.keepScreenAwake)
-          .padding()
-          .background(
-            Color(UIColor.secondarySystemGroupedBackground),
-            in: RoundedRectangle(cornerRadius: 12)
-          )
+        // Display / Sleep
+        #if os(iOS)
+          AccessoryCard(
+            icon: "display",
+            title: "Keep Display On",
+            isOn: $viewModel.keepScreenAwake
+          ) {
+            displayContent
+          }
+        #else
+          AccessoryCard(
+            icon: "moon.zzz",
+            title: "Prevent Sleep",
+            isOn: $viewModel.keepScreenAwake
+          ) {}
+        #endif
       }
       .padding()
     }
-    .safeAreaInset(edge: .bottom) {
-      if viewModel.needsRestart {
-        Text("Restart to Apply")
-          .font(.subheadline.weight(.medium))
-          .frame(maxWidth: .infinity)
-          .padding(12)
-          .background(.orange, in: .rect(cornerRadius: 12))
-          .foregroundStyle(.white)
-          .contentShape(Rectangle())
-          .onTapGesture {
-            viewModel.restart()
-          }
-          .accessibilityAddTraits(.isButton)
-          .padding(.horizontal)
-          .padding(.bottom, 4)
-          .transition(.move(edge: .bottom).combined(with: .opacity))
-      } else if viewModel.isWaitingForHomeApp {
-        HStack(spacing: 8) {
-          ProgressView()
-          Text("Updating Home…")
-            .font(.subheadline.weight(.medium))
-        }
-        .frame(maxWidth: .infinity)
-        .padding(12)
-        .background(.secondary.opacity(0.2), in: .rect(cornerRadius: 12))
-        .padding(.horizontal)
-        .padding(.bottom, 4)
-        .transition(.move(edge: .bottom).combined(with: .opacity))
-      }
-    }
-    .animation(.default, value: viewModel.needsRestart)
-    .animation(.default, value: viewModel.isWaitingForHomeApp)
-    .confirmationDialog(
-      "Unpair",
-      isPresented: $showUnpairConfirmation,
-      titleVisibility: .visible
-    ) {
-      Button("Unpair", role: .destructive) {
-        viewModel.resetPairings()
-      }
-    } message: {
+  }
+
+  // MARK: - Network Denied
+
+  private var networkDeniedBody: some View {
+    VStack(spacing: 16) {
+      Spacer()
+      Image(systemName: "wifi.exclamationmark")
+        .font(.system(size: 56))
+        .foregroundStyle(.secondary)
+      Text("Local Network Access Required")
+        .font(.title3.weight(.semibold))
       Text(
-        "This will remove all HomeKit pairings. You will need to re-add this bridge in the Home app."
+        "Pylo needs local network access to communicate with the Home app. Enable it in Settings."
       )
+      .font(.subheadline)
+      .foregroundStyle(.secondary)
+      .multilineTextAlignment(.center)
+      Button("Open Settings") { Self.openSettings() }
+        .buttonStyle(.borderedProminent)
+      Spacer()
     }
-    .alert(
-      viewModel.permissionAlert?.title ?? "",
-      isPresented: permissionAlertPresented
-    ) {
-      Button("Open Settings") { ContentView.openSettings() }
-      Button("Cancel", role: .cancel) {}
-    } message: {
-      Text(viewModel.permissionAlert?.message ?? "")
-    }
-    .toolbar {
-      ToolbarItem(placement: .navigationBarLeading) {
-        if viewModel.hasPairings {
-          Menu {
-            Button("Unpair", role: .destructive) {
-              showUnpairConfirmation = true
-            }
-          } label: {
-            Image(systemName: "ellipsis.circle")
-          }
-        }
-      }
-    }
+    .padding()
   }
 
   // MARK: - Card Contents
@@ -435,6 +495,28 @@ struct ConfigCardsView: View {
   }
 
   @ViewBuilder
+  private var displayContent: some View {
+    VStack(spacing: 12) {
+      Toggle("Screen Saver", isOn: $viewModel.screenSaverEnabled)
+      if viewModel.screenSaverEnabled {
+        HStack {
+          Text("Delay")
+            .foregroundStyle(.secondary)
+          Spacer()
+          Picker("Delay", selection: $viewModel.screenSaverDelay) {
+            Text("1 min").tag(TimeInterval(60))
+            Text("2 min").tag(TimeInterval(120))
+            Text("5 min").tag(TimeInterval(300))
+            Text("10 min").tag(TimeInterval(600))
+          }
+          .labelsHidden()
+          .pickerStyle(.menu)
+        }
+      }
+    }
+  }
+
+  @ViewBuilder
   private var sirenContent: some View {
     HStack {
       Text("Status")
@@ -442,6 +524,10 @@ struct ConfigCardsView: View {
       Spacer()
       Text(viewModel.isSirenActive ? "Sounding" : "Off")
     }
+  }
+
+  private static func openSettings() {
+    openAppSettings()
   }
 
   // MARK: - Bindings
@@ -478,7 +564,7 @@ struct ConfigCardsView: View {
 
   private var flashlightEnabled: Binding<Bool> {
     Binding(
-      get: { viewModel.flashlightEnabled },
+      get: { viewModel.flashlightEnabled && viewModel.hasTorch },
       set: { enabled in
         if enabled {
           Task {
@@ -526,7 +612,7 @@ struct ConfigCardsView: View {
 
   private var lightSensorEnabled: Binding<Bool> {
     Binding(
-      get: { viewModel.lightSensorEnabled },
+      get: { viewModel.lightSensorEnabled && viewModel.hasAmbientLight },
       set: { enabled in
         if enabled {
           Task {
@@ -546,7 +632,7 @@ struct ConfigCardsView: View {
 
   private var occupancyEnabled: Binding<Bool> {
     Binding(
-      get: { viewModel.occupancyEnabled },
+      get: { viewModel.occupancyEnabled && viewModel.hasCamera },
       set: { enabled in
         if enabled {
           Task {
@@ -561,6 +647,20 @@ struct ConfigCardsView: View {
           viewModel.occupancyEnabled = false
         }
       }
+    )
+  }
+
+  private var motionEnabled: Binding<Bool> {
+    Binding(
+      get: { viewModel.motionEnabled && viewModel.hasAccelerometer },
+      set: { viewModel.motionEnabled = $0 }
+    )
+  }
+
+  private var contactEnabled: Binding<Bool> {
+    Binding(
+      get: { viewModel.contactEnabled && viewModel.hasProximity },
+      set: { viewModel.contactEnabled = $0 }
     )
   }
 
@@ -582,6 +682,74 @@ struct ConfigCardsView: View {
         $0.name.localizedCaseInsensitiveContains("back")
       }
       ?? viewModel.availableCameras.first
+  }
+
+  // MARK: - Screen Dimming
+
+  private func resetDimTimer() {
+    dimTask?.cancel()
+    isScreenDimmed = false
+    guard viewModel.isRunning, viewModel.hasPairings, viewModel.keepScreenAwake,
+      viewModel.screenSaverEnabled
+    else {
+      return
+    }
+    dimTask = Task {
+      // Task.sleep throws CancellationError when the task is cancelled,
+      // cleanly preventing the stale isScreenDimmed write.
+      let delaySeconds = viewModel.screenSaverDelay
+      guard delaySeconds.isFinite, delaySeconds > 0 else { return }
+      guard
+        (try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000)))
+          != nil
+      else {
+        return
+      }
+      isScreenDimmed = true
+    }
+  }
+}
+
+// MARK: - Compatibility Helpers
+
+/// Wraps content in NavigationStack (iOS 16+/macOS 13+) or NavigationView+stack (older).
+private struct NavigationContainer<Content: View>: View {
+  @ViewBuilder let content: () -> Content
+
+  var body: some View {
+    #if os(iOS)
+      if #available(iOS 16.0, *) {
+        NavigationStack(root: content)
+      } else {
+        NavigationView(content: content)
+          .navigationViewStyle(.stack)
+      }
+    #else
+      if #available(macOS 13.0, *) {
+        NavigationStack(root: content)
+      } else {
+        NavigationView(content: content)
+      }
+    #endif
+  }
+}
+
+private func navigationContainer<Content: View>(
+  @ViewBuilder content: @escaping () -> Content
+) -> NavigationContainer<Content> {
+  NavigationContainer(content: content)
+}
+
+extension View {
+  /// onChange that compiles on both iOS 15 and iOS 17+/macOS 14+.
+  @ViewBuilder
+  func onChangeCompat<V: Equatable>(of value: V, perform action: @escaping (V) -> Void) -> some View
+  {
+    if #available(iOS 17.0, macOS 14.0, *) {
+      self.onChange(of: value) { _, newValue in action(newValue) }
+    } else {
+      self.onChange(of: value, perform: action)
+    }
   }
 }
 

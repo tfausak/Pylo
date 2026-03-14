@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import Locked
 import os
 
 // MARK: - Accessory IDs
