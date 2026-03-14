@@ -15,6 +15,7 @@ struct ContentView: View {
           } else if viewModel.hasPairings {
             if viewModel.isRunning && !forceConfig {
               RunningView(viewModel: viewModel)
+                .navigationBarHidden(true)
             } else {
               pairedBody
             }

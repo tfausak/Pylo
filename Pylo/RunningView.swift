@@ -12,18 +12,19 @@ struct RunningView: View {
       Color.black
         .ignoresSafeArea()
 
-      VStack(spacing: 40) {
-        statusIndicator
-
-        if viewModel.buttonEnabled {
-          buttonTile
-        }
+      if viewModel.buttonEnabled {
+        buttonTile
+          .offset(pixelOffset)
       }
-      .offset(pixelOffset)
     }
-    .overlay(alignment: .topTrailing) {
-      gearButton
-        .offset(pixelOffset)
+    .overlay(alignment: .top) {
+      HStack {
+        statusIndicator
+        Spacer()
+        gearButton
+      }
+      .padding(.horizontal, 12)
+      .offset(pixelOffset)
     }
     .onAppear { startPixelShift() }
     .onDisappear { stopPixelShift() }
@@ -35,13 +36,10 @@ struct RunningView: View {
   // MARK: - Status Indicator
 
   private var statusIndicator: some View {
-    HStack(spacing: 6) {
-      Image(systemName: "checkmark.circle.fill")
-        .foregroundStyle(.green)
-      Text("Running")
-        .font(.subheadline)
-        .foregroundStyle(.secondary)
-    }
+    Image(systemName: "checkmark.circle.fill")
+      .font(.title2)
+      .foregroundStyle(.green)
+      .padding(20)
   }
 
   // MARK: - Button
