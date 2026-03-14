@@ -68,6 +68,8 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
 
   let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "MonitoringCapture")
 
+  private var interruptionObservers: [NSObjectProtocol] = []
+
   /// Serial queue for AVCaptureSession start/stop — these are not thread-safe.
   private let sessionQueue: DispatchQueue
   private let sessionQueueKey = DispatchSpecificKey<Bool>()
@@ -303,6 +305,9 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     } else {
       // Cold start — create a new AVCaptureSession from scratch
       session = AVCaptureSession()
+      if #available(iOS 16.0, *), session.isMultitaskingCameraAccessSupported {
+        session.isMultitaskingCameraAccessEnabled = true
+      }
       session.sessionPreset = sensorOnly ? .vga640x480 : .hd1920x1080
 
       do {
@@ -395,6 +400,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       if existingSession == nil {
         sessionQueue.async { session.startRunning() }
       }
+      observeCaptureInterruptions(session)
       logger.info("Monitoring capture started (sensor-only mode, no encoding)")
       return
     }
@@ -454,11 +460,13 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
         sessionQueue.sync(execute: startBlock)
       }
     }
+    observeCaptureInterruptions(session)
     logger.info(
       "Monitoring capture started (audio=\(audioReady), reused=\(existingSession != nil))")
   }
 
   func stop() {
+    removeInterruptionObservers()
     let (oldSession, oldCS, oldAudioConverter):
       (AVCaptureSession?, VTCompressionSession?, AudioConverterRef?) = mState.withLockUnchecked {
         let s = $0.captureSession
@@ -507,6 +515,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   /// but does NOT stop the capture session — the caller takes ownership.
   /// Returns nil if no session is running.
   func handoff() -> AVCaptureSession? {
+    removeInterruptionObservers()
     let (session, oldCS, oldAudioConverter):
       (AVCaptureSession?, VTCompressionSession?, AudioConverterRef?) = mState.withLockUnchecked {
         let s = $0.captureSession
@@ -553,6 +562,47 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     snapshotCallback = nil
     logger.info("Monitoring capture handed off (session still running)")
     return session
+  }
+
+  // MARK: - Interruption Handling
+
+  /// Observe AVCaptureSession interruption notifications so we can automatically
+  /// resume the capture session when the interruption ends (e.g. returning from
+  /// iPad split screen on iOS 15 where multitasking camera access is unavailable).
+  private func observeCaptureInterruptions(_ session: AVCaptureSession) {
+    removeInterruptionObservers()
+    // Guard against a concurrent stop() having already cleared captureSession.
+    guard captureSession === session else { return }
+    let nc = NotificationCenter.default
+    let queue = OperationQueue()
+    queue.underlyingQueue = sessionQueue
+    interruptionObservers.append(
+      nc.addObserver(
+        forName: .AVCaptureSessionWasInterrupted, object: session, queue: queue
+      ) { [weak self] notification in
+        guard
+          let self,
+          let reason = notification.userInfo?[AVCaptureSessionInterruptionReasonKey] as? Int
+        else { return }
+        self.logger.warning(
+          "Capture session interrupted (reason \(reason))")
+      })
+    interruptionObservers.append(
+      nc.addObserver(
+        forName: .AVCaptureSessionInterruptionEnded, object: session, queue: queue
+      ) { [weak self] _ in
+        guard let self else { return }
+        guard !session.isRunning else { return }
+        self.logger.info("Capture interruption ended — resuming session")
+        session.startRunning()
+      })
+  }
+
+  private func removeInterruptionObservers() {
+    for observer in interruptionObservers {
+      NotificationCenter.default.removeObserver(observer)
+    }
+    interruptionObservers.removeAll()
   }
 
   // MARK: - H.264 Encoding
