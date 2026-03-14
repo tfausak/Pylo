@@ -160,15 +160,6 @@ struct ContentView: View {
           cameraContent
         }
 
-        // Button
-        AccessoryCard(
-          icon: "button.horizontal.top.press.fill",
-          title: "Button",
-          isOn: $viewModel.buttonEnabled
-        ) {
-          buttonContent
-        }
-
         // Flashlight
         AccessoryCard(
           icon: "flashlight.off.fill",
@@ -248,9 +239,11 @@ struct ContentView: View {
           title: "Button",
           isOn: $viewModel.buttonEnabled
         ) {
-          Text("Stateless programmable switch. Trigger from the running screen; configure automations in Home.app.")
-            .font(.caption)
-            .foregroundStyle(.secondary)
+          Text(
+            "Stateless programmable switch. Trigger from the running screen; configure automations in Home.app."
+          )
+          .font(.caption)
+          .foregroundStyle(.secondary)
         }
 
         // Display / Sleep
@@ -335,16 +328,6 @@ struct ContentView: View {
       Toggle("Microphone", isOn: microphoneEnabled)
         .tint(viewModel.microphonePermissionDenied ? Color.secondary : nil)
         .disabled(viewModel.microphonePermissionDenied)
-    }
-  }
-
-  @ViewBuilder
-  private var buttonContent: some View {
-    HStack {
-      Text("Status")
-        .foregroundStyle(.secondary)
-      Spacer()
-      Text("Ready")
     }
   }
 
