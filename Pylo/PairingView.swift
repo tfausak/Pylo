@@ -56,7 +56,7 @@ struct PairingView: View {
     .task(id: viewModel.setupCode) {
       let code = viewModel.setupCode
       let sid = viewModel.setupID
-      let image = await Task.detached(priority: .userInitiated) {
+      let image = await Task.detached {
         generateQRCode(from: hapSetupURI(setupCode: code, setupID: sid))
       }.value
       guard !Task.isCancelled else { return }
