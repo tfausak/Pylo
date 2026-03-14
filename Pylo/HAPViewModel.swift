@@ -863,6 +863,23 @@ final class HAPViewModel: ObservableObject {
     statusMessage = "Stopped"
   }
 
+  /// Restores accessory settings to the given config snapshot (used by cancel in settings).
+  @MainActor
+  func restoreConfig(_ config: AccessoryConfig) {
+    isRestoring = true
+    flashlightEnabled = config.flashlightEnabled
+    selectedStreamCamera = availableCameras.first { $0.id == config.selectedCameraID }
+    motionEnabled = config.motionEnabled
+    microphoneEnabled = config.microphoneEnabled
+    contactEnabled = config.contactEnabled
+    lightSensorEnabled = config.lightSensorEnabled
+    occupancyEnabled = config.occupancyEnabled
+    sensorCamera = availableCameras.first { $0.id == config.sensorCameraID }
+    sirenEnabled = config.sirenEnabled
+    buttonEnabled = config.buttonEnabled
+    isRestoring = false
+  }
+
   @MainActor
   func restart() {
     let wasPaired = hasPairings

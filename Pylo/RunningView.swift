@@ -114,6 +114,7 @@ struct RunningView: View {
 struct RunningConfigView: View {
   @ObservedObject var viewModel: HAPViewModel
   @Environment(\.dismiss) private var dismiss
+  @State private var savedConfig: AccessoryConfig?
 
   var body: some View {
     NavigationView {
@@ -121,10 +122,26 @@ struct RunningConfigView: View {
         .navigationTitle("Settings")
         .toolbar {
           ToolbarItem(placement: .navigationBarLeading) {
-            Button("Done") { dismiss() }
+            Button("Cancel") {
+              if let savedConfig {
+                viewModel.restoreConfig(savedConfig)
+              }
+              dismiss()
+            }
+          }
+          ToolbarItem(placement: .navigationBarTrailing) {
+            Button("Save") {
+              viewModel.restart()
+              dismiss()
+            }
+            .font(.body.weight(.semibold))
+            .disabled(!viewModel.needsRestart)
           }
         }
     }
     .navigationViewStyle(.stack)
+    .onAppear {
+      savedConfig = AccessoryConfig(from: viewModel)
+    }
   }
 }

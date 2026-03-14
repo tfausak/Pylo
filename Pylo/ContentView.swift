@@ -110,25 +110,6 @@ struct ContentView: View {
   /// Used by RunningConfigView — just the paired body without its own navigation container.
   private var configBody: some View {
     pairedBody
-      .safeAreaInset(edge: .bottom) {
-        if viewModel.needsRestart {
-          Text("Restart to Apply")
-            .font(.subheadline.weight(.medium))
-            .frame(maxWidth: .infinity)
-            .padding(12)
-            .background(.orange, in: .rect(cornerRadius: 12))
-            .foregroundStyle(.white)
-            .contentShape(Rectangle())
-            .onTapGesture {
-              viewModel.restart()
-            }
-            .accessibilityAddTraits(.isButton)
-            .padding(.horizontal)
-            .padding(.bottom, 4)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
-        }
-      }
-      .animation(.default, value: viewModel.needsRestart)
   }
 
   // MARK: - Status Indicator
