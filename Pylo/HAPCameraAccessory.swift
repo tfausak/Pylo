@@ -28,8 +28,8 @@ struct CameraOption: Identifiable, Hashable, Sendable {
       var deviceTypes: [AVCaptureDevice.DeviceType] = [.builtInWideAngleCamera]
       if #available(macOS 14.0, *) {
         deviceTypes.append(.continuityCamera)
+        deviceTypes.append(.external)
       }
-      deviceTypes.append(.external)
     #endif
     // Start with .unspecified to preserve default ordering and include external
     // cameras (e.g. USB on iPadOS), then supplement with per-position queries

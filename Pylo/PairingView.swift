@@ -56,11 +56,15 @@ struct PairingView: View {
     .task(id: viewModel.setupCode) {
       let code = viewModel.setupCode
       let sid = viewModel.setupID
-      let image = await Task.detached {
-        generateQRCode(from: hapSetupURI(setupCode: code, setupID: sid))
+      let cgImage = await Task.detached {
+        generateQRCodeCG(from: hapSetupURI(setupCode: code, setupID: sid))
       }.value
-      guard !Task.isCancelled else { return }
-      qrImage = image
+      guard !Task.isCancelled, let cgImage else { return }
+      #if os(iOS)
+        qrImage = UIImage(cgImage: cgImage)
+      #elseif os(macOS)
+        qrImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+      #endif
     }
   }
 }

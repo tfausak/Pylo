@@ -451,9 +451,10 @@ final class HAPViewModel: ObservableObject {
         .builtInWideAngleCamera, .builtInTelephotoCamera, .builtInUltraWideCamera,
       ]
     #elseif os(macOS)
-      var discoveryTypes: [AVCaptureDevice.DeviceType] = [.builtInWideAngleCamera, .external]
+      var discoveryTypes: [AVCaptureDevice.DeviceType] = [.builtInWideAngleCamera]
       if #available(macOS 14.0, *) {
         discoveryTypes.append(.continuityCamera)
+        discoveryTypes.append(.external)
       }
     #endif
     let discovery = AVCaptureDevice.DiscoverySession(
@@ -1347,32 +1348,18 @@ nonisolated func hapSetupURI(
   return "X-HM://\(encoded)\(setupID)"
 }
 
-/// Generate a crisp QR code image from a string using CoreImage.
-/// Called from a detached Task (off MainActor).
+/// Generate a crisp QR code CGImage from a string using CoreImage.
+/// Called from a detached Task (off MainActor). Returns CGImage (Sendable)
+/// so the caller can wrap it in a platform image on the main actor.
 /// CIContext is thread-safe and expensive to create — reuse a single instance.
 nonisolated private let _qrContext = CIContext()
-#if os(iOS)
-  nonisolated func generateQRCode(from string: String) -> UIImage? {
-    let context = _qrContext
-    let filter = CIFilter.qrCodeGenerator()
-    filter.message = Data(string.utf8)
-    filter.correctionLevel = "M"
-    guard let output = filter.outputImage else { return nil }
-    let scale = CGAffineTransform(scaleX: 10, y: 10)
-    let scaled = output.transformed(by: scale)
-    guard let cgImage = context.createCGImage(scaled, from: scaled.extent) else { return nil }
-    return UIImage(cgImage: cgImage)
-  }
-#elseif os(macOS)
-  nonisolated func generateQRCode(from string: String) -> NSImage? {
-    let context = _qrContext
-    let filter = CIFilter.qrCodeGenerator()
-    filter.message = Data(string.utf8)
-    filter.correctionLevel = "M"
-    guard let output = filter.outputImage else { return nil }
-    let scale = CGAffineTransform(scaleX: 10, y: 10)
-    let scaled = output.transformed(by: scale)
-    guard let cgImage = context.createCGImage(scaled, from: scaled.extent) else { return nil }
-    return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-  }
-#endif
+nonisolated func generateQRCodeCG(from string: String) -> CGImage? {
+  let context = _qrContext
+  let filter = CIFilter.qrCodeGenerator()
+  filter.message = Data(string.utf8)
+  filter.correctionLevel = "M"
+  guard let output = filter.outputImage else { return nil }
+  let scale = CGAffineTransform(scaleX: 10, y: 10)
+  let scaled = output.transformed(by: scale)
+  return context.createCGImage(scaled, from: scaled.extent)
+}
