@@ -595,7 +595,10 @@ final class HAPViewModel: ObservableObject {
       // @MainActor on the closure, causing a runtime dispatch_assert_queue
       // failure. Instead, capture a Sendable weak wrapper and hop to
       // MainActor explicitly via Task for UI updates.
-      nonisolated(unsafe) weak var weakVM = self
+      // Prevent @MainActor inference on closures that capture this reference.
+      // Strong ref is safe: stop() tears down the server and clears all
+      // callbacks before the view model could be deallocated.
+      nonisolated(unsafe) let vm = self
       var enabledAccessories: [any HAPAccessoryProtocol] = []
 
       if config.flashlightEnabled {
@@ -603,7 +606,7 @@ final class HAPViewModel: ObservableObject {
           [weak server = setup.server] aid, iid, value in
           server?.notifySubscribers(aid: aid, iid: iid, value: value)
           Task { @MainActor in
-            guard let vm = weakVM else { return }
+
             if iid == HAPAccessory.iidOn, case .bool(let on) = value {
               vm.isLightOn = on
             } else if iid == HAPAccessory.iidBrightness, case .int(let b) = value {
@@ -619,7 +622,7 @@ final class HAPViewModel: ObservableObject {
           [weak server = setup.server] aid, iid, value in
           server?.notifySubscribers(aid: aid, iid: iid, value: value)
           Task { @MainActor in
-            guard let vm = weakVM else { return }
+
             if iid == HAPCameraAccessory.iidStreamingStatus,
               case .string(let b64) = value,
               let data = Data(base64Encoded: b64), data.count >= 3
@@ -636,7 +639,7 @@ final class HAPViewModel: ObservableObject {
           [weak server = setup.server] aid, iid, value in
           server?.notifySubscribers(aid: aid, iid: iid, value: value)
           Task { @MainActor in
-            guard let vm = weakVM else { return }
+
             if iid == HAPMotionSensorAccessory.iidMotionDetected,
               case .bool(let detected) = value
             {
@@ -659,7 +662,7 @@ final class HAPViewModel: ObservableObject {
           [weak server = setup.server] aid, iid, value in
           server?.notifySubscribers(aid: aid, iid: iid, value: value)
           Task { @MainActor in
-            guard let vm = weakVM else { return }
+
             if iid == HAPContactSensorAccessory.iidContactSensorState,
               case .int(let val) = value
             {
@@ -675,7 +678,7 @@ final class HAPViewModel: ObservableObject {
           [weak server = setup.server] aid, iid, value in
           server?.notifySubscribers(aid: aid, iid: iid, value: value)
           Task { @MainActor in
-            guard let vm = weakVM else { return }
+
             if iid == HAPOccupancySensorAccessory.iidOccupancyDetected,
               case .int(let val) = value
             {
@@ -691,7 +694,7 @@ final class HAPViewModel: ObservableObject {
           [weak server = setup.server] aid, iid, value in
           server?.notifySubscribers(aid: aid, iid: iid, value: value)
           Task { @MainActor in
-            guard let vm = weakVM else { return }
+
             if iid == HAPSirenAccessory.iidOn, case .bool(let on) = value {
               vm.isSirenActive = on
             }
@@ -712,7 +715,6 @@ final class HAPViewModel: ObservableObject {
 
       setup.server.onListenerStateChange = { ready in
         Task { @MainActor in
-          guard let vm = weakVM else { return }
           vm.listenerActuallyReady = ready
           if ready {
             vm.wasListenerReady = true
@@ -725,7 +727,7 @@ final class HAPViewModel: ObservableObject {
 
       setup.server.onAccessoriesFetched = {
         Task { @MainActor in
-          withAnimation { weakVM?.isWaitingForHomeApp = false }
+          withAnimation { vm.isWaitingForHomeApp = false }
         }
       }
 
@@ -733,7 +735,6 @@ final class HAPViewModel: ObservableObject {
         let isPaired = server?.pairingStore.isPaired ?? false
         UserDefaults.standard.set(isPaired, forKey: "hasPairings")
         Task { @MainActor in
-          guard let vm = weakVM else { return }
           withAnimation {
             vm.hasPairings = isPaired
             if !isPaired { vm.isWaitingForHomeApp = false }
