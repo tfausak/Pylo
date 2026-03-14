@@ -63,11 +63,11 @@ public final class HAPServer: @unchecked Sendable {
   }
 
   /// Callback for listener state changes. Called on the server queue.
-  public var onListenerStateChange: ((_ ready: Bool) -> Void)?
+  public var onListenerStateChange: (@Sendable (_ ready: Bool) -> Void)?
 
   /// Called when a paired controller fetches GET /accessories (e.g. after a
   /// configuration change). Fired on the server queue.
-  public var onAccessoriesFetched: (() -> Void)?
+  public var onAccessoriesFetched: (@Sendable () -> Void)?
 
   /// Configuration number — derived from a hash of the accessory database structure
   /// so it updates automatically whenever services or characteristics change.
