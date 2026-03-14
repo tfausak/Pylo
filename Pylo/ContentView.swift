@@ -59,7 +59,6 @@ struct ContentView: View {
       } else if viewModel.hasPairings {
         if viewModel.isRunning {
           RunningView(viewModel: viewModel)
-            .navigationBarHidden(true)
         } else {
           pairedBody
         }
@@ -67,10 +66,12 @@ struct ContentView: View {
         PairingView(viewModel: viewModel)
       }
     }
-    .navigationTitle("Pylo")
+    .navigationTitle(viewModel.isRunning ? "" : "Pylo")
     .toolbar {
       ToolbarItem(placement: .primaryAction) {
-        statusIndicator
+        if !viewModel.isRunning {
+          statusIndicator
+        }
       }
     }
     .safeAreaInset(edge: .bottom) {

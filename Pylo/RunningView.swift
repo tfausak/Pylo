@@ -28,9 +28,15 @@ struct RunningView: View {
     }
     .onAppear { startPixelShift() }
     .onDisappear { stopPixelShift() }
-    .fullScreenCover(isPresented: $showConfig) {
-      RunningConfigView(viewModel: viewModel)
-    }
+    #if os(iOS)
+      .fullScreenCover(isPresented: $showConfig) {
+        RunningConfigView(viewModel: viewModel)
+      }
+    #else
+      .sheet(isPresented: $showConfig) {
+        RunningConfigView(viewModel: viewModel)
+      }
+    #endif
   }
 
   // MARK: - Status Indicator
@@ -121,7 +127,7 @@ struct RunningConfigView: View {
       ContentView(viewModel: viewModel, forceConfig: true)
         .navigationTitle("Settings")
         .toolbar {
-          ToolbarItem(placement: .navigationBarLeading) {
+          ToolbarItem(placement: .cancellationAction) {
             Button(viewModel.needsRestart ? "Cancel" : "Close") {
               if let savedConfig {
                 viewModel.restoreConfig(savedConfig)
@@ -129,7 +135,7 @@ struct RunningConfigView: View {
               dismiss()
             }
           }
-          ToolbarItem(placement: .navigationBarTrailing) {
+          ToolbarItem(placement: .confirmationAction) {
             Button("Save") {
               viewModel.restart()
               dismiss()
@@ -139,7 +145,11 @@ struct RunningConfigView: View {
           }
         }
     }
-    .navigationViewStyle(.stack)
+    #if os(iOS)
+      .navigationViewStyle(.stack)
+    #else
+      .frame(minWidth: 480, minHeight: 500)
+    #endif
     .onAppear {
       savedConfig = AccessoryConfig(from: viewModel)
     }
