@@ -5,6 +5,14 @@ import FragmentedMP4
 import HAP
 import SwiftUI
 
+#if os(iOS)
+  import UIKit
+#elseif os(macOS)
+  import AppKit
+  import IOKit
+  import IOKit.pwr_mgt
+#endif
+
 // MARK: - Accessory Config Snapshot
 
 /// Captures the accessory-enable state at server start so we can detect
@@ -87,6 +95,7 @@ final class HAPViewModel: ObservableObject {
   @Published var hasCamera = false
   @Published var hasTorch = false
   @Published var hasAccelerometer = false
+  let hasAmbientLight = AmbientLightDetector.isAvailable
   @Published var isCameraStreaming = false
   @Published var hasPairings = false
   @Published var isNetworkDenied = false
@@ -439,8 +448,19 @@ final class HAPViewModel: ObservableObject {
     let cameras = CameraOption.availableCameras()
     availableCameras = cameras
     hasCamera = !cameras.isEmpty
+    #if os(iOS)
+      let discoveryTypes: [AVCaptureDevice.DeviceType] = [
+        .builtInWideAngleCamera, .builtInTelephotoCamera, .builtInUltraWideCamera,
+      ]
+    #elseif os(macOS)
+      var discoveryTypes: [AVCaptureDevice.DeviceType] = [.builtInWideAngleCamera]
+      if #available(macOS 14.0, *) {
+        discoveryTypes.append(.continuityCamera)
+        discoveryTypes.append(.external)
+      }
+    #endif
     let discovery = AVCaptureDevice.DiscoverySession(
-      deviceTypes: [.builtInWideAngleCamera, .builtInTelephotoCamera, .builtInUltraWideCamera],
+      deviceTypes: discoveryTypes,
       mediaType: .video,
       position: .unspecified
     )
@@ -486,8 +506,8 @@ final class HAPViewModel: ObservableObject {
 
     // Stage 1: Capture config values on MainActor before leaving isolation.
     let config = StartConfig(
-      serial: UIDevice.current.identifierForVendor?.uuidString ?? "000000",
-      deviceModel: UIDevice.current.model,  // "iPhone", "iPad", etc.
+      serial: deviceSerial(),
+      deviceModel: deviceModelName(),
       flashlightEnabled: flashlightEnabled,
       selectedStreamCameraID: selectedStreamCamera?.id,
       motionEnabled: motionEnabled,
@@ -752,8 +772,29 @@ final class HAPViewModel: ObservableObject {
     }
   }
 
+  #if os(macOS)
+    /// IOPMAssertion ID for preventing system sleep on macOS.
+    private var sleepAssertionID: IOPMAssertionID = 0
+    private var hasSleepAssertion = false
+  #endif
+
   func updateIdleTimer() {
-    UIApplication.shared.isIdleTimerDisabled = keepScreenAwake && isRunning && hasPairings
+    #if os(iOS)
+      UIApplication.shared.isIdleTimerDisabled = keepScreenAwake && isRunning && hasPairings
+    #elseif os(macOS)
+      let shouldPreventSleep = keepScreenAwake && isRunning && hasPairings
+      if shouldPreventSleep, !hasSleepAssertion {
+        let result = IOPMAssertionCreateWithName(
+          kIOPMAssertionTypeNoIdleSleep as CFString,
+          IOPMAssertionLevel(kIOPMAssertionLevelOn),
+          "Pylo HAP server active" as CFString,
+          &sleepAssertionID)
+        hasSleepAssertion = result == kIOReturnSuccess
+      } else if !shouldPreventSleep, hasSleepAssertion {
+        IOPMAssertionRelease(sleepAssertionID)
+        hasSleepAssertion = false
+      }
+    #endif
   }
 
   @MainActor
@@ -791,7 +832,14 @@ final class HAPViewModel: ObservableObject {
       isWaitingForHomeApp = false
     }
     startedConfig = nil
-    UIApplication.shared.isIdleTimerDisabled = false
+    #if os(iOS)
+      UIApplication.shared.isIdleTimerDisabled = false
+    #elseif os(macOS)
+      if hasSleepAssertion {
+        IOPMAssertionRelease(sleepAssertionID)
+        hasSleepAssertion = false
+      }
+    #endif
     statusMessage = "Stopped"
   }
 
@@ -840,7 +888,7 @@ private struct StartConfig: Sendable {
 }
 
 /// Objects created off MainActor, returned to MainActor for callback wiring and UI updates.
-private struct ServerSetup: @unchecked Sendable {
+private nonisolated struct ServerSetup: @unchecked Sendable {
   let bridge: HAPBridgeInfo
   let lightbulb: HAPAccessory
   let camera: HAPCameraAccessory
@@ -1007,7 +1055,9 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
   // Ambient light sensor — derives lux from AVCaptureDevice exposure metadata
   // on every frame (internally throttled by MonitoringCaptureSession).
   var ambientLightDetector: AmbientLightDetector?
-  if config.lightSensorEnabled, let cameraDevice = cameraDeviceForSensors {
+  if config.lightSensorEnabled, AmbientLightDetector.isAvailable,
+    let cameraDevice = cameraDeviceForSensors
+  {
     let detector = AmbientLightDetector()
     detector.device = cameraDevice
     detector.onLuxChange = { [weak lightSensor] lux in
@@ -1263,6 +1313,36 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
   )
 }
 
+// MARK: - Platform Helpers
+
+/// Returns a stable device serial string.
+@MainActor private func deviceSerial() -> String {
+  #if os(iOS)
+    return UIDevice.current.identifierForVendor?.uuidString ?? "000000"
+  #elseif os(macOS)
+    // Use the hardware UUID as a stable identifier
+    let platformExpert = IOServiceGetMatchingService(
+      kIOMainPortDefault, IOServiceMatching("IOPlatformExpertDevice"))
+    guard platformExpert != IO_OBJECT_NULL else { return "000000" }
+    defer { IOObjectRelease(platformExpert) }
+    if let uuidCF = IORegistryEntryCreateCFProperty(
+      platformExpert, "IOPlatformUUID" as CFString, kCFAllocatorDefault, 0)
+    {
+      return (uuidCF.takeRetainedValue() as? String) ?? "000000"
+    }
+    return "000000"
+  #endif
+}
+
+/// Returns a human-readable device model name.
+@MainActor private func deviceModelName() -> String {
+  #if os(iOS)
+    return UIDevice.current.model  // "iPhone", "iPad", etc.
+  #elseif os(macOS)
+    return "Mac"
+  #endif
+}
+
 // MARK: - HomeKit QR Code Helpers
 
 /// Build the `X-HM://` setup URI defined by the HAP spec (§8.6.1).
@@ -1294,12 +1374,12 @@ nonisolated func hapSetupURI(
   return "X-HM://\(encoded)\(setupID)"
 }
 
-/// Generate a crisp QR code `UIImage` from a string using CoreImage.
-/// Called from a detached Task (off MainActor). UIImage(cgImage:) is safe
-/// to construct from any thread — only UIView/layer operations require main.
+/// Generate a crisp QR code CGImage from a string using CoreImage.
+/// Called from a detached Task (off MainActor). Returns CGImage (Sendable)
+/// so the caller can wrap it in a platform image on the main actor.
 /// CIContext is thread-safe and expensive to create — reuse a single instance.
 nonisolated private let _qrContext = CIContext()
-nonisolated func generateQRCode(from string: String) -> UIImage? {
+nonisolated func generateQRCodeCG(from string: String) -> CGImage? {
   let context = _qrContext
   let filter = CIFilter.qrCodeGenerator()
   filter.message = Data(string.utf8)
@@ -1307,6 +1387,5 @@ nonisolated func generateQRCode(from string: String) -> UIImage? {
   guard let output = filter.outputImage else { return nil }
   let scale = CGAffineTransform(scaleX: 10, y: 10)
   let scaled = output.transformed(by: scale)
-  guard let cgImage = context.createCGImage(scaled, from: scaled.extent) else { return nil }
-  return UIImage(cgImage: cgImage)
+  return context.createCGImage(scaled, from: scaled.extent)
 }

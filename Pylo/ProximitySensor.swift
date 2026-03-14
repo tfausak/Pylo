@@ -1,9 +1,14 @@
-import UIKit
+import Foundation
 import os
+
+#if os(iOS)
+  import UIKit
+#endif
 
 /// Monitors the iPhone's proximity sensor via UIDevice notifications.
 /// Maps proximity state to HomeKit contact sensor: near = closed, far = open.
 /// All UIDevice access must happen on the main actor.
+/// On macOS, the sensor is never available (no hardware).
 @MainActor final class ProximitySensor {
 
   var onContactChange: ((Bool) -> Void)?
@@ -17,40 +22,53 @@ import os
   private var observer: NSObjectProtocol?
 
   func start() {
-    UIDevice.current.isProximityMonitoringEnabled = true
-    // If the device doesn't support proximity monitoring, it resets to false.
-    isAvailable = UIDevice.current.isProximityMonitoringEnabled
+    #if os(iOS)
+      UIDevice.current.isProximityMonitoringEnabled = true
+      // If the device doesn't support proximity monitoring, it resets to false.
+      isAvailable = UIDevice.current.isProximityMonitoringEnabled
 
-    guard isAvailable else {
-      logger.info("Proximity monitoring not available on this device")
-      return
-    }
+      guard isAvailable else {
+        logger.info("Proximity monitoring not available on this device")
+        return
+      }
 
-    observer = NotificationCenter.default.addObserver(
-      forName: UIDevice.proximityStateDidChangeNotification, object: nil, queue: .main
-    ) { [weak self] _ in MainActor.assumeIsolated { self?.proximityDidChange() } }
+      observer = NotificationCenter.default.addObserver(
+        forName: UIDevice.proximityStateDidChangeNotification, object: nil, queue: .main
+      ) { [weak self] _ in MainActor.assumeIsolated { self?.proximityDidChange() } }
 
-    logger.info("Proximity sensor started")
+      logger.info("Proximity sensor started")
+    #else
+      isAvailable = false
+      logger.info("Proximity monitoring not available on this platform")
+    #endif
   }
 
   func stop() {
-    if let observer {
-      NotificationCenter.default.removeObserver(observer)
-    }
-    observer = nil
-    UIDevice.current.isProximityMonitoringEnabled = false
+    #if os(iOS)
+      if let observer {
+        NotificationCenter.default.removeObserver(observer)
+      }
+      observer = nil
+      UIDevice.current.isProximityMonitoringEnabled = false
+    #endif
     isAvailable = false
     logger.info("Proximity sensor stopped")
   }
 
   /// Current contact state: true = contact detected (near), false = no contact (far).
   var isContactDetected: Bool {
-    UIDevice.current.proximityState
+    #if os(iOS)
+      return UIDevice.current.proximityState
+    #else
+      return false
+    #endif
   }
 
-  private func proximityDidChange() {
-    let near = UIDevice.current.proximityState
-    logger.debug("Proximity: \(near ? "near (contact)" : "far (no contact)")")
-    onContactChange?(near)
-  }
+  #if os(iOS)
+    private func proximityDidChange() {
+      let near = UIDevice.current.proximityState
+      logger.debug("Proximity: \(near ? "near (contact)" : "far (no contact)")")
+      onContactChange?(near)
+    }
+  #endif
 }

@@ -2,14 +2,14 @@ import SwiftUI
 
 struct PairingView: View {
   var viewModel: HAPViewModel
-  @State private var qrImage: UIImage?
+  @State private var qrImage: PlatformImage?
 
   var body: some View {
     VStack(spacing: 24) {
       Spacer()
 
       if let qr = qrImage {
-        Image(uiImage: qr)
+        Image(platformImage: qr)
           .interpolation(.none)
           .resizable()
           .scaledToFit()
@@ -37,11 +37,11 @@ struct PairingView: View {
     .task(id: viewModel.setupCode) {
       let code = viewModel.setupCode
       let sid = viewModel.setupID
-      let image = await Task.detached(priority: .userInitiated) {
-        generateQRCode(from: hapSetupURI(setupCode: code, setupID: sid))
+      let cgImage = await Task.detached {
+        generateQRCodeCG(from: hapSetupURI(setupCode: code, setupID: sid))
       }.value
-      guard !Task.isCancelled else { return }
-      qrImage = image
+      guard !Task.isCancelled, let cgImage else { return }
+      qrImage = .from(cgImage: cgImage)
     }
   }
 }

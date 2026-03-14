@@ -160,8 +160,8 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
   // Snapshot caching — periodically grab a JPEG from the video stream.
   // The callback is set from the server queue and read from captureQueue,
   // so it must be synchronized.
-  private let _onSnapshotFrame = Locked<((Data) -> Void)?>(initialState: nil)
-  var onSnapshotFrame: ((Data) -> Void)? {
+  private let _onSnapshotFrame = Locked<(@Sendable (Data) -> Void)?>(initialState: nil)
+  var onSnapshotFrame: (@Sendable (Data) -> Void)? {
     get { _onSnapshotFrame.withLock { $0 } }
     set { _onSnapshotFrame.withLock { $0 = newValue } }
   }
@@ -543,19 +543,9 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     }
 
     // Configure audio session BEFORE creating capture session so the mic is available
-    #if os(iOS)
-      if microphoneEnabled {
-        do {
-          let audioSession = AVAudioSession.sharedInstance()
-          try audioSession.setCategory(
-            .playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
-          try audioSession.setPreferredSampleRate(16000)
-          try audioSession.setActive(true)
-        } catch {
-          logger.error("AVAudioSession setup error: \(error)")
-        }
-      }
-    #endif
+    if microphoneEnabled {
+      configureAudioSessionForVoiceChat(logger: logger)
+    }
 
     // Build the new video output and delegate (shared between both paths)
     let output = AVCaptureVideoDataOutput()
@@ -634,9 +624,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
     } else {
       // Cold start — create a new AVCaptureSession from scratch
       session = AVCaptureSession()
-      if #available(iOS 16.0, *), session.isMultitaskingCameraAccessSupported {
-        session.isMultitaskingCameraAccessEnabled = true
-      }
+      session.enableMultitaskingCameraIfSupported()
       session.sessionPreset = width > 1280 ? .hd1920x1080 : width > 640 ? .hd1280x720 : .medium
 
       do {
@@ -686,7 +674,7 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
 
     // Rotate output to match device orientation.
     if let connection = output.connection(with: .video) {
-      if #available(iOS 17.0, *) {
+      if #available(iOS 17.0, macOS 14.0, *) {
         if connection.isVideoRotationAngleSupported(CGFloat(rotationAngle)) {
           connection.videoRotationAngle = CGFloat(rotationAngle)
         }
@@ -723,12 +711,12 @@ nonisolated final class CameraStreamSession: @unchecked Sendable {
       nc.addObserver(
         forName: .AVCaptureSessionWasInterrupted, object: session, queue: queue
       ) { [weak self] notification in
-        guard
-          let self,
-          let reason = notification.userInfo?[AVCaptureSessionInterruptionReasonKey] as? Int
-        else { return }
-        self.logger.warning(
-          "Capture session interrupted (reason \(reason))")
+        guard let self else { return }
+        if let reason = AVCaptureSession.interruptionReason(from: notification) {
+          self.logger.warning("Capture session interrupted (reason \(reason))")
+        } else {
+          self.logger.warning("Capture session interrupted")
+        }
       })
     interruptionObservers.append(
       nc.addObserver(

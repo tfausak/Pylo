@@ -328,7 +328,11 @@ extension HAPCameraAccessory {
     if let id = selectedCameraID, let device = AVCaptureDevice(uniqueID: id) {
       return device
     }
-    return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
+    #if os(iOS)
+      return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
+    #elseif os(macOS)
+      return AVCaptureDevice.default(for: .video)
+    #endif
   }
 
   // MARK: - Utility
@@ -364,7 +368,8 @@ extension HAPCameraAccessory {
           &hostname, socklen_t(hostname.count),
           nil, 0, NI_NUMERICHOST) == 0
       else { continue }
-      let ip = String(cString: hostname)
+      let ip = String(
+        decoding: hostname.map { UInt8(bitPattern: $0) }.prefix(while: { $0 != 0 }), as: UTF8.self)
       // RFC-1918 private ranges: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
       let isPrivate: Bool = {
         if ip.hasPrefix("192.168.") || ip.hasPrefix("10.") { return true }

@@ -5,8 +5,11 @@ import Foundation
 import FragmentedMP4
 import HAP
 import TLV8
-@preconcurrency import UIKit
 import os
+
+#if os(iOS)
+  @preconcurrency import UIKit
+#endif
 
 // MARK: - Camera Option
 
@@ -17,9 +20,17 @@ struct CameraOption: Identifiable, Hashable, Sendable {
   let fNumber: Float
 
   static func availableCameras() -> [CameraOption] {
-    let deviceTypes: [AVCaptureDevice.DeviceType] = [
-      .builtInWideAngleCamera, .builtInUltraWideCamera, .builtInTelephotoCamera,
-    ]
+    #if os(iOS)
+      let deviceTypes: [AVCaptureDevice.DeviceType] = [
+        .builtInWideAngleCamera, .builtInUltraWideCamera, .builtInTelephotoCamera,
+      ]
+    #elseif os(macOS)
+      var deviceTypes: [AVCaptureDevice.DeviceType] = [.builtInWideAngleCamera]
+      if #available(macOS 14.0, *) {
+        deviceTypes.append(.continuityCamera)
+        deviceTypes.append(.external)
+      }
+    #endif
     // Start with .unspecified to preserve default ordering and include external
     // cameras (e.g. USB on iPadOS), then supplement with per-position queries
     // to catch devices some iOS versions omit (e.g. front camera on iPhone 6s).
@@ -32,11 +43,16 @@ struct CameraOption: Identifiable, Hashable, Sendable {
         position: position
       )
       for device in discovery.devices where seen.insert(device.uniqueID).inserted {
+        #if os(iOS)
+          let fNumber = device.lensAperture
+        #else
+          let fNumber: Float = 0
+        #endif
         cameras.append(
           CameraOption(
             id: device.uniqueID,
             name: device.localizedName,
-            fNumber: device.lensAperture
+            fNumber: fNumber
           ))
       }
     }

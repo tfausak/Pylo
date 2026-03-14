@@ -2,9 +2,12 @@
 import AudioToolbox
 @preconcurrency import CoreMedia
 import FragmentedMP4
-@preconcurrency import UIKit
 import VideoToolbox
 import os
+
+#if os(iOS)
+  @preconcurrency import UIKit
+#endif
 
 /// Lightweight capture-only session for HKSV idle motion detection and fMP4 pre-buffering.
 ///
@@ -183,22 +186,9 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     }
 
     // Configure audio session BEFORE creating capture session so the mic is available
-    #if os(iOS)
-      if audioRecordingEnabled {
-        do {
-          let audioSession = AVAudioSession.sharedInstance()
-          try audioSession.setCategory(
-            .playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
-          try audioSession.setPreferredSampleRate(16000)
-          try audioSession.setActive(true)
-        } catch {
-          // Non-fatal: continue in video-only mode. The sentinel captureSession
-          // will be replaced with the real session below, or cleared by later
-          // error paths if video setup also fails.
-          logger.error("AVAudioSession setup error: \(error)")
-        }
-      }
-    #endif
+    if audioRecordingEnabled {
+      configureAudioSessionForVoiceChat(logger: logger)
+    }
 
     // Build the new video output and delegate (shared between both paths)
     let output = AVCaptureVideoDataOutput()
@@ -302,9 +292,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     } else {
       // Cold start — create a new AVCaptureSession from scratch
       session = AVCaptureSession()
-      if #available(iOS 16.0, *), session.isMultitaskingCameraAccessSupported {
-        session.isMultitaskingCameraAccessEnabled = true
-      }
+      session.enableMultitaskingCameraIfSupported()
       session.sessionPreset = sensorOnly ? .vga640x480 : .hd1920x1080
 
       do {
@@ -363,7 +351,7 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     // Rotate output to match device orientation.
     let rotationAngle = Self.currentRotationAngle()
     if let connection = output.connection(with: .video) {
-      if #available(iOS 17.0, *) {
+      if #available(iOS 17.0, macOS 14.0, *) {
         if connection.isVideoRotationAngleSupported(CGFloat(rotationAngle)) {
           connection.videoRotationAngle = CGFloat(rotationAngle)
         }
@@ -577,12 +565,12 @@ nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       nc.addObserver(
         forName: .AVCaptureSessionWasInterrupted, object: session, queue: queue
       ) { [weak self] notification in
-        guard
-          let self,
-          let reason = notification.userInfo?[AVCaptureSessionInterruptionReasonKey] as? Int
-        else { return }
-        self.logger.warning(
-          "Capture session interrupted (reason \(reason))")
+        guard let self else { return }
+        if let reason = AVCaptureSession.interruptionReason(from: notification) {
+          self.logger.warning("Capture session interrupted (reason \(reason))")
+        } else {
+          self.logger.warning("Capture session interrupted")
+        }
       })
     interruptionObservers.append(
       nc.addObserver(
