@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
   @ObservedObject var viewModel: HAPViewModel
+  var forceConfig = false
   @Environment(\.scenePhase) private var scenePhase
   @State private var showUnpairConfirmation = false
   @State private var isScreenDimmed = false
@@ -15,7 +16,11 @@ struct ContentView: View {
           if viewModel.isNetworkDenied {
             networkDeniedBody
           } else if viewModel.hasPairings {
-            pairedBody
+            if viewModel.isRunning && !forceConfig {
+              RunningView(viewModel: viewModel)
+            } else {
+              pairedBody
+            }
           } else {
             PairingView(viewModel: viewModel)
           }
@@ -283,6 +288,17 @@ struct ContentView: View {
           isOn: $viewModel.sirenEnabled
         ) {
           sirenContent
+        }
+
+        // Button
+        AccessoryCard(
+          icon: "bell.fill",
+          title: "Button",
+          isOn: $viewModel.buttonEnabled
+        ) {
+          Text("Stateless programmable switch. Trigger from the running screen; configure automations in Home.app.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
 
         // Display / Sleep
