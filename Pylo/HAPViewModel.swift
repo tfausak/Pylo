@@ -10,6 +10,7 @@ import SwiftUI
 #elseif os(macOS)
   import AppKit
   import IOKit
+  import IOKit.pwr_mgt
 #endif
 
 // MARK: - Accessory Config Snapshot
@@ -771,9 +772,28 @@ final class HAPViewModel: ObservableObject {
     }
   }
 
+  #if os(macOS)
+    /// IOPMAssertion ID for preventing system sleep on macOS.
+    private var sleepAssertionID: IOPMAssertionID = 0
+    private var hasSleepAssertion = false
+  #endif
+
   func updateIdleTimer() {
     #if os(iOS)
       UIApplication.shared.isIdleTimerDisabled = keepScreenAwake && isRunning && hasPairings
+    #elseif os(macOS)
+      let shouldPreventSleep = keepScreenAwake && isRunning && hasPairings
+      if shouldPreventSleep, !hasSleepAssertion {
+        let result = IOPMAssertionCreateWithName(
+          kIOPMAssertionTypeNoIdleSleep as CFString,
+          IOPMAssertionLevel(kIOPMAssertionLevelOn),
+          "Pylo HAP server active" as CFString,
+          &sleepAssertionID)
+        hasSleepAssertion = result == kIOReturnSuccess
+      } else if !shouldPreventSleep, hasSleepAssertion {
+        IOPMAssertionRelease(sleepAssertionID)
+        hasSleepAssertion = false
+      }
     #endif
   }
 
@@ -814,6 +834,11 @@ final class HAPViewModel: ObservableObject {
     startedConfig = nil
     #if os(iOS)
       UIApplication.shared.isIdleTimerDisabled = false
+    #elseif os(macOS)
+      if hasSleepAssertion {
+        IOPMAssertionRelease(sleepAssertionID)
+        hasSleepAssertion = false
+      }
     #endif
     statusMessage = "Stopped"
   }

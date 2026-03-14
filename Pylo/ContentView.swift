@@ -95,56 +95,62 @@ struct ContentView: View {
         Text(viewModel.permissionAlert?.message ?? "")
       }
 
-      if isScreenDimmed {
-        Color.black
-          .ignoresSafeArea()
-          .accessibilityLabel("Screen dimmed")
-          .accessibilityHint("Tap to wake")
-          .accessibilityAddTraits(.isButton)
-          .onTapGesture { resetDimTimer() }
-      }
+      #if os(iOS)
+        if isScreenDimmed {
+          Color.black
+            .ignoresSafeArea()
+            .accessibilityLabel("Screen dimmed")
+            .accessibilityHint("Tap to wake")
+            .accessibilityAddTraits(.isButton)
+            .onTapGesture { resetDimTimer() }
+        }
+      #endif
     }
-    .animation(.default, value: isScreenDimmed)
-    .onChangeCompat(of: viewModel.isRunning) { running in
-      if running {
+    #if os(iOS)
+      .animation(.default, value: isScreenDimmed)
+      .onChangeCompat(of: viewModel.isRunning) { running in
+        if running {
+          resetDimTimer()
+        } else {
+          dimTask?.cancel()
+          dimTask = nil
+          isScreenDimmed = false
+        }
+      }
+      .onChangeCompat(of: viewModel.keepScreenAwake) { _ in
         resetDimTimer()
-      } else {
-        dimTask?.cancel()
-        dimTask = nil
-        isScreenDimmed = false
       }
-    }
-    .onChangeCompat(of: viewModel.keepScreenAwake) { _ in
-      resetDimTimer()
-    }
-    .onChangeCompat(of: viewModel.screenSaverEnabled) { _ in
-      if viewModel.isRunning { resetDimTimer() }
-    }
-    .onChangeCompat(of: viewModel.screenSaverDelay) { _ in
-      if viewModel.isRunning { resetDimTimer() }
-    }
+      .onChangeCompat(of: viewModel.screenSaverEnabled) { _ in
+        if viewModel.isRunning { resetDimTimer() }
+      }
+      .onChangeCompat(of: viewModel.screenSaverDelay) { _ in
+        if viewModel.isRunning { resetDimTimer() }
+      }
+      .onChangeCompat(of: viewModel.hasPairings) { paired in
+        if !paired {
+          dimTask?.cancel()
+          dimTask = nil
+          isScreenDimmed = false
+        } else if viewModel.isRunning {
+          resetDimTimer()
+        }
+      }
+    #endif
     .onChangeCompat(of: scenePhase) { newPhase in
       if newPhase == .active {
         viewModel.recheckPermissions()
-        resetDimTimer()
+        #if os(iOS)
+          resetDimTimer()
+        #endif
       } else {
-        // Cancel the dim timer when leaving foreground to prevent it
-        // from firing while backgrounded and causing unnecessary work.
-        dimTask?.cancel()
-        dimTask = nil
-        isScreenDimmed = false
+        #if os(iOS)
+          dimTask?.cancel()
+          dimTask = nil
+          isScreenDimmed = false
+        #endif
         if newPhase == .background {
           viewModel.handleBackgrounding()
         }
-      }
-    }
-    .onChangeCompat(of: viewModel.hasPairings) { paired in
-      if !paired {
-        dimTask?.cancel()
-        dimTask = nil
-        isScreenDimmed = false
-      } else if viewModel.isRunning {
-        resetDimTimer()
       }
     }
   }
@@ -270,14 +276,22 @@ struct ContentView: View {
           sirenContent
         }
 
-        // Display
-        AccessoryCard(
-          icon: "display",
-          title: "Keep Display On",
-          isOn: $viewModel.keepScreenAwake
-        ) {
-          displayContent
-        }
+        // Display / Sleep
+        #if os(iOS)
+          AccessoryCard(
+            icon: "display",
+            title: "Keep Display On",
+            isOn: $viewModel.keepScreenAwake
+          ) {
+            displayContent
+          }
+        #else
+          AccessoryCard(
+            icon: "moon.zzz",
+            title: "Prevent Sleep",
+            isOn: $viewModel.keepScreenAwake
+          ) {}
+        #endif
       }
       .padding()
     }
