@@ -108,9 +108,23 @@ struct ContentView: View {
     .animation(.default, value: viewModel.isWaitingForHomeApp)
   }
 
-  /// Used by RunningConfigView — just the paired body without its own navigation container.
+  /// Used by RunningConfigView — paired body plus unpair button.
   private var configBody: some View {
-    pairedBody
+    ScrollView {
+      VStack(spacing: 12) {
+        pairedContent
+
+        Button(role: .destructive) {
+          showUnpairConfirmation = true
+        } label: {
+          Text("Unpair")
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .padding(.top, 8)
+      }
+      .padding()
+    }
   }
 
   // MARK: - Status Indicator
@@ -148,6 +162,14 @@ struct ContentView: View {
   private var pairedBody: some View {
     ScrollView {
       VStack(spacing: 12) {
+        pairedContent
+      }
+      .padding()
+    }
+  }
+
+  @ViewBuilder
+  private var pairedContent: some View {
         // Camera
         AccessoryCard(
           icon: "camera.fill",
@@ -263,9 +285,6 @@ struct ContentView: View {
             isOn: $viewModel.keepScreenAwake
           ) {}
         #endif
-      }
-      .padding()
-    }
   }
 
   // MARK: - Network Denied
