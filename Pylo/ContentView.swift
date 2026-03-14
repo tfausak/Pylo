@@ -8,59 +8,14 @@ struct ContentView: View {
 
   var body: some View {
     ZStack {
-      navigationContainer {
-        Group {
-          if viewModel.isNetworkDenied {
-            networkDeniedBody
-          } else if viewModel.hasPairings {
-            if viewModel.isRunning && !forceConfig {
-              RunningView(viewModel: viewModel)
-                .navigationBarHidden(true)
-            } else {
-              pairedBody
-            }
-          } else {
-            PairingView(viewModel: viewModel)
+      Group {
+        if forceConfig {
+          configBody
+        } else {
+          navigationContainer {
+            mainBody
           }
         }
-        .navigationTitle("Pylo")
-        .toolbar {
-          ToolbarItem(placement: .primaryAction) {
-            statusIndicator
-          }
-        }
-        .safeAreaInset(edge: .bottom) {
-          if viewModel.needsRestart {
-            Text("Restart to Apply")
-              .font(.subheadline.weight(.medium))
-              .frame(maxWidth: .infinity)
-              .padding(12)
-              .background(.orange, in: .rect(cornerRadius: 12))
-              .foregroundStyle(.white)
-              .contentShape(Rectangle())
-              .onTapGesture {
-                viewModel.restart()
-              }
-              .accessibilityAddTraits(.isButton)
-              .padding(.horizontal)
-              .padding(.bottom, 4)
-              .transition(.move(edge: .bottom).combined(with: .opacity))
-          } else if viewModel.isWaitingForHomeApp {
-            HStack(spacing: 8) {
-              ProgressView()
-              Text("Updating Home…")
-                .font(.subheadline.weight(.medium))
-            }
-            .frame(maxWidth: .infinity)
-            .padding(12)
-            .background(.secondary.opacity(0.2), in: .rect(cornerRadius: 12))
-            .padding(.horizontal)
-            .padding(.bottom, 4)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
-          }
-        }
-        .animation(.default, value: viewModel.needsRestart)
-        .animation(.default, value: viewModel.isWaitingForHomeApp)
       }
       .confirmationDialog(
         "Unpair",
@@ -93,6 +48,87 @@ struct ContentView: View {
         viewModel.handleBackgrounding()
       }
     }
+  }
+
+  // MARK: - Main / Config Bodies
+
+  private var mainBody: some View {
+    Group {
+      if viewModel.isNetworkDenied {
+        networkDeniedBody
+      } else if viewModel.hasPairings {
+        if viewModel.isRunning {
+          RunningView(viewModel: viewModel)
+            .navigationBarHidden(true)
+        } else {
+          pairedBody
+        }
+      } else {
+        PairingView(viewModel: viewModel)
+      }
+    }
+    .navigationTitle("Pylo")
+    .toolbar {
+      ToolbarItem(placement: .primaryAction) {
+        statusIndicator
+      }
+    }
+    .safeAreaInset(edge: .bottom) {
+      if viewModel.needsRestart {
+        Text("Restart to Apply")
+          .font(.subheadline.weight(.medium))
+          .frame(maxWidth: .infinity)
+          .padding(12)
+          .background(.orange, in: .rect(cornerRadius: 12))
+          .foregroundStyle(.white)
+          .contentShape(Rectangle())
+          .onTapGesture {
+            viewModel.restart()
+          }
+          .accessibilityAddTraits(.isButton)
+          .padding(.horizontal)
+          .padding(.bottom, 4)
+          .transition(.move(edge: .bottom).combined(with: .opacity))
+      } else if viewModel.isWaitingForHomeApp {
+        HStack(spacing: 8) {
+          ProgressView()
+          Text("Updating Home…")
+            .font(.subheadline.weight(.medium))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(12)
+        .background(.secondary.opacity(0.2), in: .rect(cornerRadius: 12))
+        .padding(.horizontal)
+        .padding(.bottom, 4)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+      }
+    }
+    .animation(.default, value: viewModel.needsRestart)
+    .animation(.default, value: viewModel.isWaitingForHomeApp)
+  }
+
+  /// Used by RunningConfigView — just the paired body without its own navigation container.
+  private var configBody: some View {
+    pairedBody
+      .safeAreaInset(edge: .bottom) {
+        if viewModel.needsRestart {
+          Text("Restart to Apply")
+            .font(.subheadline.weight(.medium))
+            .frame(maxWidth: .infinity)
+            .padding(12)
+            .background(.orange, in: .rect(cornerRadius: 12))
+            .foregroundStyle(.white)
+            .contentShape(Rectangle())
+            .onTapGesture {
+              viewModel.restart()
+            }
+            .accessibilityAddTraits(.isButton)
+            .padding(.horizontal)
+            .padding(.bottom, 4)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+      }
+      .animation(.default, value: viewModel.needsRestart)
   }
 
   // MARK: - Status Indicator
