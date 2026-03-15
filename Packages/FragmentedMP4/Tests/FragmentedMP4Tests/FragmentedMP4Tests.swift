@@ -851,6 +851,70 @@ struct FragmentationTriggerTests {
     #expect(boxes[1].type == "mdat")
   }
 
+  @Test("stop() preserves decode time continuity across restart")
+  func stopPreservesDecodeTime() {
+    let writer = FragmentedMP4Writer()
+    writer.configure(fps: 30)
+    let fmt = makeFormatDescription()
+    nonisolated(unsafe) var emitted: [MP4Fragment] = []
+    writer.onFragmentReady = { emitted.append($0) }
+
+    // Feed samples and flush via stop()
+    for i in 0..<60 {
+      let pts = CMTime(value: Int64(i) * 33, timescale: 1000)
+      writer.appendVideoSample(
+        makeSampleBuffer(pts: pts, isKeyframe: i == 0, formatDescription: fmt))
+    }
+    writer.stop()
+    #expect(emitted.count == 1)
+
+    // Extract tfdt from first fragment
+    func extractTfdt(_ fragmentData: Data) -> UInt64 {
+      let moof = parseBoxes(fragmentData)[0]
+      let traf = parseBoxes(moof.payload).first { $0.type == "traf" }!
+      let tfdt = parseBoxes(traf.payload).first { $0.type == "tfdt" }!
+      let hi = UInt64(readU32BE(tfdt.payload, at: 4))
+      let lo = UInt64(readU32BE(tfdt.payload, at: 8))
+      return (hi << 32) | lo
+    }
+
+    // Extract trun durations to compute total ticks of first fragment
+    func extractTotalTicks(_ fragmentData: Data) -> UInt64 {
+      let moof = parseBoxes(fragmentData)[0]
+      let traf = parseBoxes(moof.payload).first { $0.type == "traf" }!
+      let trun = parseBoxes(traf.payload).first { $0.type == "trun" }!
+      let flags = readU32BE(trun.payload, at: 0) & 0x00FFFFFF
+      let sampleCount = Int(readU32BE(trun.payload, at: 4))
+      // Skip: ver/flags(4) + sample_count(4) + data_offset(4) + [first_sample_flags(4)]
+      let hasFirstSampleFlags = (flags & 0x004) != 0
+      var offset = 12 + (hasFirstSampleFlags ? 4 : 0)
+      var total: UInt64 = 0
+      for _ in 0..<sampleCount {
+        total += UInt64(readU32BE(trun.payload, at: offset))
+        offset += 8  // duration(4) + size(4)
+      }
+      return total
+    }
+
+    let dt1 = extractTfdt(emitted[0].data)
+    let ticks1 = extractTotalTicks(emitted[0].data)
+    #expect(dt1 == 0)
+    #expect(ticks1 > 0)
+
+    // Restart: feed new samples and flush again
+    for i in 0..<60 {
+      let pts = CMTime(value: Int64(i + 60) * 33, timescale: 1000)
+      writer.appendVideoSample(
+        makeSampleBuffer(pts: pts, isKeyframe: i == 0, formatDescription: fmt))
+    }
+    writer.stop()
+    #expect(emitted.count == 2)
+
+    // Second fragment's tfdt should equal first fragment's tfdt + total ticks
+    let dt2 = extractTfdt(emitted[1].data)
+    #expect(dt2 == dt1 + ticks1, "Decode time should be continuous across stop/restart")
+  }
+
   @Test("Fragment with audio has two traf boxes")
   func audioTwoTrafs() {
     let writer = FragmentedMP4Writer()
