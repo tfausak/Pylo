@@ -76,7 +76,7 @@ public nonisolated final class OccupancySensor: @unchecked Sendable {
         do {
           try handler.perform([self.request])
         } catch {
-          self.logger.error("[occupancy] failed: \(error)")
+          self.logger.error("failed: \(error)")
           return false
         }
 
@@ -85,7 +85,7 @@ public nonisolated final class OccupancySensor: @unchecked Sendable {
 
         if !results.isEmpty {
           self.logger.debug(
-            "[occupancy] found \(results.count) results, best confidence is \(bestConfidence, format: .fixed(precision: 3))"
+            "found \(results.count) results, best confidence is \(bestConfidence, format: .fixed(precision: 3))"
           )
         }
 
@@ -102,10 +102,10 @@ public nonisolated final class OccupancySensor: @unchecked Sendable {
           return (false, s.cooldown)
         }
         logger.debug(
-          "[occupancy] Check: person=yes, cooldown=\(cooldown, format: .fixed(precision: 0))s")
+          "Check: person=yes, cooldown=\(cooldown, format: .fixed(precision: 0))s")
         if shouldNotify {
           logger.debug(
-            "[occupancy] occupied, clearing in \(cooldown, format: .fixed(precision: 1)) seconds")
+            "occupied, clearing in \(cooldown, format: .fixed(precision: 1)) seconds")
           onOccupancyChange?(true)
         }
         // Schedule/reschedule the cooldown timer so occupancy clears even if
@@ -124,14 +124,14 @@ public nonisolated final class OccupancySensor: @unchecked Sendable {
         }
         if let remaining {
           logger.debug(
-            "[occupancy] not occupied, clearing in \(remaining, format: .fixed(precision: 1)) seconds"
+            "not occupied, clearing in \(remaining, format: .fixed(precision: 1)) seconds"
           )
         } else {
-          logger.debug("[occupancy] not occupied")
+          logger.debug("not occupied")
         }
         if shouldClear, let elapsed {
           cancelCooldownTimer()
-          logger.debug("[occupancy] cleared after \(elapsed, format: .fixed(precision: 1)) seconds")
+          logger.debug("cleared after \(elapsed, format: .fixed(precision: 1)) seconds")
           onOccupancyChange?(false)
         }
       }
@@ -159,12 +159,12 @@ public nonisolated final class OccupancySensor: @unchecked Sendable {
         return false
       }
       if shouldClear {
-        self.logger.debug("[occupancy] cooldown timer fired, clearing occupancy")
+        self.logger.debug("cooldown timer fired, clearing occupancy")
         self.onOccupancyChange?(false)
         self._cooldownTimer.withLockUnchecked { $0 = nil }
       } else if let delay = remainingDelay {
         self.logger.debug(
-          "[occupancy] cooldown not yet elapsed, rescheduling in \(delay, privacy: .public)s")
+          "cooldown not yet elapsed, rescheduling in \(delay, privacy: .public)s")
         self.scheduleCooldownTimer(delay: delay)
       } else {
         self._cooldownTimer.withLockUnchecked { $0 = nil }
