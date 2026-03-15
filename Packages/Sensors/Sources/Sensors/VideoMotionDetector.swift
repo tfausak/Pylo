@@ -73,22 +73,21 @@ public nonisolated final class VideoMotionDetector {
     CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly)
     guard ok else { return }
 
-    // Swap scratchGray with previousFrame — after the first two calls, the two
-    // arrays alternate between scratchGray and state.previousFrame with no
-    // heap allocations.
-    let previous = state.withLockUnchecked { s -> [UInt8]? in
-      let prev = s.previousFrame
-      s.previousFrame = scratchGray
-      return prev
+    // Get the previous frame without swapping yet, so scratchGray is
+    // exclusively ours during computeChangeRatio (no aliasing with state).
+    let previous = state.withLockUnchecked { $0.previousFrame }
+
+    guard let previous else {
+      // First frame — stash it for comparison on the next call.
+      state.withLockUnchecked { $0.previousFrame = scratchGray }
+      scratchGray = [UInt8](repeating: 0, count: Self.scratchCount)
+      return
     }
 
-    guard let previous else { return }
-
-    // scratchGray still references the current frame (shared with state.previousFrame).
     let changeRatio = computeChangeRatio(previous: previous, current: scratchGray)
 
-    // Reclaim the old buffer for the next call. After this, scratchGray is
-    // uniquely owned and can be written into in-place on the next call.
+    // Swap: store current frame as previousFrame, reclaim old buffer for reuse.
+    state.withLockUnchecked { $0.previousFrame = scratchGray }
     scratchGray = previous
 
     if changeRatio > threshold {
@@ -191,7 +190,7 @@ public nonisolated final class VideoMotionDetector {
 
   /// Compute the fraction of pixels that differ significantly between frames.
   /// Mutates scratch buffers in place — caller must ensure no concurrent access.
-  private func computeChangeRatio(previous: [UInt8], current: [UInt8]) -> Float {
+  func computeChangeRatio(previous: [UInt8], current: [UInt8]) -> Float {
     let count = min(previous.count, current.count)
     guard count > 0, count <= Self.scratchCount else { return 0 }
 
