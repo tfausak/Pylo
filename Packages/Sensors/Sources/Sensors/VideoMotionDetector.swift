@@ -194,8 +194,8 @@ public nonisolated final class VideoMotionDetector {
     let count = min(previous.count, current.count)
     guard count > 0, count <= Self.scratchCount else { return 0 }
 
-    vDSP.convertElements(of: previous[0..<count], to: &scratchPrev)
-    vDSP.convertElements(of: current[0..<count], to: &scratchCurr)
+    vDSP.convertElements(of: previous, to: &scratchPrev)
+    vDSP.convertElements(of: current, to: &scratchCurr)
 
     // Squared difference
     vDSP.subtract(scratchPrev, scratchCurr, result: &scratchDiff)
