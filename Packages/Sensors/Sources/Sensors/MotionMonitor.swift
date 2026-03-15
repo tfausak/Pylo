@@ -139,7 +139,10 @@ public nonisolated final class MotionMonitor: @unchecked Sendable {
     #if os(iOS)
       motionManager.stopAccelerometerUpdates()
     #endif
-    state.withLockUnchecked { $0.isMotionDetected = false }
+    state.withLockUnchecked {
+      $0.isMotionDetected = false
+      $0.lastMotionDate = .distantPast
+    }
     logger.info("Motion monitor stopped")
   }
 }
