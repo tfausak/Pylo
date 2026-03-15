@@ -6,6 +6,10 @@ import os
 /// Detects human presence using Vision framework person detection.
 /// Processes pixel buffers from MonitoringCaptureSession at low frequency (~2.5s).
 /// Maintains occupancy state with configurable cooldown to avoid flapping.
+///
+/// `@unchecked Sendable` is required because VNDetectHumanRectanglesRequest and
+/// DispatchSourceTimer are not Sendable. All mutable state is protected by Locked
+/// and Vision work is serialized on detectionQueue.
 public nonisolated final class OccupancySensor: @unchecked Sendable {
 
   private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Sensors", category: "OccupancySensor")
