@@ -564,8 +564,13 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
     Self.putU32BE(&mvhdP, includeAudio ? 3 : 2)  // next_track_ID
     let mvhd = Self.mp4FullBox("mvhd", payload: mvhdP)
 
-    let videoTrack = buildVideoTrack(
-      trackID: 1, width: width, height: height, sps: sps, pps: pps)
+    guard
+      let videoTrack = buildVideoTrack(
+        trackID: 1, width: width, height: height, sps: sps, pps: pps)
+    else {
+      logger.error("buildInitSegment: failed to build video track")
+      return nil
+    }
 
     // mvex (movie extends — required for fragmented MP4)
     // No mehd box — positron's working implementation omits it, and it's optional per ISO 14496-12.
@@ -590,7 +595,7 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
 
   private func buildVideoTrack(
     trackID: UInt32, width: UInt16, height: UInt16, sps: Data, pps: Data
-  ) -> Data {
+  ) -> Data? {
     // tkhd
     var tkhdP = Data()
     Self.putU32BE(&tkhdP, 0)  // creation_time
@@ -633,7 +638,7 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
     let dinf = Self.buildDinf()
 
     // stsd with avc1
-    let avcC = Self.buildAvcC(sps: sps, pps: pps)
+    guard let avcC = Self.buildAvcC(sps: sps, pps: pps) else { return nil }
     var avc1P = Data()
     avc1P.append(Data(count: 6))  // reserved
     Self.putU16BE(&avc1P, 1)  // data_reference_index
@@ -864,11 +869,11 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
     return stts + stsc + stsz + stco
   }
 
-  private static func buildAvcC(sps: Data, pps: Data) -> Data {
+  private static func buildAvcC(sps: Data, pps: Data) -> Data? {
     guard sps.count >= 4 else {
       Logger(subsystem: logSubsystem, category: "fMP4Writer")
         .error("buildAvcC: SPS too short (\(sps.count) bytes), need at least 4")
-      return Data()
+      return nil
     }
     var p = Data()
     p.append(1)  // configurationVersion
