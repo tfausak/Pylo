@@ -1,7 +1,10 @@
 import Foundation
 import os
 
-private let logSubsystem = "me.fausak.taylor.Pylo"
+// Uses the app's bundle identifier when available, falling back to
+// a generic subsystem so the TLV8 package isn't coupled to a specific app.
+private let logSubsystem =
+  Bundle.main.bundleIdentifier ?? "com.github.TLV8"
 
 // MARK: - TLV8 Codec
 // HomeKit Accessory Protocol uses TLV8 (Type-Length-Value, 8-bit) encoding
