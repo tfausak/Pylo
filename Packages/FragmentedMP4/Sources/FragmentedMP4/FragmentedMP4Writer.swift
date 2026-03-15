@@ -225,7 +225,8 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
       }
       _writerState.withLock { state in
         guard state.videoFormatDescription == nil,
-              state.includeAudioTrack == includeAudio else { return }
+          state.includeAudioTrack == includeAudio
+        else { return }
         state.videoFormatDescription = fmt
         state.initSegment = initSeg
       }
