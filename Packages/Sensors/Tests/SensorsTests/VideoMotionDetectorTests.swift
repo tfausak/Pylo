@@ -140,14 +140,84 @@ import Testing
     detector.processPixelBuffer(pb1)
     #expect(motionEvents.isEmpty)
   }
+
+  // MARK: - NV12 format
+
+  @Test func nv12IdenticalFramesDoNotTriggerMotion() {
+    let detector = VideoMotionDetector()
+    var motionEvents: [Bool] = []
+    detector.onMotionChange = { motionEvents.append($0) }
+
+    let pb = makeNV12PixelBuffer(width: 640, height: 480, yValue: 128)!
+    detector.processPixelBuffer(pb)
+    detector.processPixelBuffer(pb)
+
+    #expect(motionEvents.isEmpty)
+  }
+
+  @Test func nv12DifferentFrameTriggersMotion() {
+    let detector = VideoMotionDetector()
+    var motionEvents: [Bool] = []
+    detector.onMotionChange = { motionEvents.append($0) }
+
+    let pb1 = makeNV12PixelBuffer(width: 640, height: 480, yValue: 0)!
+    let pb2 = makeNV12PixelBuffer(width: 640, height: 480, yValue: 255)!
+    detector.processPixelBuffer(pb1)
+    detector.processPixelBuffer(pb2)
+
+    #expect(motionEvents == [true])
+  }
+
+  // MARK: - Larger source dimensions (actual downscaling)
+
+  @Test func largerBGRAFrameTriggersMotion() {
+    let detector = VideoMotionDetector()
+    var motionEvents: [Bool] = []
+    detector.onMotionChange = { motionEvents.append($0) }
+
+    let pb1 = makeBGRAPixelBuffer(width: 1920, height: 1080, gray: 0)!
+    let pb2 = makeBGRAPixelBuffer(width: 1920, height: 1080, gray: 255)!
+    detector.processPixelBuffer(pb1)
+    detector.processPixelBuffer(pb2)
+
+    #expect(motionEvents == [true])
+  }
+
+  @Test func largerBGRAIdenticalFramesNoMotion() {
+    let detector = VideoMotionDetector()
+    var motionEvents: [Bool] = []
+    detector.onMotionChange = { motionEvents.append($0) }
+
+    let pb = makeBGRAPixelBuffer(width: 1920, height: 1080, gray: 128)!
+    detector.processPixelBuffer(pb)
+    detector.processPixelBuffer(pb)
+
+    #expect(motionEvents.isEmpty)
+  }
+
+  @Test func largerNV12FrameTriggersMotion() {
+    let detector = VideoMotionDetector()
+    var motionEvents: [Bool] = []
+    detector.onMotionChange = { motionEvents.append($0) }
+
+    let pb1 = makeNV12PixelBuffer(width: 1280, height: 720, yValue: 0)!
+    let pb2 = makeNV12PixelBuffer(width: 1280, height: 720, yValue: 255)!
+    detector.processPixelBuffer(pb1)
+    detector.processPixelBuffer(pb2)
+
+    #expect(motionEvents == [true])
+  }
 }
 
 // MARK: - Helpers
 
-/// Create a 160×120 BGRA pixel buffer filled with a uniform gray value.
+/// Create a BGRA pixel buffer filled with a uniform gray value.
+/// Defaults to 160×120 (matching thumb dimensions) for basic tests.
 private func makePixelBuffer(gray: UInt8) -> CVPixelBuffer? {
-  let width = 160
-  let height = 120
+  makeBGRAPixelBuffer(width: 160, height: 120, gray: gray)
+}
+
+private func makeBGRAPixelBuffer(width: Int, height: Int, gray: UInt8) -> CVPixelBuffer? {
   var pb: CVPixelBuffer?
   let status = CVPixelBufferCreate(
     kCFAllocatorDefault, width, height,
@@ -169,5 +239,41 @@ private func makePixelBuffer(gray: UInt8) -> CVPixelBuffer? {
       ptr[offset + 3] = 255   // A
     }
   }
+  return pb
+}
+
+/// Create an NV12 (bi-planar YCbCr) pixel buffer with a uniform Y value.
+private func makeNV12PixelBuffer(width: Int, height: Int, yValue: UInt8) -> CVPixelBuffer? {
+  var pb: CVPixelBuffer?
+  let attrs: [String: Any] = [
+    kCVPixelBufferIOSurfacePropertiesKey as String: [:] as [String: Any]
+  ]
+  let status = CVPixelBufferCreate(
+    kCFAllocatorDefault, width, height,
+    kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+    attrs as CFDictionary, &pb)
+  guard status == kCVReturnSuccess, let pb else { return nil }
+
+  CVPixelBufferLockBaseAddress(pb, [])
+  defer { CVPixelBufferUnlockBaseAddress(pb, []) }
+
+  // Fill Y plane
+  guard let yBase = CVPixelBufferGetBaseAddressOfPlane(pb, 0) else { return nil }
+  let yRowBytes = CVPixelBufferGetBytesPerRowOfPlane(pb, 0)
+  let yHeight = CVPixelBufferGetHeightOfPlane(pb, 0)
+  let yPtr = yBase.assumingMemoryBound(to: UInt8.self)
+  for row in 0..<yHeight {
+    memset(yPtr + row * yRowBytes, Int32(yValue), width)
+  }
+
+  // Fill CbCr plane with neutral chroma (128)
+  guard let uvBase = CVPixelBufferGetBaseAddressOfPlane(pb, 1) else { return nil }
+  let uvRowBytes = CVPixelBufferGetBytesPerRowOfPlane(pb, 1)
+  let uvHeight = CVPixelBufferGetHeightOfPlane(pb, 1)
+  let uvPtr = uvBase.assumingMemoryBound(to: UInt8.self)
+  for row in 0..<uvHeight {
+    memset(uvPtr + row * uvRowBytes, 128, width)
+  }
+
   return pb
 }
