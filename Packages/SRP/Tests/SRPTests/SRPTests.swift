@@ -522,6 +522,54 @@ struct SRPDeterministicTests {
     #expect(serverProof == expectedM2, "Server proof M2 must match client computation")
   }
 
+  @Test("Deterministic handshake matches pinned test vector")
+  func pinnedTestVector() {
+    let server = SRPServer(
+      username: "Pair-Setup", password: "111-22-333",
+      fixedSalt: Self.fixedSalt, fixedPrivateKey: Self.fixedServerKey
+    )
+
+    // Pinned expected values — if these change, the SRP math has regressed.
+    let expectedBPrefix = Data([
+      0x44, 0x1A, 0x67, 0xFE, 0x62, 0x44, 0x2E, 0xB7,
+      0x04, 0x35, 0xCA, 0x7C, 0x00, 0x3E, 0x09, 0xD8,
+      0xDC, 0xA7, 0x1B, 0x67, 0x89, 0xFA, 0xDC, 0x90,
+      0x3E, 0xB9, 0x17, 0xBC, 0x4C, 0x2E, 0xBA, 0xC8,
+    ])
+    #expect(
+      Data(server.publicKey.prefix(32)) == expectedBPrefix,
+      "Server public key B must match pinned value")
+
+    guard
+      let client = SRPTestClient.handshake(
+        username: "Pair-Setup", password: "111-22-333",
+        salt: server.salt, serverPublicKey: server.publicKey,
+        fixedPrivateKey: Self.fixedClientKey
+      )
+    else {
+      Issue.record("Client handshake computation failed")
+      return
+    }
+
+    #expect(server.setClientPublicKey(client.clientPublicKey) == true)
+    let serverProof = server.verifyClientProof(client.clientProof)
+    #expect(serverProof != nil, "Pinned handshake should succeed")
+
+    let expectedSessionKey = Data([
+      0xD1, 0x09, 0xA4, 0x70, 0x28, 0x62, 0xD7, 0x74,
+      0x06, 0x62, 0x09, 0x4C, 0x05, 0x81, 0x57, 0x46,
+      0x4E, 0xE3, 0x50, 0xBE, 0xDA, 0x75, 0xA8, 0xF6,
+      0x91, 0x31, 0x53, 0xC3, 0x00, 0x65, 0x81, 0x64,
+      0x82, 0xDE, 0x7E, 0x8F, 0x11, 0x75, 0xF3, 0x8C,
+      0x50, 0x34, 0x40, 0x96, 0xE0, 0x95, 0x18, 0x65,
+      0xAB, 0x56, 0xD5, 0x51, 0xDB, 0x06, 0x19, 0x85,
+      0x29, 0x66, 0x92, 0x42, 0x7A, 0xA3, 0x3D, 0xB6,
+    ])
+    #expect(
+      client.sessionKey == expectedSessionKey,
+      "Session key must match pinned value")
+  }
+
   @Test("Deterministic handshake rejects wrong password")
   func deterministicWrongPassword() {
     let username = "Pair-Setup"
