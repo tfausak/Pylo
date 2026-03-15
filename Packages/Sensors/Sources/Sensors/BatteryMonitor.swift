@@ -108,8 +108,11 @@ import os
         charging = Self.hapNotChargeable
       }
     #elseif os(macOS)
-      let level = max(0, min(100, macOSBatteryLevel() ?? 0))
-      let charging = macOSIsCharging() ? Self.hapCharging : Self.hapNotCharging
+      // Read from a single snapshot so level and charging are consistent.
+      let desc = macOSPowerSourceDescription()
+      let level = max(0, min(100, desc?[kIOPSCurrentCapacityKey] as? Int ?? 0))
+      let isCharging = desc?[kIOPSIsChargingKey] as? Bool ?? false
+      let charging = isCharging ? Self.hapCharging : Self.hapNotCharging
     #else
       let level = 0
       let charging = Self.hapNotChargeable
@@ -132,26 +135,24 @@ import os
   // MARK: - macOS IOKit Power Sources
 
   #if os(macOS)
-    private func macOSBatteryLevel() -> Int? {
+    /// Read the IOKit power source description dictionary for the first source.
+    /// Returns nil on desktops without a battery.
+    private func macOSPowerSourceDescription() -> [String: Any]? {
       guard let snapshot = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
         let sources = IOPSCopyPowerSourcesList(snapshot)?.takeRetainedValue() as? [CFTypeRef],
         let first = sources.first,
         let desc = IOPSGetPowerSourceDescription(snapshot, first)?.takeUnretainedValue()
-          as? [String: Any],
-        let capacity = desc[kIOPSCurrentCapacityKey] as? Int
+          as? [String: Any]
       else { return nil }
-      return capacity
+      return desc
+    }
+
+    private func macOSBatteryLevel() -> Int? {
+      macOSPowerSourceDescription()?[kIOPSCurrentCapacityKey] as? Int
     }
 
     private func macOSIsCharging() -> Bool {
-      guard let snapshot = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
-        let sources = IOPSCopyPowerSourcesList(snapshot)?.takeRetainedValue() as? [CFTypeRef],
-        let first = sources.first,
-        let desc = IOPSGetPowerSourceDescription(snapshot, first)?.takeUnretainedValue()
-          as? [String: Any],
-        let charging = desc[kIOPSIsChargingKey] as? Bool
-      else { return false }
-      return charging
+      macOSPowerSourceDescription()?[kIOPSIsChargingKey] as? Bool ?? false
     }
   #endif
 }
