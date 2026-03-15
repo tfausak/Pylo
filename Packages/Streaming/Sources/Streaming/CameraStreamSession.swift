@@ -13,6 +13,11 @@ import os
 
 /// Holds all state for a single streaming session: addresses, ports, SRTP keys, and the
 /// video capture + RTP pipeline.
+///
+/// `@unchecked Sendable` is required because AVCaptureSession, VTCompressionSession,
+/// AudioConverterRef, AVAudioEngine, and DispatchSourceTimer are not Sendable.
+/// Thread safety is ensured by queue ownership (captureQueue/rtpQueue) and Locked
+/// wrappers for cross-queue state.
 public nonisolated final class CameraStreamSession: @unchecked Sendable {
 
   public let sessionID: Data

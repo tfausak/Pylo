@@ -16,6 +16,10 @@ import os
 /// Runs whenever HKSV recording is armed but no live stream is active. Captures video,
 /// runs motion detection, and encodes H.264 for the fMP4 pre-buffer — but performs no
 /// RTP/SRTP/UDP/audio networking.
+///
+/// `@unchecked Sendable` is required because AVCaptureSession, VTCompressionSession,
+/// and AudioConverterRef are not Sendable. Thread safety is ensured by sessionQueue
+/// (start/stop), captureQueue (frame delivery), and Locked wrappers for cross-queue state.
 public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
 
   /// Optional video motion detector — called every `motionFrameInterval` frames.
