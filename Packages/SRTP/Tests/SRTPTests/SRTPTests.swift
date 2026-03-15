@@ -31,6 +31,20 @@ private func makeRTPPacket(seq: UInt16, ssrc: UInt32, payload: Data) -> Data {
   return pkt
 }
 
+/// Build a minimal RTCP Sender Report: 8-byte header + 20-byte SR body.
+private func makeRTCPPacket(ssrc: UInt32 = 0xDEAD_BEEF) -> Data {
+  var rtcp = Data(count: 28)
+  rtcp[0] = 0x80  // V=2
+  rtcp[1] = 200  // PT=SR
+  rtcp[2] = 0x00
+  rtcp[3] = 0x06  // length
+  rtcp[4] = UInt8((ssrc >> 24) & 0xFF)
+  rtcp[5] = UInt8((ssrc >> 16) & 0xFF)
+  rtcp[6] = UInt8((ssrc >> 8) & 0xFF)
+  rtcp[7] = UInt8(ssrc & 0xFF)
+  return rtcp
+}
+
 // MARK: - AU Header Framing Tests
 
 @Suite("AU Header Framing")
@@ -246,18 +260,7 @@ struct SRTPTests {
   @Test("RTCP protect produces output larger than input")
   func rtcpProtectGrows() throws {
     let ctx = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
-
-    // Minimal RTCP Sender Report: 8-byte header + 20-byte SR body
-    var rtcp = Data(count: 28)
-    rtcp[0] = 0x80  // V=2
-    rtcp[1] = 200  // PT=SR
-    rtcp[2] = 0x00
-    rtcp[3] = 0x06  // length
-    // SSRC at bytes 4-7
-    rtcp[4] = 0xDE
-    rtcp[5] = 0xAD
-    rtcp[6] = 0xBE
-    rtcp[7] = 0xEF
+    let rtcp = makeRTCPPacket()
 
     let srtcp = try #require(ctx.protectRTCP(rtcp))
     // SRTCP adds: E||index (4 bytes) + auth tag (10 bytes) = 14 bytes
@@ -267,16 +270,7 @@ struct SRTPTests {
   @Test("SRTCP output has correct structure: header + encrypted + E||index + tag")
   func srtcpStructure() throws {
     let ctx = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
-
-    var rtcp = Data(count: 28)
-    rtcp[0] = 0x80  // V=2
-    rtcp[1] = 200  // PT=SR
-    rtcp[2] = 0x00
-    rtcp[3] = 0x06
-    rtcp[4] = 0xDE
-    rtcp[5] = 0xAD
-    rtcp[6] = 0xBE
-    rtcp[7] = 0xEF
+    let rtcp = makeRTCPPacket()
 
     let srtcp = try #require(ctx.protectRTCP(rtcp))
 
@@ -559,17 +553,10 @@ struct SRTPThreadSafetyTests {
   func concurrentProtectRTCP() async {
     let ctx = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
 
+    let rtcp = makeRTCPPacket()
     await withTaskGroup(of: Void.self) { group in
       for _ in 0..<100 {
         group.addTask {
-          var rtcp = Data(count: 28)
-          rtcp[0] = 0x80
-          rtcp[1] = 200
-          rtcp[3] = 0x06
-          rtcp[4] = 0xDE
-          rtcp[5] = 0xAD
-          rtcp[6] = 0xBE
-          rtcp[7] = 0xEF
           _ = ctx.protectRTCP(rtcp)
         }
       }
@@ -628,16 +615,7 @@ struct SRTPThreadSafetyTests {
   @Test("SRTCP index wraps at 0x7FFF_FFFF instead of overflowing into E-flag")
   func srtcpIndexWrap() throws {
     let ctx = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
-
-    // Build a minimal RTCP packet
-    var rtcp = Data(count: 28)
-    rtcp[0] = 0x80
-    rtcp[1] = 200
-    rtcp[3] = 0x06
-    rtcp[4] = 0xDE
-    rtcp[5] = 0xAD
-    rtcp[6] = 0xBE
-    rtcp[7] = 0xEF
+    let rtcp = makeRTCPPacket()
 
     // Protect many packets to advance index — just verify it doesn't crash.
     // The real test is that after 0x7FFF_FFFF the index wraps to 0 rather
