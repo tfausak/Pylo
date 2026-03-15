@@ -82,6 +82,12 @@ public enum PairingsHandler {
         logger.warning("Add pairing rejected: key mismatch for existing identifier \(id)")
         return errorResponse(error: .authentication)
       }
+      // Prevent demoting the last admin to non-admin, which would leave
+      // the device with pairings but no admin to manage them.
+      if existing.isAdmin && !isAdmin && server.pairingStore.adminCount <= 1 {
+        logger.warning("Add pairing rejected: cannot demote last admin \(id)")
+        return errorResponse(error: .authentication)
+      }
     }
     server.pairingStore.addPairing(
       PairingStore.Pairing(identifier: id, publicKey: publicKey, isAdmin: isAdmin)
