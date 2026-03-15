@@ -154,6 +154,24 @@ public enum TLV8 {
 
   // MARK: - Encode
 
+  /// Append a single tag+value to `result`, fragmenting values over 255 bytes.
+  /// Shared by both `encode()` and `Builder.add()`.
+  internal static func appendTLV(tag: UInt8, value: Data, to result: inout Data) {
+    if value.isEmpty {
+      result.append(tag)
+      result.append(0)
+      return
+    }
+    var offset = value.startIndex
+    while offset < value.endIndex {
+      let chunkSize = min(255, value.endIndex - offset)
+      result.append(tag)
+      result.append(UInt8(chunkSize))
+      result.append(contentsOf: value[offset..<offset + chunkSize])
+      offset += chunkSize
+    }
+  }
+
   /// Encodes a list of (tag, value) pairs into TLV8 Data.
   /// Values longer than 255 bytes are automatically fragmented.
   public static func encode(_ items: [(Tag, Data)]) -> Data {
@@ -171,23 +189,7 @@ public enum TLV8 {
         continue
       }
 
-      // Zero-length non-separator TLVs are valid in TLV8 encoding.
-      // The chunking loop below would produce no iterations for empty data,
-      // so we handle it explicitly here.
-      if value.isEmpty {
-        result.append(tag.rawValue)
-        result.append(0)
-        continue
-      }
-
-      var offset = value.startIndex
-      while offset < value.endIndex {
-        let chunkSize = min(255, value.endIndex - offset)
-        result.append(tag.rawValue)
-        result.append(UInt8(chunkSize))
-        result.append(contentsOf: value[offset..<offset + chunkSize])
-        offset += chunkSize
-      }
+      appendTLV(tag: tag.rawValue, value: value, to: &result)
     }
 
     return result
@@ -218,19 +220,7 @@ public enum TLV8 {
     }
 
     public mutating func add(_ tag: UInt8, _ value: Data) {
-      var offset = value.startIndex
-      if value.isEmpty {
-        data.append(tag)
-        data.append(0)
-      } else {
-        while offset < value.endIndex {
-          let chunkSize = min(255, value.endIndex - offset)
-          data.append(tag)
-          data.append(UInt8(chunkSize))
-          data.append(contentsOf: value[offset..<offset + chunkSize])
-          offset += chunkSize
-        }
-      }
+      TLV8.appendTLV(tag: tag, value: value, to: &data)
     }
 
     public mutating func add(_ tag: UInt8, byte: UInt8) {
