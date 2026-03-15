@@ -167,10 +167,8 @@ public enum TLV8 {
       }
 
       // Zero-length non-separator TLVs are valid in TLV8 encoding.
-      // No special handling needed — the loop below handles it correctly
-      // (min(255, 0) produces no iterations, so we fall through to append
-      // tag + 0x00 via the isEmpty path in the Builder, but here we need
-      // an explicit empty entry since the loop won't execute).
+      // The chunking loop below would produce no iterations for empty data,
+      // so we handle it explicitly here.
       if value.isEmpty {
         result.append(tag.rawValue)
         result.append(0)

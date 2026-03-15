@@ -27,6 +27,18 @@ struct TLV8Tests {
     #expect(data == Data([0xFF, 0x00]))
   }
 
+  @Test("Encode zero-length non-separator value")
+  func encodeZeroLengthNonSeparator() {
+    let data = TLV8.encode(.state, Data())
+    #expect(data == Data([0x06, 0x00]))
+
+    // Roundtrips correctly
+    let decoded: [(UInt8, Data)] = TLV8.decode(data)
+    #expect(decoded.count == 1)
+    #expect(decoded[0].0 == 0x06)
+    #expect(decoded[0].1.isEmpty)
+  }
+
   @Test("Encode multiple items")
   func encodeMultipleItems() {
     let data = TLV8.encode([
