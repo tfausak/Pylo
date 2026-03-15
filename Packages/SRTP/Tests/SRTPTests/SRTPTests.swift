@@ -300,6 +300,39 @@ struct SRTPTests {
     #expect(result == nil)
   }
 
+  @Test("Packets with CSRC (CC > 0) are rejected by protect")
+  func protectRejectsCSRC() {
+    let ctx = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+    var pkt = Self.makeRTPPacket(seq: 1, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0x42, count: 20))
+    pkt[0] = 0x81  // V=2, CC=1
+    #expect(ctx.protect(pkt) == nil)
+  }
+
+  @Test("Packets with header extension (X bit) are rejected by protect")
+  func protectRejectsExtension() {
+    let ctx = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+    var pkt = Self.makeRTPPacket(seq: 1, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0x42, count: 20))
+    pkt[0] = 0x90  // V=2, X=1
+    #expect(ctx.protect(pkt) == nil)
+  }
+
+  @Test("Packets with CSRC (CC > 0) are rejected by unprotect")
+  func unprotectRejectsCSRC() {
+    let ctx = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+    // Build a minimal SRTP-sized packet with CC=1
+    var pkt = Data(repeating: 0x00, count: 32)
+    pkt[0] = 0x81  // V=2, CC=1
+    #expect(ctx.unprotect(pkt) == nil)
+  }
+
+  @Test("Packets with header extension (X bit) are rejected by unprotect")
+  func unprotectRejectsExtension() {
+    let ctx = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+    var pkt = Data(repeating: 0x00, count: 32)
+    pkt[0] = 0x90  // V=2, X=1
+    #expect(ctx.unprotect(pkt) == nil)
+  }
+
   @Test("Sequence number rollover across ROC boundary")
   func sequenceRollover() throws {
     let sender = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)

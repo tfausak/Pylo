@@ -121,10 +121,13 @@ public final class SRTPContext: @unchecked Sendable {
   public func protect(_ rtpPacket: Data) -> Data? {
     guard rtpPacket.count >= 12 else { return nil }
 
-    // Fixed 12-byte header: HomeKit RTP streams always use CC=0 (no CSRC)
-    // and no header extensions. If CSRC or extensions were present, the header
-    // would be larger and this offset would need to account for them per
-    // RFC 3711 §3.1 (encrypt only the payload, not the full header).
+    let firstByte = rtpPacket[rtpPacket.startIndex]
+    // Reject packets with CSRC entries (CC != 0) or header extensions (X bit).
+    // This implementation assumes a fixed 12-byte header (HomeKit always uses
+    // CC=0, no extensions). Packets with additional header fields would be
+    // silently mis-encrypted if we didn't reject them here.
+    guard firstByte & 0x0F == 0, firstByte & 0x10 == 0 else { return nil }
+
     let headerEnd = rtpPacket.startIndex + 12
 
     // Read SSRC and sequence number directly from the input slice
@@ -179,6 +182,9 @@ public final class SRTPContext: @unchecked Sendable {
   public func unprotect(_ srtpPacket: Data) -> Data? {
     // SRTP = RTP header (12+) || encrypted payload || auth tag (10 bytes)
     guard srtpPacket.count >= 22 else { return nil }  // 12 header + 0 payload + 10 tag
+
+    let firstByte = srtpPacket[srtpPacket.startIndex]
+    guard firstByte & 0x0F == 0, firstByte & 0x10 == 0 else { return nil }
 
     let tagStart = srtpPacket.startIndex + srtpPacket.count - 10
 
