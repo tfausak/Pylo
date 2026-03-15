@@ -20,13 +20,17 @@ public final class Locked<State>: @unchecked Sendable {
     _buffer.deallocate()
   }
 
-  public func withLock<R>(_ body: (inout State) throws -> R) rethrows -> R {
+  public func withLock<R: Sendable>(
+    _ body: @Sendable (inout State) throws -> R
+  ) rethrows -> R {
     os_unfair_lock_lock(&_buffer.pointee.lock)
     defer { os_unfair_lock_unlock(&_buffer.pointee.lock) }
     return try body(&_buffer.pointee.state)
   }
 
   public func withLockUnchecked<R>(_ body: (inout State) throws -> R) rethrows -> R {
-    try withLock(body)
+    os_unfair_lock_lock(&_buffer.pointee.lock)
+    defer { os_unfair_lock_unlock(&_buffer.pointee.lock) }
+    return try body(&_buffer.pointee.state)
   }
 }

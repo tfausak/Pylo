@@ -379,8 +379,8 @@ public final class HAPSirenAccessory: HAPAccessoryProtocol, @unchecked Sendable 
   /// The app wires this to start/stop the siren player.
   private let _onSirenActivate = Locked<((Bool) -> Void)?>(initialState: nil)
   public var onSirenActivate: ((Bool) -> Void)? {
-    get { _onSirenActivate.withLock { $0 } }
-    set { _onSirenActivate.withLock { $0 = newValue } }
+    get { _onSirenActivate.withLockUnchecked { $0 } }
+    set { _onSirenActivate.withLockUnchecked { $0 = newValue } }
   }
 
   private let _isOn = Locked(initialState: false)

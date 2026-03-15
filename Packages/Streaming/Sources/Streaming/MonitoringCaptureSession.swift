@@ -22,8 +22,8 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   /// Protected: written from server queue, read from captureQueue.
   private let _videoMotionDetector = Locked<VideoMotionDetector?>(initialState: nil)
   public var videoMotionDetector: VideoMotionDetector? {
-    get { _videoMotionDetector.withLock { $0 } }
-    set { _videoMotionDetector.withLock { $0 = newValue } }
+    get { _videoMotionDetector.withLockUnchecked { $0 } }
+    set { _videoMotionDetector.withLockUnchecked { $0 = newValue } }
   }
 
   /// Optional ambient light detector — called every `luxFrameInterval` frames.
@@ -31,24 +31,24 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   private let _ambientLightDetector = Locked<AmbientLightDetector?>(
     initialState: nil)
   public var ambientLightDetector: AmbientLightDetector? {
-    get { _ambientLightDetector.withLock { $0 } }
-    set { _ambientLightDetector.withLock { $0 = newValue } }
+    get { _ambientLightDetector.withLockUnchecked { $0 } }
+    set { _ambientLightDetector.withLockUnchecked { $0 = newValue } }
   }
 
   /// Optional occupancy sensor — called every `occupancyFrameInterval` frames.
   /// Protected: written from server queue, read from captureQueue.
   private let _occupancySensor = Locked<OccupancySensor?>(initialState: nil)
   public var occupancySensor: OccupancySensor? {
-    get { _occupancySensor.withLock { $0 } }
-    set { _occupancySensor.withLock { $0 = newValue } }
+    get { _occupancySensor.withLockUnchecked { $0 } }
+    set { _occupancySensor.withLockUnchecked { $0 = newValue } }
   }
 
   /// Optional fMP4 writer for HKSV recording — feeds encoded H.264 samples.
   /// Protected: written from server queue, read from VT output handler and start/stop.
   private let _fragmentWriter = Locked<FragmentedMP4Writer?>(initialState: nil)
   public var fragmentWriter: FragmentedMP4Writer? {
-    get { _fragmentWriter.withLock { $0 } }
-    set { _fragmentWriter.withLock { $0 = newValue } }
+    get { _fragmentWriter.withLockUnchecked { $0 } }
+    set { _fragmentWriter.withLockUnchecked { $0 = newValue } }
   }
 
   /// Whether the hub has enabled audio recording (recordingAudioActive == 1).
@@ -103,8 +103,8 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   private let _snapshotCallback = Locked<((CVPixelBuffer) -> Void)?>(
     initialState: nil)
   public var snapshotCallback: ((CVPixelBuffer) -> Void)? {
-    get { _snapshotCallback.withLock { $0 } }
-    set { _snapshotCallback.withLock { $0 = newValue } }
+    get { _snapshotCallback.withLockUnchecked { $0 } }
+    set { _snapshotCallback.withLockUnchecked { $0 = newValue } }
   }
 
   public init() {
@@ -143,8 +143,8 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   public let mState = Locked(initialState: State())
 
   private var captureSession: AVCaptureSession? {
-    get { mState.withLock { $0.captureSession } }
-    set { mState.withLock { $0.captureSession = newValue } }
+    get { mState.withLockUnchecked { $0.captureSession } }
+    set { mState.withLockUnchecked { $0.captureSession = newValue } }
   }
 
   private var compressionSession: VTCompressionSession? {
@@ -159,7 +159,7 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     // Note: the session stored here acts as a sentinel until configuration completes.
     // This is safe because start/stop/handoff are called sequentially from the HAP
     // server's accessory management path — no concurrent handoff() can race here.
-    let alreadyRunning = mState.withLock { (state: inout State) -> Bool in
+    let alreadyRunning = mState.withLockUnchecked { (state: inout State) -> Bool in
       if state.captureSession != nil { return true }
       state.captureSession = existingSession ?? AVCaptureSession()  // sentinel (or reuse)
       return false
@@ -184,7 +184,7 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       camera.unlockForConfiguration()
     } catch {
       logger.error("Camera config error: \(error)")
-      mState.withLock { $0.captureSession = nil }
+      mState.withLockUnchecked { $0.captureSession = nil }
       return
     }
 
@@ -245,7 +245,7 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       } else {
         logger.error("Failed to add monitoring video output to reused capture session")
         session.commitConfiguration()
-        mState.withLock { $0.captureSession = nil }
+        mState.withLockUnchecked { $0.captureSession = nil }
         return
       }
 
@@ -268,7 +268,7 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
         audioOut.setSampleBufferDelegate(audioDelegate, queue: captureQueue)
         if session.canAddOutput(audioOut) {
           session.addOutput(audioOut)
-          mState.withLock { $0.audioCaptureDelegate = audioDelegate }
+          mState.withLockUnchecked { $0.audioCaptureDelegate = audioDelegate }
           if let converter = createAACELDEncoder() {
             mState.withLockUnchecked {
               $0.audioConverter = converter
@@ -303,7 +303,7 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
         if session.canAddInput(input) { session.addInput(input) }
       } catch {
         logger.error("Camera input error: \(error)")
-        mState.withLock { $0.captureSession = nil }
+        mState.withLockUnchecked { $0.captureSession = nil }
         return
       }
 
@@ -312,7 +312,7 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       } else {
         logger.error(
           "Unable to add video output to monitoring capture session; aborting cold start")
-        mState.withLock { $0.captureSession = nil }
+        mState.withLockUnchecked { $0.captureSession = nil }
         return
       }
 
@@ -329,7 +329,7 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
         audioOut.setSampleBufferDelegate(audioDelegate, queue: captureQueue)
         if session.canAddOutput(audioOut) {
           session.addOutput(audioOut)
-          mState.withLock { $0.audioCaptureDelegate = audioDelegate }
+          mState.withLockUnchecked { $0.audioCaptureDelegate = audioDelegate }
 
           // Create AAC-ELD encoder
           if let converter = createAACELDEncoder() {
@@ -379,7 +379,7 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
         logger.info("Monitoring capture start aborted (stop() called concurrently)")
         return
       }
-      mState.withLock { $0.videoCaptureDelegate = delegate }
+      mState.withLockUnchecked { $0.videoCaptureDelegate = delegate }
 
       captureQueue.sync { [self] in
         encodeFrameCount = 0
@@ -409,7 +409,7 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     else {
       // Release the retained box since no compression session was created.
       Unmanaged<RefconBox>.fromOpaque(refcon).release()
-      mState.withLock { $0.captureSession = nil }
+      mState.withLockUnchecked { $0.captureSession = nil }
       return
     }
 
@@ -427,7 +427,7 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       logger.info("Monitoring capture start aborted (stop() called concurrently)")
       return
     }
-    mState.withLock {
+    mState.withLockUnchecked {
       $0.videoCaptureDelegate = delegate
     }
     fragmentWriter?.includeAudioTrack = audioReady
@@ -491,7 +491,7 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       AudioConverterDispose(ac)
     }
 
-    mState.withLock {
+    mState.withLockUnchecked {
       $0.videoCaptureDelegate = nil
       $0.audioCaptureDelegate = nil
     }
@@ -543,7 +543,7 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       AudioConverterDispose(ac)
     }
 
-    mState.withLock {
+    mState.withLockUnchecked {
       $0.videoCaptureDelegate = nil
       $0.audioCaptureDelegate = nil
     }

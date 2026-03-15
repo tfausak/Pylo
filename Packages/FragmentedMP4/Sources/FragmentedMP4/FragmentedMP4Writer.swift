@@ -107,8 +107,8 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
   }
   private let _onFragmentReady = Locked<CallbackBox>(initialState: CallbackBox())
   public var onFragmentReady: ((MP4Fragment) -> Void)? {
-    get { _onFragmentReady.withLock { $0.handler } }
-    set { _onFragmentReady.withLock { $0.handler = newValue } }
+    get { _onFragmentReady.withLockUnchecked { $0.handler } }
+    set { _onFragmentReady.withLockUnchecked { $0.handler = newValue } }
   }
 
   private let logger = Logger(subsystem: logSubsystem, category: "fMP4Writer")

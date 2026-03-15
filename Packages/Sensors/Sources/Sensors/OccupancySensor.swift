@@ -12,8 +12,8 @@ public nonisolated final class OccupancySensor: @unchecked Sendable {
 
   private let _onOccupancyChange = Locked<((Bool) -> Void)?>(initialState: nil)
   public var onOccupancyChange: ((Bool) -> Void)? {
-    get { _onOccupancyChange.withLock { $0 } }
-    set { _onOccupancyChange.withLock { $0 = newValue } }
+    get { _onOccupancyChange.withLockUnchecked { $0 } }
+    set { _onOccupancyChange.withLockUnchecked { $0 = newValue } }
   }
 
   /// Seconds to stay "occupied" after last person detection before clearing.
@@ -140,7 +140,7 @@ public nonisolated final class OccupancySensor: @unchecked Sendable {
     timer.setEventHandler { [weak self] in
       guard let self else { return }
       var remainingDelay: TimeInterval?
-      let shouldClear = self.state.withLock { s -> Bool in
+      let shouldClear = self.state.withLockUnchecked { s -> Bool in
         guard s.isOccupied else { return false }
         let elapsed = Date().timeIntervalSince(s.lastDetectionDate)
         if elapsed >= s.cooldown {
@@ -154,23 +154,23 @@ public nonisolated final class OccupancySensor: @unchecked Sendable {
       if shouldClear {
         self.logger.debug("[occupancy] cooldown timer fired, clearing occupancy")
         self.onOccupancyChange?(false)
-        self._cooldownTimer.withLock { $0 = nil }
+        self._cooldownTimer.withLockUnchecked { $0 = nil }
       } else if let delay = remainingDelay {
         self.logger.debug(
           "[occupancy] cooldown not yet elapsed, rescheduling in \(delay, privacy: .public)s")
         self.scheduleCooldownTimer(delay: delay)
       } else {
-        self._cooldownTimer.withLock { $0 = nil }
+        self._cooldownTimer.withLockUnchecked { $0 = nil }
       }
     }
     // Resume before storing so the timer is never in a suspended+visible state
     // where another thread could cancel it while suspended (which would crash).
     timer.resume()
-    _cooldownTimer.withLock { $0 = timer }
+    _cooldownTimer.withLockUnchecked { $0 = timer }
   }
 
   private func cancelCooldownTimer() {
-    _cooldownTimer.withLock { timer in
+    _cooldownTimer.withLockUnchecked { timer in
       timer?.cancel()
       timer = nil
     }

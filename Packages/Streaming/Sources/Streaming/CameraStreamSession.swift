@@ -91,16 +91,16 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
   /// Protected by a lock: written from the server queue, read from captureQueue.
   private let _videoMotionDetector = Locked<VideoMotionDetector?>(initialState: nil)
   public var videoMotionDetector: VideoMotionDetector? {
-    get { _videoMotionDetector.withLock { $0 } }
-    set { _videoMotionDetector.withLock { $0 = newValue } }
+    get { _videoMotionDetector.withLockUnchecked { $0 } }
+    set { _videoMotionDetector.withLockUnchecked { $0 = newValue } }
   }
 
   /// Optional ambient light detector — called every `luxFrameInterval` frames.
   private let _ambientLightDetector = Locked<AmbientLightDetector?>(
     initialState: nil)
   public var ambientLightDetector: AmbientLightDetector? {
-    get { _ambientLightDetector.withLock { $0 } }
-    set { _ambientLightDetector.withLock { $0 = newValue } }
+    get { _ambientLightDetector.withLockUnchecked { $0 } }
+    set { _ambientLightDetector.withLockUnchecked { $0 = newValue } }
   }
 
   // Audio flags — written from the server queue, read from captureQueue/rtpQueue.
@@ -113,7 +113,7 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
   private let audioFlags = Locked(initialState: AudioFlags())
 
   // Audio RTP stats — written on captureQueue, read on rtpQueue for RTCP SR.
-  public struct AudioRTPStats {
+  public struct AudioRTPStats: Sendable {
     var timestamp: UInt32 = 0
     var packetsSent: Int = 0
     var octetsSent: Int = 0

@@ -15,8 +15,8 @@ public nonisolated final class MotionMonitor: @unchecked Sendable {
   /// Protected by a lock: written from @MainActor, read from motionQueue.
   private let _onMotionChange = Locked<((Bool) -> Void)?>(initialState: nil)
   public var onMotionChange: ((Bool) -> Void)? {
-    get { _onMotionChange.withLock { $0 } }
-    set { _onMotionChange.withLock { $0 = newValue } }
+    get { _onMotionChange.withLockUnchecked { $0 } }
+    set { _onMotionChange.withLockUnchecked { $0 = newValue } }
   }
 
   /// Whether the device has an accelerometer.

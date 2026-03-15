@@ -10,20 +10,20 @@ public nonisolated final class VideoMotionDetector {
 
   private let _onMotionChange = Locked<((Bool) -> Void)?>(initialState: nil)
   public var onMotionChange: ((Bool) -> Void)? {
-    get { _onMotionChange.withLock { $0 } }
-    set { _onMotionChange.withLock { $0 = newValue } }
+    get { _onMotionChange.withLockUnchecked { $0 } }
+    set { _onMotionChange.withLockUnchecked { $0 = newValue } }
   }
 
   /// Fraction of pixels that must differ to trigger motion (0.0–1.0).
   public var threshold: Float {
-    get { state.withLock { $0.threshold } }
-    set { state.withLock { $0.threshold = newValue } }
+    get { state.withLockUnchecked { $0.threshold } }
+    set { state.withLockUnchecked { $0.threshold = newValue } }
   }
 
   /// Seconds of calm required before reporting no motion.
   public var cooldown: TimeInterval {
-    get { state.withLock { $0.cooldown } }
-    set { state.withLock { $0.cooldown = newValue } }
+    get { state.withLockUnchecked { $0.cooldown } }
+    set { state.withLockUnchecked { $0.cooldown = newValue } }
   }
 
   private let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "VideoMotion")
@@ -76,7 +76,7 @@ public nonisolated final class VideoMotionDetector {
     // Swap scratchGray with previousFrame — after the first two calls, the two
     // arrays alternate between scratchGray and state.previousFrame with no
     // heap allocations.
-    let previous = state.withLock { s -> [UInt8]? in
+    let previous = state.withLockUnchecked { s -> [UInt8]? in
       let prev = s.previousFrame
       s.previousFrame = scratchGray
       return prev
@@ -92,7 +92,7 @@ public nonisolated final class VideoMotionDetector {
     scratchGray = previous
 
     if changeRatio > threshold {
-      let shouldNotify = state.withLock { state in
+      let shouldNotify = state.withLockUnchecked { state in
         state.lastMotionDate = Date()
         if !state.isMotionDetected {
           state.isMotionDetected = true
@@ -107,7 +107,7 @@ public nonisolated final class VideoMotionDetector {
         onMotionChange?(true)
       }
     } else {
-      let elapsed: TimeInterval? = state.withLock { state in
+      let elapsed: TimeInterval? = state.withLockUnchecked { state in
         guard state.isMotionDetected else { return nil }
         let elapsed = Date().timeIntervalSince(state.lastMotionDate)
         if elapsed >= state.cooldown {
@@ -127,7 +127,7 @@ public nonisolated final class VideoMotionDetector {
 
   /// Reset state (call when stopping detection).
   public func reset() {
-    state.withLock { state in
+    state.withLockUnchecked { state in
       state.previousFrame = nil
       state.isMotionDetected = false
       state.lastMotionDate = .distantPast
