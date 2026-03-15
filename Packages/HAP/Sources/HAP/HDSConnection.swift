@@ -21,6 +21,13 @@ public final class HDSConnection: @unchecked Sendable {
   // Encryption keys — set once in setupEncryption (on queue), then read-only.
   private var readKey: SymmetricKey?
   private var writeKey: SymmetricKey?
+
+  /// Whether encryption has been configured via setupEncryption().
+  /// Used by HAPDataStream's orphaned-connection watchdog (HAP queue) and
+  /// setupTransport (HAP queue) to distinguish "keys never arrived" from
+  /// "keys were applied". Protected by Locked since it's read cross-queue.
+  private let _isEncrypted = Locked(initialState: false)
+  public var isEncrypted: Bool { _isEncrypted.withLock { $0 } }
   private let nonces = Locked(initialState: (read: UInt64(0), write: UInt64(0)))
 
   /// The fragment writer to serve video from.
@@ -50,8 +57,10 @@ public final class HDSConnection: @unchecked Sendable {
   /// Configure encryption keys. Must be called on `queue` before `start()`.
   public func setupEncryption(readKey: SymmetricKey, writeKey: SymmetricKey) {
     dispatchPrecondition(condition: .onQueue(queue))
+    precondition(!isEncrypted, "setupEncryption called twice on the same HDSConnection")
     self.readKey = readKey
     self.writeKey = writeKey
+    _isEncrypted.withLock { $0 = true }
   }
 
   public func start() {
@@ -109,7 +118,7 @@ public final class HDSConnection: @unchecked Sendable {
       // Cap at 512 KB to prevent memory exhaustion from malformed frames.
       // Real HDS frames (fMP4 fragments) are well under this limit.
       guard payloadLen > 0, payloadLen <= 512_000 else {
-        self.logger.error("HDS frame too large (\(payloadLen) bytes), disconnecting")
+        self.logger.error("HDS invalid frame size (\(payloadLen) bytes), disconnecting")
         self.cancel()
         return
       }
@@ -118,7 +127,10 @@ public final class HDSConnection: @unchecked Sendable {
 
       self.connection.receive(
         minimumIncompleteLength: totalRead, maximumLength: totalRead
-      ) { [weak self] payload, _, isPayloadComplete, error in
+      ) { [weak self] payload, _, _, error in
+        // isPayloadComplete is intentionally ignored — we always loop via
+        // receiveFrame() after handling the payload, and partial-close is
+        // handled by the nil/short-data guard below.
         guard let self else { return }
 
         if let error {

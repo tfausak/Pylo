@@ -13,6 +13,11 @@ import os
 
 /// Holds all state for a single streaming session: addresses, ports, SRTP keys, and the
 /// video capture + RTP pipeline.
+///
+/// `@unchecked Sendable` is required because AVCaptureSession, VTCompressionSession,
+/// AudioConverterRef, AVAudioEngine, and DispatchSourceTimer are not Sendable.
+/// Thread safety is ensured by queue ownership (captureQueue/rtpQueue) and Locked
+/// wrappers for cross-queue state.
 public nonisolated final class CameraStreamSession: @unchecked Sendable {
 
   public let sessionID: Data
@@ -33,15 +38,18 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
   public let videoSSRC: UInt32
   public let audioSSRC: UInt32
 
-  public let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "CameraStream")
+  public let logger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "Streaming", category: "CameraStream")
 
   // Video pipeline
   private var captureSession: AVCaptureSession?
   private var interruptionObservers: [NSObjectProtocol] = []
   private var videoOutput: AVCaptureVideoDataOutput?
   private var compressionSession: VTCompressionSession?
-  public let captureQueue = DispatchQueue(label: "\(Bundle.main.bundleIdentifier!).camera.capture")
-  public let rtpQueue = DispatchQueue(label: "\(Bundle.main.bundleIdentifier!).camera.rtp")
+  public let captureQueue = DispatchQueue(
+    label: "\(Bundle.main.bundleIdentifier ?? "Streaming").camera.capture")
+  public let rtpQueue = DispatchQueue(
+    label: "\(Bundle.main.bundleIdentifier ?? "Streaming").camera.rtp")
 
   // Video UDP — BSD socket (immune to ICMP route-poisoning that kills NWConnection)
   private var videoSocketFD: Int32 = -1
@@ -91,16 +99,16 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
   /// Protected by a lock: written from the server queue, read from captureQueue.
   private let _videoMotionDetector = Locked<VideoMotionDetector?>(initialState: nil)
   public var videoMotionDetector: VideoMotionDetector? {
-    get { _videoMotionDetector.withLock { $0 } }
-    set { _videoMotionDetector.withLock { $0 = newValue } }
+    get { _videoMotionDetector.withLockUnchecked { $0 } }
+    set { _videoMotionDetector.withLockUnchecked { $0 = newValue } }
   }
 
   /// Optional ambient light detector — called every `luxFrameInterval` frames.
   private let _ambientLightDetector = Locked<AmbientLightDetector?>(
     initialState: nil)
   public var ambientLightDetector: AmbientLightDetector? {
-    get { _ambientLightDetector.withLock { $0 } }
-    set { _ambientLightDetector.withLock { $0 = newValue } }
+    get { _ambientLightDetector.withLockUnchecked { $0 } }
+    set { _ambientLightDetector.withLockUnchecked { $0 = newValue } }
   }
 
   // Audio flags — written from the server queue, read from captureQueue/rtpQueue.
@@ -113,7 +121,7 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
   private let audioFlags = Locked(initialState: AudioFlags())
 
   // Audio RTP stats — written on captureQueue, read on rtpQueue for RTCP SR.
-  public struct AudioRTPStats {
+  public struct AudioRTPStats: Sendable {
     var timestamp: UInt32 = 0
     var packetsSent: Int = 0
     var octetsSent: Int = 0
@@ -873,7 +881,10 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
         return
       }
       guard let sampleBuffer else { return }
-      // CMSampleBuffer is immutable after creation and safe to send across threads.
+      // CMSampleBuffer is a CFType (refcounted, immutable after creation). The
+      // closure below retains it, so it stays alive until the async block completes.
+      // nonisolated(unsafe) suppresses the Sendable warning — a Sendable wrapper
+      // would add overhead with no safety benefit since the buffer is only read.
       nonisolated(unsafe) let buffer = sampleBuffer
       session.rtpQueue.async {
         session.processEncodedFrame(buffer)
@@ -988,18 +999,19 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
       let nalHeader = nal[nal.startIndex]
       let nri = nalHeader & 0x60  // NRI bits
       let nalType = nalHeader & 0x1F  // NAL unit type
+      let fuIndicator: UInt8 = nri | 28  // Type 28 = FU-A
 
-      var offset = 1  // Skip original NAL header
-      let nalBody = nal.dropFirst()
-      let total = nalBody.count
+      // bodyStart/bodyEnd define the NAL body (everything after the header byte).
+      let bodyStart = nal.startIndex + 1
+      let bodyEnd = nal.endIndex
+      var pos = bodyStart
 
-      while offset - 1 < total {
-        let remaining = total - (offset - 1)
+      while pos < bodyEnd {
+        let remaining = bodyEnd - pos
         let chunkSize = min(maxPayload - 2, remaining)  // -2 for FU indicator + FU header
-        let isFirst = (offset == 1)
+        let isFirst = (pos == bodyStart)
         let isLast = (chunkSize == remaining)
 
-        let fuIndicator: UInt8 = nri | 28  // Type 28 = FU-A
         var fuHeader: UInt8 = nalType
         if isFirst { fuHeader |= 0x80 }  // Start bit
         if isLast { fuHeader |= 0x40 }  // End bit
@@ -1007,10 +1019,10 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
         writeRTPHeader(marker: isLast && marker, payloadSize: 2 + chunkSize)
         rtpBuffer.append(fuIndicator)
         rtpBuffer.append(fuHeader)
-        rtpBuffer.append(nal[(nal.startIndex + offset)..<(nal.startIndex + offset + chunkSize)])
+        rtpBuffer.append(nal[pos..<pos + chunkSize])
         encryptAndSendVideo(payloadSize: 2 + chunkSize)
 
-        offset += chunkSize
+        pos += chunkSize
       }
     }
   }
@@ -1024,24 +1036,26 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
   /// Write the 12-byte RTP header into rtpBuffer and advance the sequence number.
   private func writeRTPHeader(marker: Bool, payloadSize: Int) {
     dispatchPrecondition(condition: .onQueue(rtpQueue))
-    rtpBuffer.count = 0
-    rtpBuffer.reserveCapacity(12 + payloadSize)
-
-    // RTP header (12 bytes) per RFC 3550
-    rtpBuffer.append(0x80)  // V=2, P=0, X=0, CC=0
-    rtpBuffer.append((marker ? 0x80 : 0x00) | (rtpPayloadType & 0x7F))  // M bit + dynamic PT
-    rtpBuffer.append(UInt8(sequenceNumber >> 8))
-    rtpBuffer.append(UInt8(sequenceNumber & 0xFF))
-    rtpBuffer.append(UInt8((rtpTimestamp >> 24) & 0xFF))
-    rtpBuffer.append(UInt8((rtpTimestamp >> 16) & 0xFF))
-    rtpBuffer.append(UInt8((rtpTimestamp >> 8) & 0xFF))
-    rtpBuffer.append(UInt8(rtpTimestamp & 0xFF))
-    rtpBuffer.append(UInt8((videoSSRC >> 24) & 0xFF))
-    rtpBuffer.append(UInt8((videoSSRC >> 16) & 0xFF))
-    rtpBuffer.append(UInt8((videoSSRC >> 8) & 0xFF))
-    rtpBuffer.append(UInt8(videoSSRC & 0xFF))
-
+    Self.writeRTPHeader(
+      into: &rtpBuffer, marker: marker, payloadType: rtpPayloadType,
+      sequenceNumber: sequenceNumber, timestamp: rtpTimestamp, ssrc: videoSSRC,
+      payloadSize: payloadSize)
     sequenceNumber &+= 1
+  }
+
+  /// Write a 12-byte RTP header (RFC 3550) into the given buffer, resetting and reserving space.
+  nonisolated static func writeRTPHeader(
+    into buffer: inout Data, marker: Bool, payloadType: UInt8,
+    sequenceNumber: UInt16, timestamp: UInt32, ssrc: UInt32,
+    payloadSize: Int
+  ) {
+    buffer.count = 0
+    buffer.reserveCapacity(12 + payloadSize)
+    buffer.append(0x80)  // V=2, P=0, X=0, CC=0
+    buffer.append((marker ? 0x80 : 0x00) | (payloadType & 0x7F))
+    buffer.appendBigEndian(sequenceNumber)
+    buffer.appendBigEndian(timestamp)
+    buffer.appendBigEndian(ssrc)
   }
 
   /// Encrypt rtpBuffer with SRTP and send via UDP socket.
@@ -1062,12 +1076,16 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
   /// Send data via the BSD video socket to the controller's video port.
   private func sendVideoUDP(_ data: Data) {
     guard videoSocketFD >= 0, var addr = controllerVideoAddr else { return }
+    Self.sendUDP(data, fd: videoSocketFD, addr: &addr)
+  }
+
+  /// Send a UDP datagram via a BSD socket to the given address.
+  nonisolated static func sendUDP(_ data: Data, fd: Int32, addr: inout sockaddr_in) {
     data.withUnsafeBytes { buf in
       guard let base = buf.baseAddress else { return }
       withUnsafePointer(to: &addr) { addrPtr in
         addrPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
-          _ = sendto(
-            videoSocketFD, base, buf.count, 0, sockPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
+          _ = sendto(fd, base, buf.count, 0, sockPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
         }
       }
     }

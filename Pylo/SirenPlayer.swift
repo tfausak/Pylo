@@ -7,11 +7,11 @@ import os
 nonisolated final class SirenPlayer: @unchecked Sendable {
 
   var onActiveChange: ((Bool) -> Void)? {
-    get { _onActiveChange.withLock { $0 } }
-    set { _onActiveChange.withLock { $0 = newValue } }
+    get { _onActiveChange.withLockUnchecked { $0 } }
+    set { _onActiveChange.withLockUnchecked { $0 = newValue } }
   }
 
-  var isPlaying: Bool { _state.withLock { $0.isPlaying } }
+  var isPlaying: Bool { _state.withLockUnchecked { $0.isPlaying } }
 
   private let _onActiveChange = Locked<((Bool) -> Void)?>(initialState: nil)
   private let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "SirenPlayer")
@@ -36,7 +36,7 @@ nonisolated final class SirenPlayer: @unchecked Sendable {
 
   func start() {
     audioQueue.async { [self] in
-      guard !_state.withLock({ $0.isPlaying }) else { return }
+      guard !_state.withLockUnchecked({ $0.isPlaying }) else { return }
 
       let engine = AVAudioEngine()
       let sampleRate = Float(engine.outputNode.outputFormat(forBus: 0).sampleRate)
@@ -109,7 +109,7 @@ nonisolated final class SirenPlayer: @unchecked Sendable {
         return
       }
 
-      _state.withLock {
+      _state.withLockUnchecked {
         $0.engine = engine
         $0.sourceNode = sourceNode
         $0.phases = phases
@@ -122,9 +122,9 @@ nonisolated final class SirenPlayer: @unchecked Sendable {
 
   func stop() {
     audioQueue.async { [self] in
-      guard _state.withLock({ $0.isPlaying }) else { return }
+      guard _state.withLockUnchecked({ $0.isPlaying }) else { return }
 
-      let (engine, sourceNode, phases) = _state.withLock {
+      let (engine, sourceNode, phases) = _state.withLockUnchecked {
         state -> (AVAudioEngine?, AVAudioSourceNode?, UnsafeMutablePointer<Float>?) in
         let e = state.engine
         let s = state.sourceNode

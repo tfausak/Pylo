@@ -18,10 +18,20 @@ import os
   /// Whether the device reports a valid battery level (false on desktops without battery).
   public private(set) var isAvailable = false
 
-  private let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "Battery")
+  private let logger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "Sensors", category: "Battery")
 
   /// Low battery threshold (percentage).
   private let lowThreshold = 20
+
+  // HAP ChargingState characteristic values.
+  private static let hapNotCharging = 0
+  private static let hapCharging = 1
+  private static let hapNotChargeable = 2
+
+  // HAP StatusLowBattery characteristic values.
+  private static let hapBatteryNormal = 0
+  private static let hapBatteryLow = 1
 
   private var observers: [Any] = []
 
@@ -46,22 +56,19 @@ import os
         NotificationCenter.default.addObserver(
           forName: UIDevice.batteryLevelDidChangeNotification, object: nil, queue: .main
         ) { [weak self] _ in
-          guard let self else { return }
-          Task { @MainActor in self.batteryDidChange() }
+          MainActor.assumeIsolated { self?.batteryDidChange() }
         })
       observers.append(
         NotificationCenter.default.addObserver(
           forName: UIDevice.batteryStateDidChangeNotification, object: nil, queue: .main
         ) { [weak self] _ in
-          guard let self else { return }
-          Task { @MainActor in self.batteryDidChange() }
+          MainActor.assumeIsolated { self?.batteryDidChange() }
         })
     #elseif os(macOS)
       // IOKit power source change notifications are delivered via CFRunLoop.
       // Poll on a timer instead for simplicity — battery state changes slowly.
       let timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
-        guard let self else { return }
-        Task { @MainActor in self.batteryDidChange() }
+        MainActor.assumeIsolated { self?.batteryDidChange() }
       }
       observers.append(timer as AnyObject)
     #endif
@@ -95,21 +102,27 @@ import os
       let charging: Int
       switch UIDevice.current.batteryState {
       case .charging, .full:
-        charging = 1  // Charging
+        charging = Self.hapCharging
       case .unplugged:
-        charging = 0  // Not Charging
+        charging = Self.hapNotCharging
       default:
-        charging = 2  // Not Chargeable
+        charging = Self.hapNotChargeable
       }
     #elseif os(macOS)
-      let level = max(0, min(100, macOSBatteryLevel() ?? 0))
-      let charging = macOSIsCharging() ? 1 : 0
+      // Read from a single snapshot so level and charging are consistent.
+      let desc = macOSPowerSourceDescription()
+      let level = max(0, min(100, desc?[kIOPSCurrentCapacityKey] as? Int ?? 0))
+      let isCharging = desc?[kIOPSIsChargingKey] as? Bool ?? false
+      let charging = isCharging ? Self.hapCharging : Self.hapNotCharging
+    #else
+      let level = 0
+      let charging = Self.hapNotChargeable
     #endif
 
     state.update(
       level: level,
       chargingState: charging,
-      statusLowBattery: level <= lowThreshold ? 1 : 0)
+      statusLowBattery: level <= lowThreshold ? Self.hapBatteryLow : Self.hapBatteryNormal)
     return state
   }
 
@@ -123,26 +136,24 @@ import os
   // MARK: - macOS IOKit Power Sources
 
   #if os(macOS)
-    private func macOSBatteryLevel() -> Int? {
+    /// Read the IOKit power source description dictionary for the first source.
+    /// Returns nil on desktops without a battery.
+    private func macOSPowerSourceDescription() -> [String: Any]? {
       guard let snapshot = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
         let sources = IOPSCopyPowerSourcesList(snapshot)?.takeRetainedValue() as? [CFTypeRef],
         let first = sources.first,
         let desc = IOPSGetPowerSourceDescription(snapshot, first)?.takeUnretainedValue()
-          as? [String: Any],
-        let capacity = desc[kIOPSCurrentCapacityKey] as? Int
+          as? [String: Any]
       else { return nil }
-      return capacity
+      return desc
+    }
+
+    private func macOSBatteryLevel() -> Int? {
+      macOSPowerSourceDescription()?[kIOPSCurrentCapacityKey] as? Int
     }
 
     private func macOSIsCharging() -> Bool {
-      guard let snapshot = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
-        let sources = IOPSCopyPowerSourcesList(snapshot)?.takeRetainedValue() as? [CFTypeRef],
-        let first = sources.first,
-        let desc = IOPSGetPowerSourceDescription(snapshot, first)?.takeUnretainedValue()
-          as? [String: Any],
-        let charging = desc[kIOPSIsChargingKey] as? Bool
-      else { return false }
-      return charging
+      macOSPowerSourceDescription()?[kIOPSIsChargingKey] as? Bool ?? false
     }
   #endif
 }

@@ -38,6 +38,7 @@ public enum HAPAccessoryCategory: Int, Sendable {
   case window = 13
   case windowCovering = 14
   case programmableSwitch = 15
+  case doorbell = 16
   case ipCamera = 17
 }
 
@@ -154,11 +155,13 @@ public enum ProtocolInfoIID {
 public enum ProtocolInfoUUID {
   public static let service = "A2"  // HAP Protocol Information
   public static let version = "37"  // Version characteristic
+  /// The HAP protocol version reported in the Protocol Information service.
+  /// Also relates to "pv" in the Bonjour TXT record ("1.1"), which uses a shorter format.
+  public static let protocolVersion = "1.1.0"
 }
 
-/// The HAP protocol version reported in the Protocol Information service.
-/// Also relates to "pv" in the Bonjour TXT record ("1.1"), which uses a shorter format.
-public let hapProtocolVersion = "1.1.0"
+/// Backwards-compatible alias — prefer `ProtocolInfoUUID.protocolVersion`.
+public let hapProtocolVersion = ProtocolInfoUUID.protocolVersion
 
 // MARK: - Shared Battery Service IIDs & UUIDs
 
@@ -377,8 +380,8 @@ public final class HAPSirenAccessory: HAPAccessoryProtocol, @unchecked Sendable 
 
   /// Called when HomeKit writes to the On characteristic.
   /// The app wires this to start/stop the siren player.
-  private let _onSirenActivate = Locked<((Bool) -> Void)?>(initialState: nil)
-  public var onSirenActivate: ((Bool) -> Void)? {
+  private let _onSirenActivate = Locked<(@Sendable (Bool) -> Void)?>(initialState: nil)
+  public var onSirenActivate: (@Sendable (Bool) -> Void)? {
     get { _onSirenActivate.withLock { $0 } }
     set { _onSirenActivate.withLock { $0 = newValue } }
   }

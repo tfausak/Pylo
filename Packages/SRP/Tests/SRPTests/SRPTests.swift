@@ -18,6 +18,13 @@ struct SRPServerTests {
     #expect(server!.publicKey.count == 384)
   }
 
+  @Test("Server public key B is not a multiple of N")
+  func serverPublicKeyNotMultipleOfN() {
+    let server = SRPServer(username: "Pair-Setup", password: "111-22-333")!
+    let b = BigUInt(server.publicKey)
+    #expect(b % SRPTestClient.prime != 0)
+  }
+
   @Test("Reject client public key of zero")
   func rejectZeroPublicKey() {
     let server = SRPServer(username: "Pair-Setup", password: "111-22-333")!
@@ -131,6 +138,15 @@ struct SRPClientPublicKeyTests {
     #expect(server.setClientPublicKey(Data()) == false)
   }
 
+  @Test("Rejects client public key equal to N (non-zero multiple of prime)")
+  func rejectsKeyEqualToN() {
+    let server = SRPServer(username: "Pair-Setup", password: "111-22-333")!
+    // A = N serializes to exactly 384 bytes, is non-zero, but A % N == 0
+    let keyEqualToN = SRPTestClient.pad(SRPTestClient.prime)
+    #expect(keyEqualToN.count == 384)
+    #expect(server.setClientPublicKey(keyEqualToN) == false)
+  }
+
   @Test("Rejects second call to setClientPublicKey")
   func rejectsDoubleSet() {
     let server = SRPServer(username: "Pair-Setup", password: "111-22-333")!
@@ -147,6 +163,9 @@ struct SRPClientPublicKeyTests {
 // MARK: - SRP End-to-End Test
 
 /// Minimal SRP-6a client implementation for testing the full handshake.
+/// Intentionally duplicates prime/g/pad from SRPServer rather than sharing them —
+/// an independent reimplementation ensures the test validates the protocol math
+/// rather than just round-tripping through the same code.
 private enum SRPTestClient {
   static let prime = BigUInt(
     "FFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD1"
@@ -349,6 +368,72 @@ struct SRPProofIdempotencyTests {
     // Session key should still be available from the first successful call
     #expect(server.sessionKey != nil)
   }
+
+  @Test("Correct proof succeeds after a prior failed attempt")
+  func retryAfterFailedProof() {
+    let username = "Pair-Setup"
+    let password = "111-22-333"
+
+    let server = SRPServer(username: username, password: password)!
+
+    guard
+      let client = SRPTestClient.handshake(
+        username: username, password: password,
+        salt: server.salt, serverPublicKey: server.publicKey
+      )
+    else {
+      Issue.record("Client handshake computation failed")
+      return
+    }
+
+    #expect(server.setClientPublicKey(client.clientPublicKey) == true)
+
+    // First attempt with wrong proof should fail
+    let wrongProof = Data(repeating: 0xAB, count: 64)
+    #expect(server.verifyClientProof(wrongProof) == nil)
+    #expect(server.sessionKey == nil)
+
+    // Retry with correct proof should succeed
+    let correctResult = server.verifyClientProof(client.clientProof)
+    #expect(correctResult != nil, "Correct proof should succeed after a failed attempt")
+    #expect(server.sessionKey != nil)
+  }
+}
+
+// MARK: - SRP Concurrency Tests
+
+@Suite("SRP Concurrency")
+struct SRPConcurrencyTests {
+
+  @Test("Concurrent setClientPublicKey calls — exactly one succeeds")
+  func concurrentSetClientPublicKey() async {
+    let server = SRPServer(username: "Pair-Setup", password: "111-22-333")!
+
+    // Generate distinct valid (non-zero) client public keys
+    let keys: [Data] = (1...10).map { i in
+      var key = Data(repeating: 0, count: 384)
+      key[383] = UInt8(i)
+      return key
+    }
+
+    let results = await withTaskGroup(of: Bool.self, returning: [Bool].self) { group in
+      for key in keys {
+        group.addTask {
+          server.setClientPublicKey(key)
+        }
+      }
+      var collected: [Bool] = []
+      for await result in group {
+        collected.append(result)
+      }
+      return collected
+    }
+
+    let successes = results.filter { $0 }.count
+    let failures = results.filter { !$0 }.count
+    #expect(successes == 1, "Exactly one concurrent setClientPublicKey should succeed")
+    #expect(failures == 9, "All other concurrent calls should fail")
+  }
 }
 
 // MARK: - SRP Deterministic Test Vectors
@@ -393,8 +478,6 @@ struct SRPDeterministicTests {
         username: username, password: password,
         fixedSalt: Self.fixedSalt, fixedPrivateKey: Self.fixedServerKey
       )
-      #expect(server != nil, "Server init with fixed values should succeed")
-      guard let server else { return }
 
       serverPublicKeys.append(server.publicKey)
 
@@ -438,7 +521,7 @@ struct SRPDeterministicTests {
     let server = SRPServer(
       username: username, password: password,
       fixedSalt: Self.fixedSalt, fixedPrivateKey: Self.fixedServerKey
-    )!
+    )
 
     guard
       let client = SRPTestClient.handshake(
@@ -469,6 +552,54 @@ struct SRPDeterministicTests {
     #expect(serverProof == expectedM2, "Server proof M2 must match client computation")
   }
 
+  @Test("Deterministic handshake matches pinned test vector")
+  func pinnedTestVector() {
+    let server = SRPServer(
+      username: "Pair-Setup", password: "111-22-333",
+      fixedSalt: Self.fixedSalt, fixedPrivateKey: Self.fixedServerKey
+    )
+
+    // Pinned expected values — if these change, the SRP math has regressed.
+    let expectedBPrefix = Data([
+      0x44, 0x1A, 0x67, 0xFE, 0x62, 0x44, 0x2E, 0xB7,
+      0x04, 0x35, 0xCA, 0x7C, 0x00, 0x3E, 0x09, 0xD8,
+      0xDC, 0xA7, 0x1B, 0x67, 0x89, 0xFA, 0xDC, 0x90,
+      0x3E, 0xB9, 0x17, 0xBC, 0x4C, 0x2E, 0xBA, 0xC8,
+    ])
+    #expect(
+      Data(server.publicKey.prefix(32)) == expectedBPrefix,
+      "Server public key B must match pinned value")
+
+    guard
+      let client = SRPTestClient.handshake(
+        username: "Pair-Setup", password: "111-22-333",
+        salt: server.salt, serverPublicKey: server.publicKey,
+        fixedPrivateKey: Self.fixedClientKey
+      )
+    else {
+      Issue.record("Client handshake computation failed")
+      return
+    }
+
+    #expect(server.setClientPublicKey(client.clientPublicKey) == true)
+    let serverProof = server.verifyClientProof(client.clientProof)
+    #expect(serverProof != nil, "Pinned handshake should succeed")
+
+    let expectedSessionKey = Data([
+      0xD1, 0x09, 0xA4, 0x70, 0x28, 0x62, 0xD7, 0x74,
+      0x06, 0x62, 0x09, 0x4C, 0x05, 0x81, 0x57, 0x46,
+      0x4E, 0xE3, 0x50, 0xBE, 0xDA, 0x75, 0xA8, 0xF6,
+      0x91, 0x31, 0x53, 0xC3, 0x00, 0x65, 0x81, 0x64,
+      0x82, 0xDE, 0x7E, 0x8F, 0x11, 0x75, 0xF3, 0x8C,
+      0x50, 0x34, 0x40, 0x96, 0xE0, 0x95, 0x18, 0x65,
+      0xAB, 0x56, 0xD5, 0x51, 0xDB, 0x06, 0x19, 0x85,
+      0x29, 0x66, 0x92, 0x42, 0x7A, 0xA3, 0x3D, 0xB6,
+    ])
+    #expect(
+      client.sessionKey == expectedSessionKey,
+      "Session key must match pinned value")
+  }
+
   @Test("Deterministic handshake rejects wrong password")
   func deterministicWrongPassword() {
     let username = "Pair-Setup"
@@ -476,7 +607,7 @@ struct SRPDeterministicTests {
     let server = SRPServer(
       username: username, password: "111-22-333",
       fixedSalt: Self.fixedSalt, fixedPrivateKey: Self.fixedServerKey
-    )!
+    )
 
     guard
       let client = SRPTestClient.handshake(

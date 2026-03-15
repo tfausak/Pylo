@@ -30,10 +30,13 @@ public struct HTTPResponse: Sendable {
   public func serialize() -> Data {
     var result = "HTTP/1.1 \(status) \(statusText)\r\n"
     result += "Content-Type: \(contentType)\r\n"
-    if let body {
-      result += "Content-Length: \(body.count)\r\n"
-    } else {
-      result += "Content-Length: 0\r\n"
+    // RFC 7230 §3.3: Content-Length SHOULD NOT be sent with 204 No Content.
+    if status != 204 {
+      if let body {
+        result += "Content-Length: \(body.count)\r\n"
+      } else {
+        result += "Content-Length: 0\r\n"
+      }
     }
     result += "\r\n"
 

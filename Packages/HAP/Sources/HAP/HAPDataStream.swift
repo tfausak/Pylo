@@ -32,19 +32,19 @@ public final class HAPDataStream: @unchecked Sendable {
 
   /// Port the listener is bound to.
   public var port: UInt16? {
-    stateLock.withLock { $0.listener?.port?.rawValue }
+    stateLock.withLockUnchecked { $0.listener?.port?.rawValue }
   }
 
   /// Active HDS connection to the hub.
   public var connection: HDSConnection? {
-    stateLock.withLock { $0.connection }
+    stateLock.withLockUnchecked { $0.connection }
   }
 
   /// The fragment writer to serve prebuffered and live video from.
   /// Strong reference — HAPDataStream owns the writer's lifetime while active.
   public var fragmentWriter: FragmentedMP4Writer? {
-    get { stateLock.withLock { $0.fragmentWriter } }
-    set { stateLock.withLock { $0.fragmentWriter = newValue } }
+    get { stateLock.withLockUnchecked { $0.fragmentWriter } }
+    set { stateLock.withLockUnchecked { $0.fragmentWriter = newValue } }
   }
 
   public init() {}
@@ -53,7 +53,7 @@ public final class HAPDataStream: @unchecked Sendable {
   /// Cancels any existing listener before creating a new one.
   public func startListener() throws {
     // Cancel any existing listener to avoid leaking TCP ports and queues
-    let oldListener = stateLock.withLock { s -> NWListener? in
+    let oldListener = stateLock.withLockUnchecked { s -> NWListener? in
       let old = s.listener
       s.listener = nil
       return old
@@ -68,7 +68,7 @@ public final class HAPDataStream: @unchecked Sendable {
     listener.stateUpdateHandler = { [weak self] state in
       switch state {
       case .ready:
-        if let port = self?.stateLock.withLock({ $0.listener?.port }) {
+        if let port = self?.stateLock.withLockUnchecked({ $0.listener?.port }) {
           self?.logger.info("HDS listener ready on port \(port.rawValue)")
         }
       case .failed(let error):
@@ -85,7 +85,7 @@ public final class HAPDataStream: @unchecked Sendable {
       let conn = HDSConnection(connection: nwConnection, queue: queue)
 
       // Snapshot state under lock, then perform side effects outside
-      let (oldConn, writer, keys) = self.stateLock.withLock {
+      let (oldConn, writer, keys) = self.stateLock.withLockUnchecked {
         s -> (HDSConnection?, FragmentedMP4Writer?, (SymmetricKey, SymmetricKey)?) in
         let old = s.connection
         s.connection = conn
@@ -109,8 +109,10 @@ public final class HAPDataStream: @unchecked Sendable {
         // Set a watchdog to cancel this connection if keys never arrive.
         queue.asyncAfter(deadline: .now() + 30) { [weak self] in
           guard let self else { return }
-          let orphaned = self.stateLock.withLock { s -> Bool in
-            guard s.connection === conn, s.pendingReadKey == nil else { return false }
+          // Check isEncrypted (not pendingReadKey == nil) to distinguish
+          // "keys never arrived" from "keys were applied and cleared".
+          let orphaned = self.stateLock.withLockUnchecked { s -> Bool in
+            guard s.connection === conn, !conn.isEncrypted else { return false }
             s.connection = nil
             return true
           }
@@ -123,7 +125,7 @@ public final class HAPDataStream: @unchecked Sendable {
     }
 
     listener.start(queue: queue)
-    stateLock.withLock { s in
+    stateLock.withLockUnchecked { s in
       s.listener = listener
       s.queue = queue
     }
@@ -201,25 +203,44 @@ public final class HAPDataStream: @unchecked Sendable {
       "HDS keys derived: controllerSalt=\(controllerKeySalt.count)B, accessorySalt=\(accessoryKeySalt.count)B"
     )
 
-    // Cancel any existing connection — a new setupTransport means a new HAP
-    // session with different keys, so the old connection can't be reused.
-    // The hub will open a fresh TCP connection that picks up the new keys
-    // in newConnectionHandler.
-    let oldConn = stateLock.withLock { s -> HDSConnection? in
-      let old = s.connection
-      s.connection = nil
-      s.pendingReadKey = readKey
-      s.pendingWriteKey = writeKey
-      return old
-    }
-    oldConn?.cancel()
-
-    // Build response TLV (flat format matching HAP-NodeJS)
+    // Check port availability BEFORE mutating state — if the listener isn't
+    // ready, we must not store keys or start connections for a session the hub
+    // considers failed.
     guard let listenPort = port else {
       logger.error("SetupDataStreamTransport: HDS listener not ready (port unavailable)")
       var error = TLV8.Builder()
       error.add(0x01, byte: 0x01)  // Status: Generic Error
       return error.build()
+    }
+
+    // If a TCP connection arrived before keys were available (TCP-first ordering),
+    // start it now with the newly-derived keys. Otherwise, store keys as pending
+    // for newConnectionHandler to pick up.
+    let (oldConn, connToStart, hdsQueue) = stateLock.withLockUnchecked {
+      s -> (HDSConnection?, HDSConnection?, DispatchQueue?) in
+      let old = s.connection
+      // If a connection is waiting (not yet encrypted), start it with keys directly.
+      if let waiting = old, !waiting.isEncrypted {
+        // Clear pending keys — they'll be applied directly.
+        s.pendingReadKey = nil
+        s.pendingWriteKey = nil
+        return (nil, waiting, s.queue)
+      }
+      // Otherwise, cancel the old connection (different HAP session) and store
+      // keys for the next newConnectionHandler call.
+      s.connection = nil
+      s.pendingReadKey = readKey
+      s.pendingWriteKey = writeKey
+      return (old, nil, s.queue)
+    }
+    oldConn?.cancel()
+
+    // Start the waiting connection on the HDS queue (setupTransport runs on the HAP queue).
+    if let conn = connToStart, let q = hdsQueue {
+      q.async {
+        conn.setupEncryption(readKey: readKey, writeKey: writeKey)
+        conn.start()
+      }
     }
 
     var transportParams = TLV8.Builder()
@@ -235,11 +256,12 @@ public final class HAPDataStream: @unchecked Sendable {
 
   /// Stop the HDS listener and close any active connection.
   public func stop() {
-    let (conn, lst) = stateLock.withLock { s -> (HDSConnection?, NWListener?) in
+    let (conn, lst) = stateLock.withLockUnchecked { s -> (HDSConnection?, NWListener?) in
       let c = s.connection
       let l = s.listener
       s.connection = nil
       s.listener = nil
+      s.fragmentWriter = nil
       s.pendingReadKey = nil
       s.pendingWriteKey = nil
       return (c, l)

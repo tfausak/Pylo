@@ -1,8 +1,49 @@
-import CommonCrypto
 import Foundation
 import Testing
 
 @testable import SRTP
+
+// MARK: - Shared Test Helpers
+
+private let testMasterKey = Data([
+  0xE1, 0xF9, 0x7A, 0x0D, 0x3E, 0x01, 0x8B, 0xE0,
+  0xD6, 0x4F, 0xA3, 0x2C, 0x06, 0xDE, 0x41, 0x39,
+])
+private let testMasterSalt = Data([
+  0x0E, 0xC6, 0x75, 0xAD, 0x49, 0x8A, 0xFE, 0xEB,
+  0xB6, 0x96, 0x0B, 0x3A, 0xAB, 0xE6,
+])
+
+/// Build a minimal valid RTP packet with given seq, SSRC, and payload.
+private func makeRTPPacket(seq: UInt16, ssrc: UInt32, payload: Data) -> Data {
+  var header = Data(count: 12)
+  header[0] = 0x80  // V=2
+  header[1] = 0x60  // PT=96
+  header[2] = UInt8(seq >> 8)
+  header[3] = UInt8(seq & 0xFF)
+  // Timestamp = 0
+  header[8] = UInt8((ssrc >> 24) & 0xFF)
+  header[9] = UInt8((ssrc >> 16) & 0xFF)
+  header[10] = UInt8((ssrc >> 8) & 0xFF)
+  header[11] = UInt8(ssrc & 0xFF)
+  var pkt = header
+  pkt.append(payload)
+  return pkt
+}
+
+/// Build a minimal RTCP Sender Report: 8-byte header + 20-byte SR body.
+private func makeRTCPPacket(ssrc: UInt32 = 0xDEAD_BEEF) -> Data {
+  var rtcp = Data(count: 28)
+  rtcp[0] = 0x80  // V=2
+  rtcp[1] = 200  // PT=SR
+  rtcp[2] = 0x00
+  rtcp[3] = 0x06  // length
+  rtcp[4] = UInt8((ssrc >> 24) & 0xFF)
+  rtcp[5] = UInt8((ssrc >> 16) & 0xFF)
+  rtcp[6] = UInt8((ssrc >> 8) & 0xFF)
+  rtcp[7] = UInt8(ssrc & 0xFF)
+  return rtcp
+}
 
 // MARK: - AU Header Framing Tests
 
@@ -108,14 +149,6 @@ struct SRTPTests {
   /// RFC 3711 Appendix B.3 test vectors for key derivation.
   @Test("Key derivation matches RFC 3711 B.3 test vectors")
   func keyDerivationRFC3711() {
-    let testKey = Data([
-      0xE1, 0xF9, 0x7A, 0x0D, 0x3E, 0x01, 0x8B, 0xE0,
-      0xD6, 0x4F, 0xA3, 0x2C, 0x06, 0xDE, 0x41, 0x39,
-    ])
-    let testSalt = Data([
-      0x0E, 0xC6, 0x75, 0xAD, 0x49, 0x8A, 0xFE, 0xEB,
-      0xB6, 0x96, 0x0B, 0x3A, 0xAB, 0xE6,
-    ])
     let expectedCipherKey = Data([
       0xC6, 0x1E, 0x7A, 0x93, 0x74, 0x4F, 0x39, 0xEE,
       0x10, 0x73, 0x4A, 0xFE, 0x3F, 0xF7, 0xA0, 0x87,
@@ -131,49 +164,23 @@ struct SRTPTests {
     ])
 
     let ck = SRTPContext.deriveKey(
-      masterKey: testKey, masterSalt: testSalt, label: 0x00, length: 16)
+      masterKey: testMasterKey, masterSalt: testMasterSalt, label: 0x00, length: 16)
     let cs = SRTPContext.deriveKey(
-      masterKey: testKey, masterSalt: testSalt, label: 0x02, length: 14)
+      masterKey: testMasterKey, masterSalt: testMasterSalt, label: 0x02, length: 14)
     let ak = SRTPContext.deriveKey(
-      masterKey: testKey, masterSalt: testSalt, label: 0x01, length: 20)
+      masterKey: testMasterKey, masterSalt: testMasterSalt, label: 0x01, length: 20)
 
     #expect(ck == expectedCipherKey)
     #expect(cs == expectedSalt)
     #expect(ak == expectedAuthKey)
   }
 
-  /// Helper: build a minimal valid RTP packet with given seq, SSRC, and payload.
-  private static func makeRTPPacket(seq: UInt16, ssrc: UInt32, payload: Data) -> Data {
-    var header = Data(count: 12)
-    header[0] = 0x80  // V=2
-    header[1] = 0x60  // PT=96
-    header[2] = UInt8(seq >> 8)
-    header[3] = UInt8(seq & 0xFF)
-    // Timestamp = 0
-    header[8] = UInt8((ssrc >> 24) & 0xFF)
-    header[9] = UInt8((ssrc >> 16) & 0xFF)
-    header[10] = UInt8((ssrc >> 8) & 0xFF)
-    header[11] = UInt8(ssrc & 0xFF)
-    var pkt = header
-    pkt.append(payload)
-    return pkt
-  }
-
-  private static let testMasterKey = Data([
-    0xE1, 0xF9, 0x7A, 0x0D, 0x3E, 0x01, 0x8B, 0xE0,
-    0xD6, 0x4F, 0xA3, 0x2C, 0x06, 0xDE, 0x41, 0x39,
-  ])
-  private static let testMasterSalt = Data([
-    0x0E, 0xC6, 0x75, 0xAD, 0x49, 0x8A, 0xFE, 0xEB,
-    0xB6, 0x96, 0x0B, 0x3A, 0xAB, 0xE6,
-  ])
-
   @Test("Protect/unprotect roundtrip with known keys")
   func protectUnprotectRoundtrip() throws {
-    let sender = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
-    let receiver = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+    let sender = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
+    let receiver = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
 
-    let rtp = Self.makeRTPPacket(
+    let rtp = makeRTPPacket(
       seq: 1, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0x42, count: 160))
     let srtp = try #require(sender.protect(rtp))
 
@@ -186,10 +193,10 @@ struct SRTPTests {
 
   @Test("Auth failure: tampered ciphertext returns nil")
   func authFailureTampered() throws {
-    let sender = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
-    let receiver = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+    let sender = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
+    let receiver = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
 
-    let rtp = Self.makeRTPPacket(
+    let rtp = makeRTPPacket(
       seq: 1, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0xAA, count: 100))
     var srtp = try #require(sender.protect(rtp))
 
@@ -205,10 +212,10 @@ struct SRTPTests {
 
   @Test("Empty payload roundtrip (12-byte header only)")
   func emptyPayloadRoundtrip() throws {
-    let sender = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
-    let receiver = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+    let sender = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
+    let receiver = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
 
-    let rtp = Self.makeRTPPacket(seq: 1, ssrc: 0x1234_5678, payload: Data())
+    let rtp = makeRTPPacket(seq: 1, ssrc: 0x1234_5678, payload: Data())
     let srtp = try #require(sender.protect(rtp))
 
     // Header-only: 12 bytes + 10-byte auth tag
@@ -220,11 +227,11 @@ struct SRTPTests {
 
   @Test("Multiple sequential packets with incrementing seq")
   func multipleSequentialPackets() throws {
-    let sender = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
-    let receiver = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+    let sender = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
+    let receiver = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
 
     for seq: UInt16 in 1...10 {
-      let rtp = Self.makeRTPPacket(
+      let rtp = makeRTPPacket(
         seq: seq, ssrc: 0xCAFE_BABE, payload: Data(repeating: UInt8(seq), count: 80))
       let srtp = try #require(sender.protect(rtp))
       let recovered = receiver.unprotect(srtp)
@@ -232,33 +239,71 @@ struct SRTPTests {
     }
   }
 
+  @Test("Different SSRCs produce different ciphertext (IV incorporates SSRC)")
+  func differentSSRCs() throws {
+    // Use separate contexts so both packets have identical packet index (ROC=0, seq=1).
+    // This isolates the SSRC as the only IV difference.
+    let sender1 = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
+    let sender2 = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
+
+    let payload = Data(repeating: 0x42, count: 40)
+    let srtp1 = try #require(
+      sender1.protect(makeRTPPacket(seq: 1, ssrc: 0x1111_1111, payload: payload)))
+    let srtp2 = try #require(
+      sender2.protect(makeRTPPacket(seq: 1, ssrc: 0x2222_2222, payload: payload)))
+
+    // Encrypted payloads (bytes 12..<count-10) must differ despite identical plaintext
+    // and identical packet index, because the IV includes the SSRC.
+    let cipher1 = srtp1[12..<srtp1.count - 10]
+    let cipher2 = srtp2[12..<srtp2.count - 10]
+    #expect(cipher1 != cipher2)
+  }
+
   @Test("RTCP protect produces output larger than input")
   func rtcpProtectGrows() throws {
-    let ctx = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
-
-    // Minimal RTCP Sender Report: 8-byte header + 20-byte SR body
-    var rtcp = Data(count: 28)
-    rtcp[0] = 0x80  // V=2
-    rtcp[1] = 200  // PT=SR
-    rtcp[2] = 0x00
-    rtcp[3] = 0x06  // length
-    // SSRC at bytes 4-7
-    rtcp[4] = 0xDE
-    rtcp[5] = 0xAD
-    rtcp[6] = 0xBE
-    rtcp[7] = 0xEF
+    let ctx = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
+    let rtcp = makeRTCPPacket()
 
     let srtcp = try #require(ctx.protectRTCP(rtcp))
     // SRTCP adds: E||index (4 bytes) + auth tag (10 bytes) = 14 bytes
     #expect(srtcp.count == rtcp.count + 14)
   }
 
+  @Test("SRTCP output has correct structure: header + encrypted + E||index + tag")
+  func srtcpStructure() throws {
+    let ctx = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
+    let rtcp = makeRTCPPacket()
+
+    let srtcp = try #require(ctx.protectRTCP(rtcp))
+
+    // Header (8B) preserved verbatim
+    #expect(Array(srtcp[0..<8]) == Array(rtcp[0..<8]))
+
+    // E||index field: 4 bytes before the 10-byte auth tag
+    let eIndexOffset = srtcp.count - 14
+    let eIndex =
+      UInt32(srtcp[eIndexOffset]) << 24 | UInt32(srtcp[eIndexOffset + 1]) << 16
+      | UInt32(srtcp[eIndexOffset + 2]) << 8 | UInt32(srtcp[eIndexOffset + 3])
+    // E flag (bit 31) must be set, index = 0 for first packet
+    #expect(eIndex & 0x8000_0000 != 0, "E flag must be set")
+    #expect(eIndex & 0x7FFF_FFFF == 0, "First SRTCP index should be 0")
+
+    // Second packet should have index = 1
+    let srtcp2 = try #require(ctx.protectRTCP(rtcp))
+    let eIndexOffset2 = srtcp2.count - 14
+    let eIndex2 =
+      UInt32(srtcp2[eIndexOffset2]) << 24 | UInt32(srtcp2[eIndexOffset2 + 1]) << 16
+      | UInt32(srtcp2[eIndexOffset2 + 2]) << 8 | UInt32(srtcp2[eIndexOffset2 + 3])
+    #expect(eIndex2 & 0x8000_0000 != 0, "E flag must be set")
+    #expect(eIndex2 & 0x7FFF_FFFF == 1, "Second SRTCP index should be 1")
+  }
+
   @Test("Auth failure: single bit flip in auth tag returns nil")
   func authFailureTagFlip() throws {
-    let sender = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
-    let receiver = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+    let sender = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
+    let receiver = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
 
-    let rtp = Self.makeRTPPacket(
+    let rtp = makeRTPPacket(
       seq: 1, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0xBB, count: 50))
     var srtp = try #require(sender.protect(rtp))
 
@@ -269,15 +314,15 @@ struct SRTPTests {
 
   @Test("Auth failure: each tag byte position is validated")
   func authFailureEachTagByte() throws {
-    let sender = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+    let sender = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
 
-    let rtp = Self.makeRTPPacket(
+    let rtp = makeRTPPacket(
       seq: 1, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0xCC, count: 50))
     let srtp = try #require(sender.protect(rtp))
 
     // Flip a byte at each position in the 10-byte auth tag
     for i in 0..<10 {
-      let receiver = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+      let receiver = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
       var tampered = srtp
       tampered[tampered.count - 10 + i] ^= 0xFF
       #expect(receiver.unprotect(tampered) == nil, "Tag byte \(i) not validated")
@@ -286,7 +331,7 @@ struct SRTPTests {
 
   @Test("Short packets (< 12 bytes) return nil from protect")
   func shortPacketProtect() {
-    let ctx = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+    let ctx = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
     let shortData = Data([0x80, 0x60, 0x00, 0x01])  // Only 4 bytes
     let result = ctx.protect(shortData)
     #expect(result == nil)
@@ -294,21 +339,98 @@ struct SRTPTests {
 
   @Test("Short packets (< 22 bytes) return nil from unprotect")
   func shortPacketUnprotect() {
-    let ctx = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+    let ctx = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
     let shortData = Data(repeating: 0x00, count: 15)
     let result = ctx.unprotect(shortData)
     #expect(result == nil)
   }
 
+  @Test("Short RTCP packets (< 8 bytes) return nil from protectRTCP")
+  func shortPacketProtectRTCP() {
+    let ctx = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
+    #expect(ctx.protectRTCP(Data(count: 7)) == nil)
+    #expect(ctx.protectRTCP(Data()) == nil)
+  }
+
+  @Test("Pinned ciphertext: protect() output matches frozen byte sequence")
+  func pinnedCiphertext() throws {
+    let ctx = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
+    let rtp = makeRTPPacket(
+      seq: 1, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0x42, count: 16))
+    let srtp = try #require(ctx.protect(rtp))
+
+    // Frozen output: header (12B) + encrypted payload (16B) + HMAC-SHA1-80 tag (10B)
+    // Catches regressions where protect/unprotect break symmetrically.
+    let expected = Data([
+      0x80, 0x60, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0xDE, 0xAD, 0xBE, 0xEF,
+      0x48, 0xEF, 0xBB, 0xE3, 0xC2, 0x4E, 0x46, 0x2E, 0x12, 0xF0, 0x02, 0xFF,
+      0x81, 0x51, 0xC0, 0x3E,
+      0x35, 0x28, 0x38, 0x13, 0x6B, 0xE7, 0x21, 0x26, 0x94, 0x84,
+    ])
+    #expect(srtp == expected)
+  }
+
+  @Test("Packets with CSRC (CC > 0) are rejected by protect")
+  func protectRejectsCSRC() {
+    let ctx = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
+    var pkt = makeRTPPacket(seq: 1, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0x42, count: 20))
+    pkt[0] = 0x81  // V=2, CC=1
+    #expect(ctx.protect(pkt) == nil)
+  }
+
+  @Test("Packets with header extension (X bit) are rejected by protect")
+  func protectRejectsExtension() {
+    let ctx = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
+    var pkt = makeRTPPacket(seq: 1, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0x42, count: 20))
+    pkt[0] = 0x90  // V=2, X=1
+    #expect(ctx.protect(pkt) == nil)
+  }
+
+  @Test("Packets with wrong RTP version are rejected by protect")
+  func protectRejectsWrongVersion() {
+    let ctx = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
+    var pkt = makeRTPPacket(seq: 1, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0x42, count: 20))
+    pkt[0] = 0x00  // V=0
+    #expect(ctx.protect(pkt) == nil)
+    pkt[0] = 0xC0  // V=3
+    #expect(ctx.protect(pkt) == nil)
+  }
+
+  @Test("Packets with CSRC (CC > 0) are rejected by unprotect")
+  func unprotectRejectsCSRC() {
+    let ctx = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
+    var pkt = Data(repeating: 0x00, count: 32)
+    pkt[0] = 0x81  // V=2, CC=1
+    #expect(ctx.unprotect(pkt) == nil)
+  }
+
+  @Test("Packets with header extension (X bit) are rejected by unprotect")
+  func unprotectRejectsExtension() {
+    let ctx = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
+    var pkt = Data(repeating: 0x00, count: 32)
+    pkt[0] = 0x90  // V=2, X=1
+    #expect(ctx.unprotect(pkt) == nil)
+  }
+
+  @Test("Packets with wrong RTP version are rejected by unprotect")
+  func unprotectRejectsWrongVersion() {
+    let ctx = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
+    var pkt = Data(repeating: 0x00, count: 32)
+    pkt[0] = 0x00  // V=0
+    #expect(ctx.unprotect(pkt) == nil)
+    pkt[0] = 0xC0  // V=3
+    #expect(ctx.unprotect(pkt) == nil)
+  }
+
   @Test("Sequence number rollover across ROC boundary")
   func sequenceRollover() throws {
-    let sender = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
-    let receiver = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+    let sender = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
+    let receiver = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
 
     // Send packets near the rollover boundary (0xFFFD, 0xFFFE, 0xFFFF, 0x0000, 0x0001)
     let sequences: [UInt16] = [0xFFFD, 0xFFFE, 0xFFFF, 0x0000, 0x0001]
     for seq in sequences {
-      let rtp = Self.makeRTPPacket(
+      let rtp = makeRTPPacket(
         seq: seq, ssrc: 0xCAFE_BABE, payload: Data(repeating: UInt8(seq & 0xFF), count: 40))
       let srtp = try #require(sender.protect(rtp))
       let recovered = receiver.unprotect(srtp)
@@ -318,13 +440,13 @@ struct SRTPTests {
 
   @Test("Out-of-order packet before ROC rollover still decrypts")
   func outOfOrderBeforeRollover() throws {
-    let sender = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
-    let receiver = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+    let sender = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
+    let receiver = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
 
     // Send seq 1..5 in order, then send seq 3 again (out of order)
     var srtpPackets: [UInt16: Data] = [:]
     for seq: UInt16 in 1...5 {
-      let rtp = Self.makeRTPPacket(
+      let rtp = makeRTPPacket(
         seq: seq, ssrc: 0xBEEF_CAFE, payload: Data(repeating: UInt8(seq), count: 40))
       // Force-unwrap: try #require() triggers a "redundant" warning here because
       // the compiler proves protect() can't return nil for these well-formed inputs.
@@ -344,18 +466,18 @@ struct SRTPTests {
 
   @Test("ROC increments on clear forward wrap (0xFFFF → 0x0000)")
   func rocIncrementAtWrap() throws {
-    let sender = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
-    let receiver = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+    let sender = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
+    let receiver = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
 
     // Send a packet at seq 0xFFFF, then jump to 0x0000.
     // The gap is 0xFFFF — clearly a forward wrap, so ROC must increment.
-    let rtp1 = Self.makeRTPPacket(
+    let rtp1 = makeRTPPacket(
       seq: 0xFFFF, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0xAA, count: 40))
     let srtp1 = try #require(sender.protect(rtp1))
     let recovered1 = receiver.unprotect(srtp1)
     #expect(recovered1 == rtp1, "Failed at seq 0xFFFF")
 
-    let rtp2 = Self.makeRTPPacket(
+    let rtp2 = makeRTPPacket(
       seq: 0x0000, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0xBB, count: 40))
     let srtp2 = try #require(sender.protect(rtp2))
     let recovered2 = receiver.unprotect(srtp2)
@@ -368,41 +490,17 @@ struct SRTPTests {
 @Suite("SRTP Thread Safety")
 struct SRTPThreadSafetyTests {
 
-  private static let testMasterKey = Data([
-    0xE1, 0xF9, 0x7A, 0x0D, 0x3E, 0x01, 0x8B, 0xE0,
-    0xD6, 0x4F, 0xA3, 0x2C, 0x06, 0xDE, 0x41, 0x39,
-  ])
-  private static let testMasterSalt = Data([
-    0x0E, 0xC6, 0x75, 0xAD, 0x49, 0x8A, 0xFE, 0xEB,
-    0xB6, 0x96, 0x0B, 0x3A, 0xAB, 0xE6,
-  ])
-
-  private static func makeRTPPacket(seq: UInt16, ssrc: UInt32, payload: Data) -> Data {
-    var header = Data(count: 12)
-    header[0] = 0x80
-    header[1] = 0x60
-    header[2] = UInt8(seq >> 8)
-    header[3] = UInt8(seq & 0xFF)
-    header[8] = UInt8((ssrc >> 24) & 0xFF)
-    header[9] = UInt8((ssrc >> 16) & 0xFF)
-    header[10] = UInt8((ssrc >> 8) & 0xFF)
-    header[11] = UInt8(ssrc & 0xFF)
-    var pkt = header
-    pkt.append(payload)
-    return pkt
-  }
-
   @Test("Forged packet does not desync incoming ROC")
   func forgedPacketDoesNotDesyncROC() throws {
-    let ctx = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+    let ctx = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
 
     // Protect a sequence of packets so ctx has valid outgoing state
-    let rtp1 = Self.makeRTPPacket(
+    let rtp1 = makeRTPPacket(
       seq: 1, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0x11, count: 20))
     let srtp1 = try #require(ctx.protect(rtp1))
 
     // Create a second context with the same keys to act as receiver
-    let receiver = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+    let receiver = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
 
     // Successfully unprotect the first legitimate packet
     let result1 = receiver.unprotect(srtp1)
@@ -430,7 +528,7 @@ struct SRTPThreadSafetyTests {
 
     // Now send a legitimate packet with seq=2 — this must still decrypt
     // successfully, proving the forged packet did NOT desync the ROC
-    let rtp2 = Self.makeRTPPacket(
+    let rtp2 = makeRTPPacket(
       seq: 2, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0x22, count: 20))
     let srtp2 = try #require(ctx.protect(rtp2))
     let result2 = receiver.unprotect(srtp2)
@@ -440,12 +538,12 @@ struct SRTPThreadSafetyTests {
 
   @Test("Concurrent protect calls do not crash")
   func concurrentProtect() async {
-    let ctx = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+    let ctx = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
 
     await withTaskGroup(of: Void.self) { group in
       for i: UInt16 in 0..<100 {
         group.addTask {
-          let rtp = Self.makeRTPPacket(
+          let rtp = makeRTPPacket(
             seq: i, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0x42, count: 160))
           _ = ctx.protect(rtp)
         }
@@ -455,20 +553,36 @@ struct SRTPThreadSafetyTests {
 
   @Test("Concurrent protectRTCP calls do not crash")
   func concurrentProtectRTCP() async {
-    let ctx = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+    let ctx = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
 
+    let rtcp = makeRTCPPacket()
     await withTaskGroup(of: Void.self) { group in
       for _ in 0..<100 {
         group.addTask {
-          var rtcp = Data(count: 28)
-          rtcp[0] = 0x80
-          rtcp[1] = 200
-          rtcp[3] = 0x06
-          rtcp[4] = 0xDE
-          rtcp[5] = 0xAD
-          rtcp[6] = 0xBE
-          rtcp[7] = 0xEF
           _ = ctx.protectRTCP(rtcp)
+        }
+      }
+    }
+  }
+
+  @Test("Concurrent unprotect calls do not crash")
+  func concurrentUnprotect() async {
+    let sender = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
+    let receiver = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
+
+    // Pre-generate SRTP packets sequentially (sender ROC must be consistent)
+    var srtpPackets: [Data] = []
+    for i: UInt16 in 0..<100 {
+      let rtp = makeRTPPacket(
+        seq: i, ssrc: 0xDEAD_BEEF, payload: Data(repeating: UInt8(i), count: 80))
+      srtpPackets.append(sender.protect(rtp)!)
+    }
+
+    // Unprotect them concurrently on the receiver
+    await withTaskGroup(of: Void.self) { group in
+      for srtp in srtpPackets {
+        group.addTask {
+          _ = receiver.unprotect(srtp)
         }
       }
     }
@@ -476,12 +590,12 @@ struct SRTPThreadSafetyTests {
 
   @Test("Concurrent protect produces SRTP packets of correct size")
   func concurrentProtectCorrectSize() async {
-    let ctx = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+    let ctx = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
 
     let results = await withTaskGroup(of: Int.self, returning: [Int].self) { group in
       for i: UInt16 in 0..<50 {
         group.addTask {
-          let rtp = Self.makeRTPPacket(
+          let rtp = makeRTPPacket(
             seq: i, ssrc: 0xCAFE_BABE, payload: Data(repeating: UInt8(i), count: 80))
           let srtp = ctx.protect(rtp)
           return srtp?.count ?? 0
@@ -502,17 +616,8 @@ struct SRTPThreadSafetyTests {
 
   @Test("SRTCP index wraps at 0x7FFF_FFFF instead of overflowing into E-flag")
   func srtcpIndexWrap() throws {
-    let ctx = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
-
-    // Build a minimal RTCP packet
-    var rtcp = Data(count: 28)
-    rtcp[0] = 0x80
-    rtcp[1] = 200
-    rtcp[3] = 0x06
-    rtcp[4] = 0xDE
-    rtcp[5] = 0xAD
-    rtcp[6] = 0xBE
-    rtcp[7] = 0xEF
+    let ctx = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
+    let rtcp = makeRTCPPacket()
 
     // Protect many packets to advance index — just verify it doesn't crash.
     // The real test is that after 0x7FFF_FFFF the index wraps to 0 rather
@@ -526,8 +631,8 @@ struct SRTPThreadSafetyTests {
 
   @Test("Protect returns non-nil for valid input")
   func protectReturnsNonNil() {
-    let ctx = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
-    let rtp = Self.makeRTPPacket(
+    let ctx = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
+    let rtp = makeRTPPacket(
       seq: 1, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0x42, count: 160))
     let result = ctx.protect(rtp)
     #expect(result != nil)
@@ -535,13 +640,13 @@ struct SRTPThreadSafetyTests {
 
   @Test("Late packet when ROC is 0 does not wrap to UInt32.max")
   func latePacketAtROCZero() throws {
-    let sender = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
-    let receiver = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+    let sender = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
+    let receiver = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
 
     // Send packets 1, 2, 3 in order
     var srtpPackets: [UInt16: Data] = [:]
     for seq: UInt16 in 1...3 {
-      let rtp = Self.makeRTPPacket(
+      let rtp = makeRTPPacket(
         seq: seq, ssrc: 0xDEAD_BEEF, payload: Data(repeating: UInt8(seq), count: 20))
       // Force-unwrap: try #require() triggers a "redundant" warning here because
       // the compiler proves protect() can't return nil for these well-formed inputs.
@@ -558,7 +663,7 @@ struct SRTPThreadSafetyTests {
     // which would cause auth failure. The fix guards against this by
     // keeping candidateROC = 0 (matching the sender), so the packet
     // decrypts successfully.
-    let rtp4 = Self.makeRTPPacket(
+    let rtp4 = makeRTPPacket(
       seq: 0xFFF0, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0xFF, count: 20))
     let srtp4 = try #require(sender.protect(rtp4))
     let result = receiver.unprotect(srtp4)
@@ -566,7 +671,7 @@ struct SRTPThreadSafetyTests {
     #expect(result == rtp4, "Packet at ROC=0 with high seq should decrypt (no wraparound)")
 
     // Verify normal operation continues
-    let rtp5 = Self.makeRTPPacket(
+    let rtp5 = makeRTPPacket(
       seq: 4, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0x44, count: 20))
     let srtp5 = try #require(sender.protect(rtp5))
     let recovered5 = receiver.unprotect(srtp5)
@@ -574,16 +679,56 @@ struct SRTPThreadSafetyTests {
       recovered5 == rtp5, "Normal packets must still decrypt after high-seq packet at ROC=0")
   }
 
+  @Test("Late packet from ROC=0 decrypts correctly after receiver advances to ROC=1")
+  func latePacketAtROCOne() throws {
+    // Exercises the roc -= 1 branch when ROC > 0: after the receiver advances
+    // to ROC=1 via a sequence rollover, a late packet from the previous ROC
+    // period (ROC=0) should still decrypt successfully.
+    let sender = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
+    let receiver = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
+
+    // Advance both sender and receiver through the ROC=0→1 rollover.
+    // Send 0xFFFE, 0xFFFF (ROC=0), then 0x0000, 0x0001 (ROC=1).
+    var srtpPackets: [UInt16: (rtp: Data, srtp: Data)] = [:]
+    for seq: UInt16 in [0xFFFE, 0xFFFF, 0x0000, 0x0001, 0x0002] {
+      let rtp = makeRTPPacket(
+        seq: seq, ssrc: 0xDEAD_BEEF, payload: Data(repeating: UInt8(seq & 0xFF), count: 20))
+      let srtp = sender.protect(rtp)!
+      srtpPackets[seq] = (rtp, srtp)
+    }
+
+    // Receive in order up to seq 0x0001 — receiver now has ROC=1, s_l=0x0001
+    for seq: UInt16 in [0xFFFE, 0xFFFF, 0x0000, 0x0001] {
+      let recovered = receiver.unprotect(srtpPackets[seq]!.srtp)
+      #expect(recovered == srtpPackets[seq]!.rtp, "Setup: failed at seq \(seq)")
+    }
+
+    // Now deliver seq 0xFFFE again (a late/reordered packet from ROC=0).
+    // The receiver should detect s_l < 0x8000 (s_l=0x0001) and
+    // seq=0xFFFE > s_l + 0x8000, triggering the roc -= 1 branch (ROC=1→0).
+    // Since the sender encrypted this at ROC=0, auth should succeed.
+    let late = receiver.unprotect(srtpPackets[0xFFFE]!.srtp)
+    #expect(
+      late == srtpPackets[0xFFFE]!.rtp,
+      "Late packet from ROC=0 should decrypt after receiver advanced to ROC=1")
+
+    // Verify forward progress still works at ROC=1
+    let recovered = receiver.unprotect(srtpPackets[0x0002]!.srtp)
+    #expect(
+      recovered == srtpPackets[0x0002]!.rtp,
+      "Normal packets must still decrypt after late-packet from previous ROC")
+  }
+
   @Test("ROC boundary: s_l=0x8000, SEQ=0x0000 does not spuriously increment ROC")
   func rocBoundaryNoSpuriousIncrement() throws {
     // This tests the off-by-one fix: when s_l=0x8000 and SEQ=0x0000,
     // the difference is exactly 0x8000. With the fix (> 0x8000 instead of
     // >= 0x8000), this should NOT trigger a ROC increment on the receiver.
-    let sender = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
-    let receiver = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+    let sender = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
+    let receiver = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
 
     // Send packet at seq 0x8000 to establish s_l = 0x8000 on receiver
-    let rtp1 = Self.makeRTPPacket(
+    let rtp1 = makeRTPPacket(
       seq: 0x8000, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0xAA, count: 20))
     let srtp1 = try #require(sender.protect(rtp1))
     let recovered1 = receiver.unprotect(srtp1)
@@ -591,7 +736,7 @@ struct SRTPThreadSafetyTests {
 
     // Now send seq 0x0000 — sender sees this as ROC rollover (0x8000 → 0x0000),
     // receiver should also detect it correctly and decrypt successfully
-    let rtp2 = Self.makeRTPPacket(
+    let rtp2 = makeRTPPacket(
       seq: 0x0000, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0xBB, count: 20))
     let srtp2 = try #require(sender.protect(rtp2))
     let recovered2 = receiver.unprotect(srtp2)

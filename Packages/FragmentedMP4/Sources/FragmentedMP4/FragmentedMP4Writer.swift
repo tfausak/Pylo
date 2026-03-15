@@ -45,8 +45,8 @@ public final class FragmentRingBuffer: @unchecked Sendable {
   public func append(_ fragment: MP4Fragment) {
     let cap = capacity
     _state.withLock { state in
-      state.slots[state.writeIndex % cap] = fragment
-      state.writeIndex += 1
+      state.slots[state.writeIndex] = fragment
+      state.writeIndex = (state.writeIndex + 1) % cap
       state.count = min(state.count + 1, cap)
     }
   }
@@ -65,7 +65,7 @@ public final class FragmentRingBuffer: @unchecked Sendable {
     let cap = capacity
     return _state.withLock { state in
       guard state.count > 0 else { return [] }
-      let startIndex = state.writeIndex - state.count
+      let startIndex = (state.writeIndex - state.count + cap) % cap
       return (0..<state.count).compactMap { i in
         state.slots[(startIndex + i) % cap]
       }
@@ -102,13 +102,10 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
   public let ringBuffer = FragmentRingBuffer(capacity: 6)
 
   /// Called when a new fragment is completed.
-  private struct CallbackBox: @unchecked Sendable {
-    var handler: ((MP4Fragment) -> Void)?
-  }
-  private let _onFragmentReady = Locked<CallbackBox>(initialState: CallbackBox())
+  private let _onFragmentReady = Locked<((MP4Fragment) -> Void)?>(initialState: nil)
   public var onFragmentReady: ((MP4Fragment) -> Void)? {
-    get { _onFragmentReady.withLock { $0.handler } }
-    set { _onFragmentReady.withLock { $0.handler = newValue } }
+    get { _onFragmentReady.withLockUnchecked { $0 } }
+    set { _onFragmentReady.withLockUnchecked { $0 = newValue } }
   }
 
   private let logger = Logger(subsystem: logSubsystem, category: "fMP4Writer")
@@ -168,7 +165,7 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
     }
   }
 
-  public func configure(width: Int, height: Int, fps: Int) {
+  public func configure(fps: Int) {
     _writerState.withLock { $0.fps = fps }
   }
 
@@ -176,8 +173,8 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
 
   /// Append an encoded AAC-ELD frame to be included in the next fragment.
   /// Audio samples are drained when the next video fragment is emitted; if video
-  /// keyframes stop arriving, this caps accumulation at ~10s of audio (~330 frames)
-  /// to prevent unbounded memory growth.
+  /// keyframes stop arriving, this caps accumulation at ~10s of audio (340 frames
+  /// at 16kHz/480 = 33.3 fps) to prevent unbounded memory growth.
   public func appendAudioSample(_ encodedFrame: Data) {
     _writerState.withLock { state in
       if state.pendingAudioSamples.count < 340 {
@@ -196,7 +193,8 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
       as? [[CFString: Any]]
     let isKeyframe = !(attachments?.first?[kCMSampleAttachmentKey_NotSync] as? Bool ?? false)
 
-    // Extract raw H.264 data from the CMBlockBuffer
+    // Extract raw H.264 data from the CMBlockBuffer.
+    // CMBlockBuffer.dataBytes (iOS 16+) would be cleaner, but we target iOS 15.
     guard let dataBuffer = sampleBuffer.dataBuffer else { return }
     var totalLength = 0
     var dataPointer: UnsafeMutablePointer<CChar>?
@@ -213,32 +211,24 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
     // to prevent deadlock if the callback reenters the writer.
     // At most two fragments can be emitted: one from a PTS gap flush, one from a keyframe flush.
 
-    // Check if init segment needs to be built (outside lock since it's heavy)
-    let needsInitSegment = _writerState.withLock { state in
-      state.videoFormatDescription == nil && fmt != nil
+    // Build the init segment outside the lock (it's heavy) if we don't have one yet.
+    // Read the needed state in one lock acquisition, build outside, then store only if
+    // includeAudioTrack hasn't changed — otherwise discard and let the next sample rebuild.
+    let (needsBuild, includeAudio) = _writerState.withLock { state in
+      (state.videoFormatDescription == nil && fmt != nil, state.includeAudioTrack)
     }
-    if needsInitSegment, let fmt {
-      let includeAudio = _writerState.withLock { $0.includeAudioTrack }
-      let initSeg = buildInitSegment(videoFormat: fmt, includeAudio: includeAudio)
-      let needsRebuild = _writerState.withLock { state -> Bool in
-        // Double-check under lock in case another thread raced us
-        guard state.videoFormatDescription == nil else { return false }
-        // Re-check includeAudioTrack in case it changed while we were building
-        if state.includeAudioTrack != includeAudio { return true }
+    if needsBuild, let fmt {
+      guard let initSeg = buildInitSegment(videoFormat: fmt, includeAudio: includeAudio) else {
+        // Don't set videoFormatDescription — leave it nil so the next
+        // appendVideoSample retries the build instead of being stuck forever.
+        return
+      }
+      _writerState.withLock { state in
+        guard state.videoFormatDescription == nil,
+          state.includeAudioTrack == includeAudio
+        else { return }
         state.videoFormatDescription = fmt
         state.initSegment = initSeg
-        return false
-      }
-      if needsRebuild {
-        let currentAudio = _writerState.withLock { $0.includeAudioTrack }
-        let rebuilt = buildInitSegment(videoFormat: fmt, includeAudio: currentAudio)
-        _writerState.withLock { state in
-          guard state.videoFormatDescription == nil,
-            state.includeAudioTrack == currentAudio
-          else { return }
-          state.videoFormatDescription = fmt
-          state.initSegment = rebuilt
-        }
       }
     }
 
@@ -576,8 +566,13 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
     Self.putU32BE(&mvhdP, includeAudio ? 3 : 2)  // next_track_ID
     let mvhd = Self.mp4FullBox("mvhd", payload: mvhdP)
 
-    let videoTrack = buildVideoTrack(
-      trackID: 1, width: width, height: height, sps: sps, pps: pps)
+    guard
+      let videoTrack = buildVideoTrack(
+        trackID: 1, width: width, height: height, sps: sps, pps: pps)
+    else {
+      logger.error("buildInitSegment: failed to build video track")
+      return nil
+    }
 
     // mvex (movie extends — required for fragmented MP4)
     // No mehd box — positron's working implementation omits it, and it's optional per ISO 14496-12.
@@ -602,7 +597,7 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
 
   private func buildVideoTrack(
     trackID: UInt32, width: UInt16, height: UInt16, sps: Data, pps: Data
-  ) -> Data {
+  ) -> Data? {
     // tkhd
     var tkhdP = Data()
     Self.putU32BE(&tkhdP, 0)  // creation_time
@@ -645,7 +640,7 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
     let dinf = Self.buildDinf()
 
     // stsd with avc1
-    let avcC = Self.buildAvcC(sps: sps, pps: pps)
+    guard let avcC = Self.buildAvcC(sps: sps, pps: pps) else { return nil }
     var avc1P = Data()
     avc1P.append(Data(count: 6))  // reserved
     Self.putU16BE(&avc1P, 1)  // data_reference_index
@@ -753,7 +748,6 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
     if size < 0x80 {
       return Data([UInt8(size)])
     }
-    var result = Data()
     var remaining = size
     // Encode in big-endian with continuation bits (MSB set on all but last byte)
     var bytes: [UInt8] = []
@@ -764,8 +758,7 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
       remaining >>= 7
     }
     bytes.reverse()
-    result.append(contentsOf: bytes)
-    return result
+    return Data(bytes)
   }
 
   private static func buildEsds(trackID: UInt32, audioConfig: Data) -> Data {
@@ -832,15 +825,11 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
   }
 
   private static func putU32BE(_ data: inout Data, _ value: UInt32) {
-    data.append(UInt8((value >> 24) & 0xFF))
-    data.append(UInt8((value >> 16) & 0xFF))
-    data.append(UInt8((value >> 8) & 0xFF))
-    data.append(UInt8(value & 0xFF))
+    withUnsafeBytes(of: value.bigEndian) { data.append(contentsOf: $0) }
   }
 
   private static func putU16BE(_ data: inout Data, _ value: UInt16) {
-    data.append(UInt8((value >> 8) & 0xFF))
-    data.append(UInt8(value & 0xFF))
+    withUnsafeBytes(of: value.bigEndian) { data.append(contentsOf: $0) }
   }
 
   private static func appendIdentityMatrix(_ data: inout Data) {
@@ -876,11 +865,11 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
     return stts + stsc + stsz + stco
   }
 
-  private static func buildAvcC(sps: Data, pps: Data) -> Data {
+  private static func buildAvcC(sps: Data, pps: Data) -> Data? {
     guard sps.count >= 4 else {
       Logger(subsystem: logSubsystem, category: "fMP4Writer")
         .error("buildAvcC: SPS too short (\(sps.count) bytes), need at least 4")
-      return Data()
+      return nil
     }
     var p = Data()
     p.append(1)  // configurationVersion

@@ -83,8 +83,10 @@ public nonisolated func convertToFloat32At16kHz(
     return Data()
   }
 
-  // Resample to 16kHz using vectorized linear interpolation
-  if abs(sourceSampleRate - 16000) > 1 {
+  // Resample to 16kHz using vectorized linear interpolation.
+  // vDSP_vlint needs at least 2 source samples for interpolation (it reads
+  // both floor(index) and floor(index)+1). Skip resampling for degenerate input.
+  if abs(sourceSampleRate - 16000) > 1, monoFloat.count >= 2 {
     let ratio = 16000.0 / sourceSampleRate
     let outputCount = Int((Double(monoFloat.count) * ratio).rounded())
     guard outputCount > 0 else { return Data() }
@@ -169,6 +171,9 @@ public nonisolated func videoOrientation(from angle: Int) -> AVCaptureVideoOrien
 // MARK: - Audio Converter Callback Data
 
 /// Helper for passing PCM data through the AudioConverter encoder C callback.
+/// `@unchecked Sendable` because the struct holds an UnsafeRawPointer — it is
+/// never actually sent across isolation boundaries; it only exists within
+/// the synchronous scope of withUnsafeMutablePointer during AudioConverter calls.
 public nonisolated struct AudioEncoderInput: @unchecked Sendable {
   public var srcData: UnsafeRawPointer?
   public var srcSize: UInt32

@@ -18,10 +18,9 @@ public enum PairingsHandler {
   public static func handle(request: HTTPRequest, connection: HAPConnection, server: HAPServer)
     -> HTTPResponse
   {
-    // Pairings management requires an encrypted session
-    guard connection.encryptionContext != nil else {
-      return errorResponse(error: .authentication)
-    }
+    // routeRequest already gates POST /pairings on encryptionContext != nil
+    // and returns 470 if not verified. This assert documents the invariant.
+    assert(connection.encryptionContext != nil, "POST /pairings reached without encryption")
 
     guard let body = request.body else {
       return errorResponse(error: .unknown)
@@ -82,6 +81,12 @@ public enum PairingsHandler {
         logger.warning("Add pairing rejected: key mismatch for existing identifier \(id)")
         return errorResponse(error: .authentication)
       }
+      // Prevent demoting the last admin to non-admin, which would leave
+      // the device with pairings but no admin to manage them.
+      if existing.isAdmin && !isAdmin && server.pairingStore.adminCount <= 1 {
+        logger.warning("Add pairing rejected: cannot demote last admin \(id)")
+        return errorResponse(error: .authentication)
+      }
     }
     server.pairingStore.addPairing(
       PairingStore.Pairing(identifier: id, publicKey: publicKey, isAdmin: isAdmin)
@@ -118,11 +123,15 @@ public enum PairingsHandler {
       server.pairingStore.removePairing(identifier: id)
     }
 
-    // HAP spec §5.11: terminate sessions for the removed controller.
-    // Use a short delay to ensure the M2 response bytes are flushed
-    // to the TCP stack before the connection is torn down.
-    // Normalize to uppercase to match verifiedControllerID (set in PairVerify).
-    server.terminateSessionsAfterResponse(forController: id.uppercased())
+    // HAP spec §5.11: terminate sessions after a short delay to ensure the
+    // response is flushed before teardown.
+    if isLastAdmin {
+      // All pairings cleared — every active session is now orphaned.
+      server.terminateAllSessionsAfterResponse()
+    } else {
+      // Normalize to uppercase to match verifiedControllerID (set in PairVerify).
+      server.terminateSessionsAfterResponse(forController: id.uppercased())
+    }
 
     // If last admin was removed (all pairings cleared) or no pairings
     // remain, update advertisement to indicate unpaired state.

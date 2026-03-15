@@ -6,20 +6,31 @@ import os
 /// Detects human presence using Vision framework person detection.
 /// Processes pixel buffers from MonitoringCaptureSession at low frequency (~2.5s).
 /// Maintains occupancy state with configurable cooldown to avoid flapping.
+///
+/// Not unit-tested: the core logic depends on VNDetectHumanRectanglesRequest which
+/// requires real pixel buffers with recognizable human shapes — synthetic buffers
+/// don't produce meaningful Vision results. The cooldown timer path
+/// (scheduleCooldownTimer) also depends on DispatchSourceTimer timing. Both would
+/// require integration-level tests with real images and real timer waits.
+///
+/// `@unchecked Sendable` is required because VNDetectHumanRectanglesRequest and
+/// DispatchSourceTimer are not Sendable. All mutable state is protected by Locked
+/// and Vision work is serialized on detectionQueue.
 public nonisolated final class OccupancySensor: @unchecked Sendable {
 
-  private let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "OccupancySensor")
+  private let logger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "Sensors", category: "OccupancySensor")
 
   private let _onOccupancyChange = Locked<((Bool) -> Void)?>(initialState: nil)
   public var onOccupancyChange: ((Bool) -> Void)? {
-    get { _onOccupancyChange.withLock { $0 } }
-    set { _onOccupancyChange.withLock { $0 = newValue } }
+    get { _onOccupancyChange.withLockUnchecked { $0 } }
+    set { _onOccupancyChange.withLockUnchecked { $0 = newValue } }
   }
 
   /// Seconds to stay "occupied" after last person detection before clearing.
   public var cooldown: TimeInterval {
-    get { state.withLock { $0.cooldown } }
-    set { state.withLock { $0.cooldown = newValue } }
+    get { state.withLockUnchecked { $0.cooldown } }
+    set { state.withLockUnchecked { $0.cooldown = newValue } }
   }
 
   private struct State {
@@ -32,7 +43,7 @@ public nonisolated final class OccupancySensor: @unchecked Sendable {
 
   /// Vision requests run on a dedicated queue to avoid blocking the capture pipeline.
   private let detectionQueue = DispatchQueue(
-    label: "\(Bundle.main.bundleIdentifier!).occupancy", qos: .utility)
+    label: "\(Bundle.main.bundleIdentifier ?? "Sensors").occupancy", qos: .utility)
 
   /// Reused across calls since the detection queue is serial.
   private let request = VNDetectHumanRectanglesRequest()
@@ -51,17 +62,20 @@ public nonisolated final class OccupancySensor: @unchecked Sendable {
   /// Caller is responsible for throttling (e.g., every ~75 frames at 30fps).
   public func processPixelBuffer(_ pixelBuffer: CVPixelBuffer) {
     guard
-      _processing.withLock({ p in
+      _processing.withLockUnchecked({ p in
         guard !p else { return false }
         p = true
         return true
       })
     else { return }
 
-    // CVPixelBuffer is refcounted and retained by the closure.
+    // CVPixelBuffer is a CFType (refcounted). The closure below retains it,
+    // so it stays alive until the async block completes. nonisolated(unsafe)
+    // suppresses the Sendable warning — a Sendable wrapper would add overhead
+    // with no safety benefit since the buffer is only read, never mutated.
     nonisolated(unsafe) let pixelBuffer = pixelBuffer
     detectionQueue.async { [self] in
-      defer { _processing.withLock { $0 = false } }
+      defer { _processing.withLockUnchecked { $0 = false } }
 
       let personDetected: Bool = autoreleasepool {
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
@@ -69,7 +83,7 @@ public nonisolated final class OccupancySensor: @unchecked Sendable {
         do {
           try handler.perform([self.request])
         } catch {
-          self.logger.error("[occupancy] failed: \(error)")
+          self.logger.error("failed: \(error)")
           return false
         }
 
@@ -78,7 +92,7 @@ public nonisolated final class OccupancySensor: @unchecked Sendable {
 
         if !results.isEmpty {
           self.logger.debug(
-            "[occupancy] found \(results.count) results, best confidence is \(bestConfidence, format: .fixed(precision: 3))"
+            "found \(results.count) results, best confidence is \(bestConfidence, format: .fixed(precision: 3))"
           )
         }
 
@@ -86,7 +100,7 @@ public nonisolated final class OccupancySensor: @unchecked Sendable {
       }
 
       if personDetected {
-        let (shouldNotify, cooldown) = state.withLock { s in
+        let (shouldNotify, cooldown) = state.withLockUnchecked { s in
           s.lastDetectionDate = Date()
           if !s.isOccupied {
             s.isOccupied = true
@@ -95,36 +109,37 @@ public nonisolated final class OccupancySensor: @unchecked Sendable {
           return (false, s.cooldown)
         }
         logger.debug(
-          "[occupancy] Check: person=yes, cooldown=\(cooldown, format: .fixed(precision: 0))s")
+          "Check: person=yes, cooldown=\(cooldown, format: .fixed(precision: 0))s")
         if shouldNotify {
           logger.debug(
-            "[occupancy] occupied, clearing in \(cooldown, format: .fixed(precision: 1)) seconds")
+            "occupied, clearing in \(cooldown, format: .fixed(precision: 1)) seconds")
           onOccupancyChange?(true)
         }
         // Schedule/reschedule the cooldown timer so occupancy clears even if
         // camera frames stop (backgrounding, snapshot capture, handoff).
         scheduleCooldownTimer(delay: cooldown)
       } else {
-        let (elapsed, remaining, shouldClear): (TimeInterval?, TimeInterval?, Bool) = state.withLock
-        { s in
-          guard s.isOccupied else { return (nil, nil, false) }
-          let elapsed = Date().timeIntervalSince(s.lastDetectionDate)
-          if elapsed >= s.cooldown {
-            s.isOccupied = false
-            return (elapsed, 0, true)
+        let (elapsed, remaining, shouldClear): (TimeInterval?, TimeInterval?, Bool) =
+          state
+          .withLockUnchecked { s in
+            guard s.isOccupied else { return (nil, nil, false) }
+            let elapsed = Date().timeIntervalSince(s.lastDetectionDate)
+            if elapsed >= s.cooldown {
+              s.isOccupied = false
+              return (elapsed, 0, true)
+            }
+            return (elapsed, s.cooldown - elapsed, false)
           }
-          return (elapsed, s.cooldown - elapsed, false)
-        }
         if let remaining {
           logger.debug(
-            "[occupancy] not occupied, clearing in \(remaining, format: .fixed(precision: 1)) seconds"
+            "not occupied, clearing in \(remaining, format: .fixed(precision: 1)) seconds"
           )
         } else {
-          logger.debug("[occupancy] not occupied")
+          logger.debug("not occupied")
         }
         if shouldClear, let elapsed {
           cancelCooldownTimer()
-          logger.debug("[occupancy] cleared after \(elapsed, format: .fixed(precision: 1)) seconds")
+          logger.debug("cleared after \(elapsed, format: .fixed(precision: 1)) seconds")
           onOccupancyChange?(false)
         }
       }
@@ -140,7 +155,7 @@ public nonisolated final class OccupancySensor: @unchecked Sendable {
     timer.setEventHandler { [weak self] in
       guard let self else { return }
       var remainingDelay: TimeInterval?
-      let shouldClear = self.state.withLock { s -> Bool in
+      let shouldClear = self.state.withLockUnchecked { s -> Bool in
         guard s.isOccupied else { return false }
         let elapsed = Date().timeIntervalSince(s.lastDetectionDate)
         if elapsed >= s.cooldown {
@@ -152,25 +167,25 @@ public nonisolated final class OccupancySensor: @unchecked Sendable {
         return false
       }
       if shouldClear {
-        self.logger.debug("[occupancy] cooldown timer fired, clearing occupancy")
+        self.logger.debug("cooldown timer fired, clearing occupancy")
         self.onOccupancyChange?(false)
-        self._cooldownTimer.withLock { $0 = nil }
+        self._cooldownTimer.withLockUnchecked { $0 = nil }
       } else if let delay = remainingDelay {
         self.logger.debug(
-          "[occupancy] cooldown not yet elapsed, rescheduling in \(delay, privacy: .public)s")
+          "cooldown not yet elapsed, rescheduling in \(delay, privacy: .public)s")
         self.scheduleCooldownTimer(delay: delay)
       } else {
-        self._cooldownTimer.withLock { $0 = nil }
+        self._cooldownTimer.withLockUnchecked { $0 = nil }
       }
     }
     // Resume before storing so the timer is never in a suspended+visible state
     // where another thread could cancel it while suspended (which would crash).
     timer.resume()
-    _cooldownTimer.withLock { $0 = timer }
+    _cooldownTimer.withLockUnchecked { $0 = timer }
   }
 
   private func cancelCooldownTimer() {
-    _cooldownTimer.withLock { timer in
+    _cooldownTimer.withLockUnchecked { timer in
       timer?.cancel()
       timer = nil
     }
@@ -181,7 +196,7 @@ public nonisolated final class OccupancySensor: @unchecked Sendable {
   public func reset() {
     detectionQueue.async { [self] in
       cancelCooldownTimer()
-      state.withLock { s in
+      state.withLockUnchecked { s in
         s.isOccupied = false
         s.lastDetectionDate = .distantPast
       }

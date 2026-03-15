@@ -17,7 +17,7 @@ import os
   public private(set) var isAvailable = false
 
   private let logger = Logger(
-    subsystem: Bundle.main.bundleIdentifier!, category: "ProximitySensor")
+    subsystem: Bundle.main.bundleIdentifier ?? "Sensors", category: "ProximitySensor")
 
   private var observer: NSObjectProtocol?
 

@@ -2,7 +2,6 @@ import BigInt
 import CryptoKit
 import Foundation
 import Locked
-import os
 
 // MARK: - SRP-6a Server Implementation
 // This is the core crypto piece that CryptoKit doesn't provide.
@@ -13,7 +12,7 @@ import os
 //   - Password: the setup code (e.g. "111-22-333")
 
 /// SRP-6a server session for HAP pair-setup.
-public final class SRPServer {
+public final class SRPServer: @unchecked Sendable {
 
   // MARK: - 3072-bit SRP Group (RFC 5054, Appendix A)
 
@@ -46,10 +45,21 @@ public final class SRPServer {
   private static let nLength = 384
 
   /// H(N) XOR H(g) — precomputed since prime and g are static constants.
+  /// Note: H(g) hashes the unpadded single-byte [0x05], not PAD(g). This matches
+  /// the SRP spec for M1 = H(H(N) XOR H(g) | ...), which is distinct from
+  /// k = H(PAD(N) | PAD(g)) where padding is required.
   private static let hashNxorG: Data = {
     let hashN = Data(SHA512.hash(data: prime.serialize()))
     let hashG = Data(SHA512.hash(data: g.serialize()))
     return Data(zip(hashN, hashG).map { $0 ^ $1 })
+  }()
+
+  /// k = H(PAD(N) | PAD(g)) — the SRP-6a multiplier, constant for a given group.
+  private static let k: BigUInt = {
+    var kData = Data()
+    kData.append(pad(prime))
+    kData.append(pad(g))
+    return BigUInt(Data(SHA512.hash(data: kData)))
   }()
 
   // MARK: - Session State
@@ -57,21 +67,16 @@ public final class SRPServer {
   public let salt: Data  // Random 16-byte salt (s)
   public let publicKey: Data  // Server public key (B)
 
-  private let username: String
-  private let password: String
   private let hashI: Data  // H(username), computed once in init
 
   // Private SRP values
   private let verifier: BigUInt  // v = g^x mod N
   private let privateKey: BigUInt  // b (random private key)
-  private let k: BigUInt  // k = H(N | PAD(g))
 
   // Client's public key and derived values — protected by a lock since
-  // PairSetupSession is @unchecked Sendable and could theoretically be
-  // accessed from multiple threads.
+  // SRPServer is Sendable and may be accessed from multiple threads.
   private struct MutableState {
     var clientPublicKey: BigUInt?
-    var u: BigUInt?
     var sharedSecret: BigUInt?
     var sessionKey: SymmetricKey?
   }
@@ -85,78 +90,66 @@ public final class SRPServer {
 
   // MARK: - Initialization
 
+  /// Computes the SRP verifier and server public key from the given inputs.
+  /// Shared by both the public and package initializers.
+  private static func deriveServerValues(
+    username: String, password: String, salt: Data, privateKey: BigUInt
+  ) -> (verifier: BigUInt, publicKey: Data) {
+    // x = H(s | H(I | ":" | P))
+    let identityHash = SHA512.hash(data: Data("\(username):\(password)".utf8))
+    var xData = Data()
+    xData.append(salt)
+    xData.append(contentsOf: identityHash)
+    let x = BigUInt(Data(SHA512.hash(data: xData)))
+
+    // v = g^x mod N
+    let verifier = g.power(x, modulus: prime)
+
+    // B = (k*v + g^b mod N) mod N
+    let gb = g.power(privateKey, modulus: prime)
+    let kv = (k * verifier) % prime
+    let serverPublicKey = (kv + gb) % prime
+
+    return (verifier, pad(serverPublicKey))
+  }
+
   /// Creates a new SRP server session.
   /// Generates salt and computes the server's public key B.
   public init?(username: String, password: String) {
-    self.username = username
-    self.password = password
     self.hashI = Data(SHA512.hash(data: Data(username.utf8)))
 
-    // 1. Generate random 16-byte salt (s)
+    // Generate random 16-byte salt (s)
     var saltBytes = [UInt8](repeating: 0, count: 16)
     guard SecRandomCopyBytes(kSecRandomDefault, saltBytes.count, &saltBytes) == errSecSuccess else {
       return nil
     }
     self.salt = Data(saltBytes)
 
-    // 2. Compute x = H(s | H(I | ":" | P))
-    // where I = username, P = password, H = SHA-512
-    let identityHash = SHA512.hash(data: Data("\(username):\(password)".utf8))
-    var xData = Data()
-    xData.append(self.salt)
-    xData.append(contentsOf: identityHash)
-    let x = BigUInt(Data(SHA512.hash(data: xData)))
-
-    // 3. Compute verifier v = g^x mod N
-    self.verifier = Self.g.power(x, modulus: Self.prime)
-
-    // 4. Generate random private key b (256 bits = 32 bytes)
+    // Generate random private key b (256 bits = 32 bytes)
     var bBytes = [UInt8](repeating: 0, count: 32)
     guard SecRandomCopyBytes(kSecRandomDefault, bBytes.count, &bBytes) == errSecSuccess else {
       return nil
     }
     self.privateKey = BigUInt(Data(bBytes))
 
-    // 5. Compute k = H(N | PAD(g)) per SRP-6a (required by HAP)
-    var kData = Data()
-    kData.append(Self.pad(Self.prime))
-    kData.append(Self.pad(Self.g))
-    self.k = BigUInt(Data(SHA512.hash(data: kData)))
-
-    // 6. Compute B = (k*v + g^b mod N) mod N
-    let gb = Self.g.power(self.privateKey, modulus: Self.prime)
-    let kv = (self.k * self.verifier) % Self.prime
-    let serverPublicKey = (kv + gb) % Self.prime
-
-    // 7. Store B as public key
-    self.publicKey = Self.pad(serverPublicKey)
+    let derived = Self.deriveServerValues(
+      username: username, password: password, salt: self.salt, privateKey: self.privateKey)
+    self.verifier = derived.verifier
+    self.publicKey = derived.publicKey
   }
 
   /// Test-only initializer with fixed salt and private key for deterministic verification.
   /// Package access — callers outside the SRP package should use the public init.
-  package init?(username: String, password: String, fixedSalt: Data, fixedPrivateKey: Data) {
-    self.username = username
-    self.password = password
+  /// Non-failable since all inputs are caller-provided (no SecRandomCopyBytes).
+  package init(username: String, password: String, fixedSalt: Data, fixedPrivateKey: Data) {
     self.hashI = Data(SHA512.hash(data: Data(username.utf8)))
     self.salt = fixedSalt
-
-    let identityHash = SHA512.hash(data: Data("\(username):\(password)".utf8))
-    var xData = Data()
-    xData.append(fixedSalt)
-    xData.append(contentsOf: identityHash)
-    let x = BigUInt(Data(SHA512.hash(data: xData)))
-    self.verifier = Self.g.power(x, modulus: Self.prime)
     self.privateKey = BigUInt(fixedPrivateKey)
 
-    var kData = Data()
-    kData.append(Self.pad(Self.prime))
-    kData.append(Self.pad(Self.g))
-    self.k = BigUInt(Data(SHA512.hash(data: kData)))
-
-    let gb = Self.g.power(self.privateKey, modulus: Self.prime)
-    let kv = (self.k * self.verifier) % Self.prime
-    let serverPublicKey = (kv + gb) % Self.prime
-    self.publicKey = Self.pad(serverPublicKey)
+    let derived = Self.deriveServerValues(
+      username: username, password: password, salt: fixedSalt, privateKey: self.privateKey)
+    self.verifier = derived.verifier
+    self.publicKey = derived.publicKey
   }
 
   // MARK: - Step 2: Receive Client Public Key
@@ -178,7 +171,9 @@ public final class SRPServer {
     }
 
     // 4. Compute u = H(PAD(A) | PAD(B))
-    // RFC 5054 §2.5.4: abort if u == 0
+    // RFC 5054 §2.5.4: abort if u == 0.
+    // Not feasibly testable — would require a SHA-512 preimage that hashes to
+    // all zeros, but the check is required by the spec for defense-in-depth.
     var uData = Data()
     uData.append(Self.pad(clientA))
     uData.append(self.publicKey)
@@ -197,7 +192,6 @@ public final class SRPServer {
     return _state.withLock { state in
       guard state.clientPublicKey == nil else { return false }
       state.clientPublicKey = clientA
-      state.u = computedU
       state.sharedSecret = s
       return true
     }

@@ -14,6 +14,7 @@ let package = Package(
     .package(path: "../SRTP"),
   ],
   targets: [
-    .target(name: "Streaming", dependencies: ["FragmentedMP4", "Locked", "Sensors", "SRTP"])
+    .target(name: "Streaming", dependencies: ["FragmentedMP4", "Locked", "Sensors", "SRTP"]),
+    .testTarget(name: "StreamingTests", dependencies: ["Streaming"]),
   ]
 )

@@ -27,6 +27,18 @@ struct TLV8Tests {
     #expect(data == Data([0xFF, 0x00]))
   }
 
+  @Test("Encode zero-length non-separator value")
+  func encodeZeroLengthNonSeparator() {
+    let data = TLV8.encode(.state, Data())
+    #expect(data == Data([0x06, 0x00]))
+
+    // Roundtrips correctly
+    let decoded: [(UInt8, Data)] = TLV8.decode(data)
+    #expect(decoded.count == 1)
+    #expect(decoded[0].0 == 0x06)
+    #expect(decoded[0].1.isEmpty)
+  }
+
   @Test("Encode multiple items")
   func encodeMultipleItems() {
     let data = TLV8.encode([
@@ -92,6 +104,36 @@ struct TLV8Tests {
     #expect(dict[.state] == Data([0x03]))
     #expect(dict[.salt] == Data([0xAA, 0xBB]))
     #expect(dict[.error] == nil)
+  }
+
+  @Test("Dictionary decode drops unknown tags")
+  func decodeDictionaryDropsUnknownTags() {
+    // Tag 0x20 is not in the Tag enum — it should be silently dropped
+    // from the dictionary decode but preserved in the raw decode.
+    let raw = Data([0x06, 0x01, 0x03, 0x20, 0x02, 0xDE, 0xAD])
+    let dict: [TLV8.Tag: Data] = TLV8.decode(raw)
+    #expect(dict.count == 1)
+    #expect(dict[.state] == Data([0x03]))
+
+    // Raw decode preserves the unknown tag
+    let pairs: [(UInt8, Data)] = TLV8.decode(raw)
+    #expect(pairs.count == 2)
+    #expect(pairs[1].0 == 0x20)
+    #expect(pairs[1].1 == Data([0xDE, 0xAD]))
+  }
+
+  @Test("Dictionary decode last-occurrence-wins for duplicate tags")
+  func decodeDictionaryDuplicateTags() {
+    // Two non-consecutive .state TLVs (separated by a different tag so
+    // they aren't coalesced as fragments). Last occurrence wins.
+    let raw = Data([
+      0x06, 0x01, 0xAA,  // state = 0xAA
+      0x02, 0x01, 0x01,  // salt = 0x01
+      0x06, 0x01, 0xBB,  // state = 0xBB (duplicate)
+    ])
+    let dict: [TLV8.Tag: Data] = TLV8.decode(raw)
+    #expect(dict[.state] == Data([0xBB]))
+    #expect(dict[.salt] == Data([0x01]))
   }
 
   @Test("Dictionary decode rejects blobs containing separators")
@@ -208,6 +250,14 @@ struct TLV8Tests {
     #expect(data == Data([0x01, 0x04, 0x04, 0x03, 0x02, 0x01]))
   }
 
+  @Test("Builder adds uint64 as little-endian")
+  func builderUInt64() {
+    var builder = TLV8.Builder()
+    builder.add(0x01, uint64: 0x0102_0304_0506_0708)
+    let data = builder.build()
+    #expect(data == Data([0x01, 0x08, 0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01]))
+  }
+
   @Test("Builder adds nested TLV")
   func builderNestedTLV() {
     var inner = TLV8.Builder()
@@ -217,6 +267,17 @@ struct TLV8Tests {
     let data = outer.build()
     // outer: tag=0x02, len=3, value=[0x01, 0x01, 0xFF]
     #expect(data == Data([0x02, 0x03, 0x01, 0x01, 0xFF]))
+  }
+
+  @Test("Builder closure initializer")
+  func builderClosureInit() {
+    let builder = TLV8.Builder { b in
+      b.add(0x06, byte: 0x01)
+      b.add(0x02, uint16: 1920)
+    }
+    let data = builder.build()
+    // state=0x01 then uint16 1920 (0x0780) little-endian
+    #expect(data == Data([0x06, 0x01, 0x01, 0x02, 0x02, 0x80, 0x07]))
   }
 
   @Test("Builder base64 encoding")
@@ -248,6 +309,32 @@ struct TLV8Tests {
     let data = builder.build()
     #expect(data == Data([0xFF, 0x00]))
   }
+  @Test("Builder accepts Tag-typed overloads for all value types")
+  func builderTagOverloads() {
+    // Verify each Tag-typed overload produces the same output as the
+    // equivalent raw UInt8 call.
+    var raw = TLV8.Builder()
+    raw.add(0x06, byte: 0x01)
+    raw.add(0x02, Data([0xAA, 0xBB]))
+    raw.add(0x03, uint16: 0x1234)
+    raw.add(0x04, uint32: 0x0102_0304)
+    raw.add(0x05, uint64: 0x0102_0304_0506_0708)
+
+    var inner = TLV8.Builder()
+    inner.add(0x01, byte: 0xFF)
+    raw.add(0x0A, tlv: inner)
+
+    var typed = TLV8.Builder()
+    typed.add(.state, byte: 0x01)
+    typed.add(.salt, Data([0xAA, 0xBB]))
+    typed.add(.publicKey, uint16: 0x1234)
+    typed.add(.proof, uint32: 0x0102_0304)
+    typed.add(.encryptedData, uint64: 0x0102_0304_0506_0708)
+    typed.add(.signature, tlv: inner)
+
+    #expect(raw.build() == typed.build())
+  }
+
   @Test("Builder addDelimiter inserts 00 00")
   func builderDelimiter() {
     var builder = TLV8.Builder()
@@ -380,9 +467,10 @@ struct TLV8SeparatorTests {
     #expect(pairs[1].0 == 0xFF)
   }
 
-  @Test("Consecutive separators produce separate records in decodeRecords")
-  func consecutiveSeparatorsProduceSeparateRecords() {
-    // Record 1: id=A, Record 2: (empty from double separator), Record 3: id=B
+  @Test("Consecutive separators preserve interior empty records")
+  func consecutiveSeparatorsPreserveInteriorEmpty() {
+    // Two consecutive separators between data produce an interior empty record.
+    // Record 1: id=A, Record 2: [:] (empty), Record 3: id=B
     let encoded = TLV8.encode([
       (.identifier, Data("A".utf8)),
       (.separator, Data()),
@@ -390,9 +478,10 @@ struct TLV8SeparatorTests {
       (.identifier, Data("B".utf8)),
     ])
     let records = TLV8.decodeRecords(encoded)
-    // Middle empty record gets stripped by the leading/trailing logic,
-    // but we should still get 2 non-empty records plus the empty one
-    #expect(records.count >= 2)
+    #expect(records.count == 3)
+    #expect(records[0][.identifier] == Data("A".utf8))
+    #expect(records[1].isEmpty)
+    #expect(records[2][.identifier] == Data("B".utf8))
   }
 
   @Test("Multiple leading/trailing separators are fully stripped")
@@ -410,5 +499,79 @@ struct TLV8SeparatorTests {
     let encoded = TLV8.encode([(.separator, Data([0xAA, 0xBB]))])
     // Should encode as FF 00 regardless of the data payload
     #expect(encoded == Data([0xFF, 0x00]))
+  }
+
+  @Test("Only separators decodes to empty records")
+  func onlySeparators() {
+    let data = Data([0xFF, 0x00, 0xFF, 0x00])
+    let records = TLV8.decodeRecords(data)
+    #expect(records.isEmpty)
+  }
+}
+
+// MARK: - Boundary & Roundtrip Tests
+
+@Suite("TLV8 Boundary Cases")
+struct TLV8BoundaryTests {
+
+  @Test("Exactly 255 bytes produces a single fragment")
+  func exactly255Bytes() {
+    let value = Data(repeating: 0xAA, count: 255)
+    let encoded = TLV8.encode(.publicKey, value)
+    // Single fragment: tag + 0xFF + 255 bytes, no second chunk
+    #expect(encoded.count == 2 + 255)
+    #expect(encoded[0] == 0x03)
+    #expect(encoded[1] == 0xFF)
+
+    let decoded: [(UInt8, Data)] = TLV8.decode(encoded)
+    #expect(decoded.count == 1)
+    #expect(decoded[0].1 == value)
+  }
+
+  @Test("Three or more fragments encode and decode correctly")
+  func threeFragments() {
+    // 600 bytes = 255 + 255 + 90 = three fragments
+    let value = Data(repeating: 0xBB, count: 600)
+    let encoded = TLV8.encode(.encryptedData, value)
+
+    // Verify structure: 3 chunks
+    #expect(encoded[0] == 0x05)
+    #expect(encoded[1] == 0xFF)
+    let second = 2 + 255
+    #expect(encoded[second] == 0x05)
+    #expect(encoded[second + 1] == 0xFF)
+    let third = second + 2 + 255
+    #expect(encoded[third] == 0x05)
+    #expect(encoded[third + 1] == 90)
+    #expect(encoded.count == (2 + 255) * 2 + 2 + 90)
+
+    let decoded: [(UInt8, Data)] = TLV8.decode(encoded)
+    #expect(decoded.count == 1)
+    #expect(decoded[0].1 == value)
+  }
+
+  @Test("Builder output round-trips through decode")
+  func builderRoundtrip() {
+    var builder = TLV8.Builder()
+    builder.add(0x06, byte: 0x02)
+    builder.add(0x03, Data(repeating: 0xCC, count: 300))
+    builder.add(0x0A, uint16: 0x1234)
+    let encoded = builder.build()
+
+    let decoded: [(UInt8, Data)] = TLV8.decode(encoded)
+    #expect(decoded.count == 3)
+    #expect(decoded[0].0 == 0x06)
+    #expect(decoded[0].1 == Data([0x02]))
+    #expect(decoded[1].0 == 0x03)
+    #expect(decoded[1].1 == Data(repeating: 0xCC, count: 300))
+    #expect(decoded[2].0 == 0x0A)
+    #expect(decoded[2].1 == Data([0x34, 0x12]))
+  }
+
+  @Test("Builder addList with empty TLV array produces no output")
+  func builderAddListEmptyTLVs() {
+    var builder = TLV8.Builder()
+    builder.addList(0x10, tlvs: [])
+    #expect(builder.build().isEmpty)
   }
 }

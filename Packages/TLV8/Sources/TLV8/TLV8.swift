@@ -1,7 +1,10 @@
 import Foundation
 import os
 
-private let logSubsystem = "me.fausak.taylor.Pylo"
+// Uses the app's bundle identifier when available, falling back to
+// a generic subsystem so the TLV8 package isn't coupled to a specific app.
+private let logSubsystem =
+  Bundle.main.bundleIdentifier ?? "com.github.TLV8"
 
 // MARK: - TLV8 Codec
 // HomeKit Accessory Protocol uses TLV8 (Type-Length-Value, 8-bit) encoding
@@ -49,7 +52,15 @@ public enum TLV8 {
 
   /// Decodes a TLV8-encoded Data blob into an ordered list of (tag, value) pairs.
   /// Consecutive items with the same tag are coalesced (fragmented values).
-  /// Returns `[]` on truncated input (logged as a warning to aid debugging).
+  ///
+  /// Uses fail-closed semantics: returns `[]` if any part of the blob is
+  /// truncated, even if earlier TLVs parsed successfully. This prevents
+  /// partial parses from being mistaken for complete messages in a security
+  /// protocol. Truncation is logged as a warning to aid debugging.
+  ///
+  /// Returns tuples rather than a named struct because call sites
+  /// universally destructure as `for (tag, value) in pairs`, which
+  /// is more ergonomic with tuples than with a struct.
   public static func decode(_ data: Data) -> [(UInt8, Data)] {
     var results: [(UInt8, Data)] = []
     var offset = data.startIndex
@@ -92,6 +103,18 @@ public enum TLV8 {
   /// Only suitable for messages that contain a single logical record (no separators).
   /// Returns an empty dictionary if the blob contains separator tags (use
   /// `decodeRecords(_:)` for multi-record TLV8).
+  ///
+  /// Tags not in the ``Tag`` enum are silently dropped. This is intentional:
+  /// the dictionary decode is used exclusively for pairing exchanges where
+  /// the tag set is fixed by the HAP spec. Unknown tags in that context
+  /// indicate either a newer spec revision (which we can't handle anyway)
+  /// or malformed data. Use the raw `[(UInt8, Data)]` overload if you need
+  /// to preserve all tags.
+  ///
+  /// If a tag appears more than once (non-consecutively, so not a fragment),
+  /// the last occurrence wins. This is acceptable because the HAP spec does
+  /// not permit duplicate tags within a single record — any such input is
+  /// already malformed.
   public static func decode(_ data: Data) -> [Tag: Data] {
     let pairs: [(UInt8, Data)] = decode(data)
     var dict: [Tag: Data] = [:]
@@ -120,7 +143,9 @@ public enum TLV8 {
         records[records.count - 1][tag] = value
       }
     }
-    // Remove empty leading/trailing records from leading/trailing separators
+    // Strip empty records caused by leading/trailing separators.
+    // Interior empty records (from consecutive separators) are preserved,
+    // as they may carry semantic meaning in some HAP contexts.
     while records.first?.isEmpty == true {
       records.removeFirst()
     }
@@ -131,6 +156,24 @@ public enum TLV8 {
   }
 
   // MARK: - Encode
+
+  /// Append a single tag+value to `result`, fragmenting values over 255 bytes.
+  /// Shared by both `encode()` and `Builder.add()`.
+  internal static func appendTLV(tag: UInt8, value: Data, to result: inout Data) {
+    if value.isEmpty {
+      result.append(tag)
+      result.append(0)
+      return
+    }
+    var offset = value.startIndex
+    while offset < value.endIndex {
+      let chunkSize = min(255, value.endIndex - offset)
+      result.append(tag)
+      result.append(UInt8(chunkSize))
+      result.append(contentsOf: value[offset..<offset + chunkSize])
+      offset += chunkSize
+    }
+  }
 
   /// Encodes a list of (tag, value) pairs into TLV8 Data.
   /// Values longer than 255 bytes are automatically fragmented.
@@ -149,21 +192,7 @@ public enum TLV8 {
         continue
       }
 
-      if value.isEmpty {
-        logger.warning("Zero-length TLV value for non-separator tag \(tag.rawValue) — likely a bug")
-        result.append(tag.rawValue)
-        result.append(0)
-        continue
-      }
-
-      var offset = value.startIndex
-      while offset < value.endIndex {
-        let chunkSize = min(255, value.endIndex - offset)
-        result.append(tag.rawValue)
-        result.append(UInt8(chunkSize))
-        result.append(contentsOf: value[offset..<offset + chunkSize])
-        offset += chunkSize
-      }
+      appendTLV(tag: tag.rawValue, value: value, to: &result)
     }
 
     return result
@@ -182,29 +211,25 @@ public enum TLV8 {
   // MARK: - Raw-Tag Builder (for camera / non-pairing TLV8)
 
   /// Builder for constructing TLV8 blobs with raw UInt8 tags.
-  public struct Builder {
+  public struct Builder: Sendable {
     public private(set) var data = Data()
 
     public init() {}
 
+    /// Closure-based initializer to reduce `var`/`build()` boilerplate.
+    public init(_ configure: (inout Builder) -> Void) {
+      self.init()
+      configure(&self)
+    }
+
     public mutating func add(_ tag: UInt8, _ value: Data) {
-      var offset = value.startIndex
-      if value.isEmpty {
-        data.append(tag)
-        data.append(0)
-      } else {
-        while offset < value.endIndex {
-          let chunkSize = min(255, value.endIndex - offset)
-          data.append(tag)
-          data.append(UInt8(chunkSize))
-          data.append(contentsOf: value[offset..<offset + chunkSize])
-          offset += chunkSize
-        }
-      }
+      TLV8.appendTLV(tag: tag, value: value, to: &data)
     }
 
     public mutating func add(_ tag: UInt8, byte: UInt8) {
-      add(tag, Data([byte]))
+      data.append(tag)
+      data.append(1)
+      data.append(byte)
     }
 
     public mutating func add(_ tag: UInt8, uint16: UInt16) {
@@ -248,6 +273,15 @@ public enum TLV8 {
         add(tag, tlv: tlv)
       }
     }
+
+    // MARK: Tag-typed overloads
+
+    public mutating func add(_ tag: Tag, _ value: Data) { add(tag.rawValue, value) }
+    public mutating func add(_ tag: Tag, byte: UInt8) { add(tag.rawValue, byte: byte) }
+    public mutating func add(_ tag: Tag, uint16: UInt16) { add(tag.rawValue, uint16: uint16) }
+    public mutating func add(_ tag: Tag, uint32: UInt32) { add(tag.rawValue, uint32: uint32) }
+    public mutating func add(_ tag: Tag, uint64: UInt64) { add(tag.rawValue, uint64: uint64) }
+    public mutating func add(_ tag: Tag, tlv: Builder) { add(tag.rawValue, tlv: tlv) }
 
     public func build() -> Data { data }
     public func base64() -> String { data.base64EncodedString() }

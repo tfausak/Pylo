@@ -417,6 +417,7 @@ public final class HAPConnection: @unchecked Sendable {
         completion: .contentProcessed { [weak self] error in
           if let error {
             self?.logger.error("Send error: \(error)")
+            self?.cancel()
           }
         })
     } else {
@@ -425,6 +426,7 @@ public final class HAPConnection: @unchecked Sendable {
         completion: .contentProcessed { [weak self] error in
           if let error {
             self?.logger.error("Send error: \(error)")
+            self?.cancel()
           }
         })
     }
@@ -457,6 +459,7 @@ public final class HAPConnection: @unchecked Sendable {
       completion: .contentProcessed { [weak self] error in
         if let error {
           self?.logger.error("EVENT send error: \(error)")
+          self?.cancel()
         }
       })
   }
@@ -501,12 +504,22 @@ public final class HAPConnection: @unchecked Sendable {
 
   /// Handle PUT /prepare for HAP timed writes (HAP §6.7.2.4).
   /// Stores the PID and TTL so subsequent PUT /characteristics can be validated.
+  /// Maximum timed write TTL in milliseconds (60 seconds). HAP spec §6.7.2.4
+  /// does not define a cap, but accessories should bound defensively to prevent
+  /// effectively-permanent timed writes from unreasonable TTL values.
+  private static let maxTimedWriteTTL = 60_000
+
   private func handlePrepare(_ request: HTTPRequest) -> HTTPResponse {
     guard let body = request.body,
       let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
-      let ttl = json["ttl"] as? Int, ttl > 0,
+      let ttlNumber = json["ttl"] as? NSNumber,
       let pidNumber = json["pid"] as? NSNumber
     else {
+      let errBody = try? JSONSerialization.data(withJSONObject: ["status": -70410])
+      return HTTPResponse(status: 200, body: errBody, contentType: "application/hap+json")
+    }
+    let ttl = ttlNumber.intValue
+    guard ttl > 0, ttl <= Self.maxTimedWriteTTL else {
       let errBody = try? JSONSerialization.data(withJSONObject: ["status": -70410])
       return HTTPResponse(status: 200, body: errBody, contentType: "application/hap+json")
     }
@@ -518,6 +531,13 @@ public final class HAPConnection: @unchecked Sendable {
 
   /// Validate and consume a pending timed write. Returns true if the PID matches
   /// and the TTL has not expired.
+  ///
+  /// Not unit-tested: the timed write state (timedWritePID/timedWriteExpiry) is
+  /// private to HAPConnection, and handlePrepare (which sets it) is also private.
+  /// Testing requires a live NWConnection with pair-verify, making this an
+  /// integration test. The logic is straightforward enough to verify by inspection:
+  /// non-timed writes (pid==nil) always pass, timed writes must match PID and not
+  /// be expired, and the state is always consumed on a timed-write attempt.
   func validateTimedWrite(pid: UInt64?) -> Bool {
     guard let pid, let expectedPID = timedWritePID, let expiry = timedWriteExpiry else {
       return pid == nil  // Non-timed writes always pass
@@ -532,9 +552,9 @@ public final class HAPConnection: @unchecked Sendable {
   private func handleIdentify(server: HAPServer) -> HTTPResponse {
     // Identify is only valid when not paired. Flash the torch briefly.
     if server.pairingStore.isPaired {
-      // Return -70401 (insufficient privileges) when paired
+      // HAP §6.7.2.5: return 470 (Connection Authorization Required) when paired.
       let body = try? JSONSerialization.data(withJSONObject: ["status": -70401])
-      return HTTPResponse(status: 400, body: body, contentType: "application/hap+json")
+      return HTTPResponse(status: 470, body: body, contentType: "application/hap+json")
     }
     // Trigger identify on all accessories
     for accessory in server.accessories.values {
@@ -581,8 +601,8 @@ public final class HAPConnection: @unchecked Sendable {
       }
     }
 
-    let width = json["image-width"] as? Int ?? 320
-    let height = json["image-height"] as? Int ?? 240
+    let width = min(json["image-width"] as? Int ?? 320, 1920)
+    let height = min(json["image-height"] as? Int ?? 240, 1080)
     logger.info(
       "Snapshot requested: \(width)x\(height) from aid \(aid), reason=\(reason.map(String.init) ?? "none")"
     )

@@ -373,6 +373,13 @@ public final class HAPServer: @unchecked Sendable {
   }
 
   /// Remove a connection from the active set. Safe to call from any thread.
+  ///
+  /// Called from NWConnection's `.cancelled` stateUpdateHandler, which dispatches
+  /// to this serial queue. If a pair-setup handler (M3/M5) is running when the
+  /// connection is cancelled, this async block runs after the handler returns
+  /// (serial queue guarantee), and the handler's own cleanup will have already
+  /// cleared `isPairSetupInProgress`. The check here catches the case where the
+  /// connection is cancelled *before* reaching M3/M5 (e.g., network drop after M1).
   public func removeConnection(_ id: String) {
     queue.async { [weak self] in
       guard let self else { return }
@@ -420,6 +427,21 @@ public final class HAPServer: @unchecked Sendable {
         }
         conn.cancel()
         self.connections.removeValue(forKey: id)
+      }
+    }
+  }
+
+  /// Terminate ALL verified sessions after a short delay.
+  /// Used when all pairings are cleared (last-admin removal) — every active
+  /// session belongs to a pairing that no longer exists.
+  public func terminateAllSessionsAfterResponse() {
+    queue.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+      guard let self else { return }
+      PairSetupHandler.isPairSetupInProgress = false
+      let all = self.connections
+      self.connections.removeAll()
+      for (_, conn) in all {
+        conn.cancel()
       }
     }
   }

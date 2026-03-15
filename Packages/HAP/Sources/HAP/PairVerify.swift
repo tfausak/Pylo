@@ -138,6 +138,10 @@ public enum PairVerifyHandler {
       return errorResponse(state: 0x04, .authentication)
     }
 
+    // Clear session state before processing M3. On failure, the ephemeral keys
+    // must not be reusable — a retry would need a fresh M1/M2 exchange.
+    connection.setPairVerifyState(nil)
+
     do {
 
       // Decrypt the sub-TLV
@@ -216,9 +220,6 @@ public enum PairVerifyHandler {
 
       // Store the shared secret for HDS key derivation
       connection.setPairVerifySharedSecret(sharedSecret)
-
-      // Clean up verify session
-      connection.setPairVerifyState(nil)
 
       let responseTLV = TLV8.encode([
         (.state, Data([0x04]))

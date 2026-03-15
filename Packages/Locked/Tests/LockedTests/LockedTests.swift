@@ -35,12 +35,54 @@ struct LockedTests {
     }
   }
 
+  @Test("State reflects partial mutation after throw")
+  func throwMidMutation() {
+    struct E: Error {}
+    let locked = Locked(initialState: 0)
+    try? locked.withLock { state in
+      state = 42
+      throw E()
+    }
+    #expect(locked.withLock { $0 } == 42)
+  }
+
   @Test("withLockUnchecked returns non-Sendable values")
   func uncheckedReturn() {
-    // NSObject is non-Sendable — withLockUnchecked allows returning it
-    let locked = Locked(initialState: NSObject())
+    // NSObject is non-Sendable — withLockUnchecked allows returning it.
+    // withLock would reject this at compile time due to its Sendable constraints.
+    let original = NSObject()
+    let locked = Locked(initialState: original)
     let obj = locked.withLockUnchecked { $0 }
-    #expect(obj is NSObject)
+    #expect(obj === original)
+  }
+
+  @Test("withLockUnchecked propagates throws")
+  func uncheckedThrows() {
+    struct TestError: Error {}
+    let locked = Locked(initialState: 0)
+    #expect(throws: TestError.self) {
+      try locked.withLockUnchecked { _ in throw TestError() }
+    }
+  }
+
+  @Test("Stored reference type is released on deinit")
+  func referenceTypeDeinit() {
+    let released = Locked(initialState: false)
+
+    class Witness: @unchecked Sendable {
+      let onDeinit: @Sendable () -> Void
+      init(onDeinit: @escaping @Sendable () -> Void) { self.onDeinit = onDeinit }
+      deinit { onDeinit() }
+    }
+
+    do {
+      let witness = Witness { released.withLock { $0 = true } }
+      let locked = Locked(initialState: witness)
+      // Ensure the witness is alive while locked is alive
+      #expect(locked.withLock { _ in !released.withLock { $0 } })
+    }
+    // Both `locked` and `witness` are out of scope — witness should be released
+    #expect(released.withLock { $0 })
   }
 }
 

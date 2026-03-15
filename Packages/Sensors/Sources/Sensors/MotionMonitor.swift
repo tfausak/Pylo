@@ -9,20 +9,25 @@ import os
 /// Monitors device motion using the accelerometer and reports motion detected / not detected.
 /// At rest the accelerometer reads ~1g; significant deviation from that indicates movement.
 /// On macOS, the accelerometer is not available (isAvailable = false).
+///
+/// `@unchecked Sendable` is required because CMMotionManager and OperationQueue
+/// are not Sendable, but all mutable state is protected by Locked and the
+/// motionQueue serializes accelerometer callbacks.
 public nonisolated final class MotionMonitor: @unchecked Sendable {
 
   /// Callback for motion state changes.
   /// Protected by a lock: written from @MainActor, read from motionQueue.
   private let _onMotionChange = Locked<((Bool) -> Void)?>(initialState: nil)
   public var onMotionChange: ((Bool) -> Void)? {
-    get { _onMotionChange.withLock { $0 } }
-    set { _onMotionChange.withLock { $0 = newValue } }
+    get { _onMotionChange.withLockUnchecked { $0 } }
+    set { _onMotionChange.withLockUnchecked { $0 = newValue } }
   }
 
   /// Whether the device has an accelerometer.
   public let isAvailable: Bool
 
-  private let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "Motion")
+  private let logger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "Sensors", category: "Motion")
 
   #if os(iOS)
     private let motionManager = CMMotionManager()
@@ -38,8 +43,8 @@ public nonisolated final class MotionMonitor: @unchecked Sendable {
 
   /// Acceleration delta from gravity (in g) required to trigger motion detected.
   public var threshold: Double {
-    get { state.withLock { $0.threshold } }
-    set { state.withLock { $0.threshold = newValue } }
+    get { state.withLockUnchecked { $0.threshold } }
+    set { state.withLockUnchecked { $0.threshold = newValue } }
   }
 
   /// Seconds of calm required before reporting no motion.
@@ -57,7 +62,7 @@ public nonisolated final class MotionMonitor: @unchecked Sendable {
   #if os(iOS)
     private let motionQueue: OperationQueue = {
       let q = OperationQueue()
-      q.name = "\(Bundle.main.bundleIdentifier!).motion"
+      q.name = "\(Bundle.main.bundleIdentifier ?? "Sensors").motion"
       q.maxConcurrentOperationCount = 1
       return q
     }()
@@ -100,7 +105,7 @@ public nonisolated final class MotionMonitor: @unchecked Sendable {
         case cleared(TimeInterval)
       }
 
-      let event: MotionEvent? = state.withLock { state in
+      let event: MotionEvent? = state.withLockUnchecked { state in
         if delta > state.threshold {
           state.lastMotionDate = Date()
           if !state.isMotionDetected {
@@ -135,7 +140,10 @@ public nonisolated final class MotionMonitor: @unchecked Sendable {
     #if os(iOS)
       motionManager.stopAccelerometerUpdates()
     #endif
-    state.withLock { $0.isMotionDetected = false }
+    state.withLockUnchecked {
+      $0.isMotionDetected = false
+      $0.lastMotionDate = .distantPast
+    }
     logger.info("Motion monitor stopped")
   }
 }

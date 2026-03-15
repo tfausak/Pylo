@@ -3,30 +3,31 @@ import CoreVideo
 import Locked
 import os
 
-/// Detects motion by comparing consecutive video frames using vImage.
+/// Detects motion by comparing consecutive video frames using vDSP.
 /// Downscales each frame to a small grayscale thumbnail and computes the
 /// sum of squared differences against the previous frame.
 public nonisolated final class VideoMotionDetector {
 
   private let _onMotionChange = Locked<((Bool) -> Void)?>(initialState: nil)
   public var onMotionChange: ((Bool) -> Void)? {
-    get { _onMotionChange.withLock { $0 } }
-    set { _onMotionChange.withLock { $0 = newValue } }
+    get { _onMotionChange.withLockUnchecked { $0 } }
+    set { _onMotionChange.withLockUnchecked { $0 = newValue } }
   }
 
   /// Fraction of pixels that must differ to trigger motion (0.0–1.0).
   public var threshold: Float {
-    get { state.withLock { $0.threshold } }
-    set { state.withLock { $0.threshold = newValue } }
+    get { state.withLockUnchecked { $0.threshold } }
+    set { state.withLockUnchecked { $0.threshold = newValue } }
   }
 
   /// Seconds of calm required before reporting no motion.
   public var cooldown: TimeInterval {
-    get { state.withLock { $0.cooldown } }
-    set { state.withLock { $0.cooldown = newValue } }
+    get { state.withLockUnchecked { $0.cooldown } }
+    set { state.withLockUnchecked { $0.cooldown = newValue } }
   }
 
-  private let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "VideoMotion")
+  private let logger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "Sensors", category: "VideoMotion")
 
   // Target thumbnail dimensions for comparison
   private static let thumbWidth = 160
@@ -57,7 +58,7 @@ public nonisolated final class VideoMotionDetector {
     // Guard against concurrent entry — scratch buffers are not thread-safe.
     // Uses a real lock guard (not just assert) so it works in release builds.
     guard
-      _processing.withLock({ p in
+      _processing.withLockUnchecked({ p in
         guard !p else { return false }
         p = true
         return true
@@ -66,33 +67,32 @@ public nonisolated final class VideoMotionDetector {
       logger.warning("processPixelBuffer called concurrently — skipping frame")
       return
     }
-    defer { _processing.withLock { $0 = false } }
+    defer { _processing.withLockUnchecked { $0 = false } }
 
     CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
     let ok = downsampleToGrayscale(pixelBuffer)
     CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly)
     guard ok else { return }
 
-    // Swap scratchGray with previousFrame — after the first two calls, the two
-    // arrays alternate between scratchGray and state.previousFrame with no
-    // heap allocations.
-    let previous = state.withLock { s -> [UInt8]? in
-      let prev = s.previousFrame
-      s.previousFrame = scratchGray
-      return prev
+    // Get the previous frame without swapping yet, so scratchGray is
+    // exclusively ours during computeChangeRatio (no aliasing with state).
+    let previous = state.withLockUnchecked { $0.previousFrame }
+
+    guard let previous else {
+      // First frame — stash it for comparison on the next call.
+      state.withLockUnchecked { $0.previousFrame = scratchGray }
+      scratchGray = [UInt8](repeating: 0, count: Self.scratchCount)
+      return
     }
 
-    guard let previous else { return }
-
-    // scratchGray still references the current frame (shared with state.previousFrame).
     let changeRatio = computeChangeRatio(previous: previous, current: scratchGray)
 
-    // Reclaim the old buffer for the next call. After this, scratchGray is
-    // uniquely owned and can be written into in-place on the next call.
+    // Swap: store current frame as previousFrame, reclaim old buffer for reuse.
+    state.withLockUnchecked { $0.previousFrame = scratchGray }
     scratchGray = previous
 
     if changeRatio > threshold {
-      let shouldNotify = state.withLock { state in
+      let shouldNotify = state.withLockUnchecked { state in
         state.lastMotionDate = Date()
         if !state.isMotionDetected {
           state.isMotionDetected = true
@@ -107,7 +107,7 @@ public nonisolated final class VideoMotionDetector {
         onMotionChange?(true)
       }
     } else {
-      let elapsed: TimeInterval? = state.withLock { state in
+      let elapsed: TimeInterval? = state.withLockUnchecked { state in
         guard state.isMotionDetected else { return nil }
         let elapsed = Date().timeIntervalSince(state.lastMotionDate)
         if elapsed >= state.cooldown {
@@ -127,7 +127,7 @@ public nonisolated final class VideoMotionDetector {
 
   /// Reset state (call when stopping detection).
   public func reset() {
-    state.withLock { state in
+    state.withLockUnchecked { state in
       state.previousFrame = nil
       state.isMotionDetected = false
       state.lastMotionDate = .distantPast
@@ -167,11 +167,13 @@ public nonisolated final class VideoMotionDetector {
       // BGRA fallback: nearest-neighbor sampling the green channel (offset 1)
       guard let base = CVPixelBufferGetBaseAddress(pixelBuffer) else { return false }
       let rowBytes = CVPixelBufferGetBytesPerRow(pixelBuffer)
-      for ty in 0..<th {
-        let srcRow = base + (ty * srcHeight / th) * rowBytes
-        for tx in 0..<tw {
-          scratchGray[ty * tw + tx] = srcRow.load(
-            fromByteOffset: (tx * srcWidth / tw) * 4 + 1, as: UInt8.self)
+      scratchGray.withUnsafeMutableBufferPointer { dst in
+        for ty in 0..<th {
+          let srcRow = base + (ty * srcHeight / th) * rowBytes
+          for tx in 0..<tw {
+            dst[ty * tw + tx] = srcRow.load(
+              fromByteOffset: (tx * srcWidth / tw) * 4 + 1, as: UInt8.self)
+          }
         }
       }
       return true
@@ -191,16 +193,26 @@ public nonisolated final class VideoMotionDetector {
 
   /// Compute the fraction of pixels that differ significantly between frames.
   /// Mutates scratch buffers in place — caller must ensure no concurrent access.
-  private func computeChangeRatio(previous: [UInt8], current: [UInt8]) -> Float {
+  func computeChangeRatio(previous: [UInt8], current: [UInt8]) -> Float {
     let count = min(previous.count, current.count)
     guard count > 0, count <= Self.scratchCount else { return 0 }
 
-    vDSP.convertElements(of: previous[0..<count], to: &scratchPrev)
-    vDSP.convertElements(of: current[0..<count], to: &scratchCurr)
+    // Use C-level vDSP calls with explicit count throughout so only the
+    // populated portion of the scratch buffers is processed. The high-level
+    // Swift vDSP overlay (convertElements, subtract, square) operates on the
+    // full array length, which would process stale data in the tail when
+    // count < scratchCount.
+    let n = vDSP_Length(count)
+    previous.withUnsafeBufferPointer { prev in
+      vDSP_vfltu8(prev.baseAddress!, 1, &scratchPrev, 1, n)
+    }
+    current.withUnsafeBufferPointer { curr in
+      vDSP_vfltu8(curr.baseAddress!, 1, &scratchCurr, 1, n)
+    }
 
     // Squared difference
-    vDSP.subtract(scratchPrev, scratchCurr, result: &scratchDiff)
-    vDSP.square(scratchDiff, result: &scratchDiff)
+    vDSP_vsub(scratchCurr, 1, scratchPrev, 1, &scratchDiff, 1, n)
+    vDSP_vsq(scratchDiff, 1, &scratchDiff, 1, n)
 
     // Count pixels where squared difference exceeds threshold (e.g., 25^2 = 625)
     // A pixel value change of 25 out of 255 is considered significant.

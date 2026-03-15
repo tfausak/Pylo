@@ -11,9 +11,6 @@ private let logSubsystem = "me.fausak.taylor.Pylo"
 /// Handles key derivation and per-packet encryption/authentication per RFC 3711.
 public final class SRTPContext: @unchecked Sendable {
 
-  private let masterKey: Data  // 16 bytes
-  private let masterSalt: Data  // 14 bytes
-
   // Derived SRTP session keys
   private let sessionKey: Data  // 16 bytes — AES encryption key
   private let sessionSalt: Data  // 14 bytes — IV/counter salt
@@ -41,8 +38,9 @@ public final class SRTPContext: @unchecked Sendable {
   private let _state = Locked<State>(initialState: State())
 
   public init(masterKey: Data, masterSalt: Data) {
-    self.masterKey = masterKey
-    self.masterSalt = masterSalt
+    precondition(masterKey.count == 16, "SRTP master key must be 16 bytes (got \(masterKey.count))")
+    precondition(
+      masterSalt.count == 14, "SRTP master salt must be 14 bytes (got \(masterSalt.count))")
 
     // Derive SRTP session keys via AES-CM PRF (RFC 3711 §4.3.1)
     self.sessionKey = Self.deriveKey(
@@ -100,14 +98,15 @@ public final class SRTPContext: @unchecked Sendable {
     let ak = deriveKey(masterKey: testKey, masterSalt: testSalt, label: 0x01, length: 20)
 
     let pass = (ck == expectedCipherKey && cs == expectedSalt && ak == expectedAuthKey)
-    logger.info("SRTP self-test: \(pass ? "PASS" : "FAIL")")
     if !pass {
-      logger.error(
-        "SRTP self-test FAILED! cipher=\(ck == expectedCipherKey) salt=\(cs == expectedSalt) auth=\(ak == expectedAuthKey)"
+      // If key derivation doesn't match known RFC vectors, the implementation
+      // is fundamentally broken — every packet would be mis-encrypted.
+      preconditionFailure(
+        "SRTP self-test FAILED against RFC 3711 B.3 vectors: "
+          + "cipher=\(ck == expectedCipherKey) salt=\(cs == expectedSalt) auth=\(ak == expectedAuthKey)"
       )
-      logger.error("  Got cipher: \(ck.map { String(format: "%02x", $0) }.joined())")
-      logger.error("  Expected:   \(expectedCipherKey.map { String(format: "%02x", $0) }.joined())")
     }
+    logger.info("SRTP self-test: PASS")
   }
 
   /// Encrypt and authenticate an RTP packet in place, returning the SRTP packet.
@@ -120,10 +119,12 @@ public final class SRTPContext: @unchecked Sendable {
   public func protect(_ rtpPacket: Data) -> Data? {
     guard rtpPacket.count >= 12 else { return nil }
 
-    // Fixed 12-byte header: HomeKit RTP streams always use CC=0 (no CSRC)
-    // and no header extensions. If CSRC or extensions were present, the header
-    // would be larger and this offset would need to account for them per
-    // RFC 3711 §3.1 (encrypt only the payload, not the full header).
+    let firstByte = rtpPacket[rtpPacket.startIndex]
+    // Validate V=2, X=0, CC=0. This implementation assumes a fixed 12-byte
+    // header (HomeKit always uses V=2, CC=0, no extensions). Packets with a
+    // wrong version or additional header fields would be silently mis-encrypted.
+    guard firstByte & 0xDF == 0x80 else { return nil }  // V=2, X=0, CC=0
+
     let headerEnd = rtpPacket.startIndex + 12
 
     // Read SSRC and sequence number directly from the input slice
@@ -149,7 +150,8 @@ public final class SRTPContext: @unchecked Sendable {
     let encryptedPayload: Data? = withUnsafeTemporaryAllocation(byteCount: 16, alignment: 1) {
       ivBuffer in
       Self.buildIV(ssrc: ssrc, packetIndex: packetIndex, salt: sessionSalt, into: ivBuffer)
-      return aesCTREncrypt(key: sessionKey, iv: UnsafeRawBufferPointer(ivBuffer), data: payload)
+      return Self.aesCTREncrypt(
+        key: sessionKey, iv: UnsafeRawBufferPointer(ivBuffer), data: payload)
     }
     guard let encryptedPayload else { return nil }
 
@@ -160,7 +162,7 @@ public final class SRTPContext: @unchecked Sendable {
     srtpPacket.append(encryptedPayload)
 
     // Compute HMAC-SHA1 auth tag incrementally: (header + encrypted payload + ROC)
-    let tag = hmacSHA1Incremental(
+    let tag = Self.hmacSHA1Incremental(
       key: sessionAuthKey, srtpPacket: srtpPacket, roc: currentROC)
     srtpPacket.append(tag.prefix(10))  // Truncate to 80 bits
 
@@ -178,6 +180,9 @@ public final class SRTPContext: @unchecked Sendable {
   public func unprotect(_ srtpPacket: Data) -> Data? {
     // SRTP = RTP header (12+) || encrypted payload || auth tag (10 bytes)
     guard srtpPacket.count >= 22 else { return nil }  // 12 header + 0 payload + 10 tag
+
+    let firstByte = srtpPacket[srtpPacket.startIndex]
+    guard firstByte & 0xDF == 0x80 else { return nil }  // V=2, X=0, CC=0
 
     let tagStart = srtpPacket.startIndex + srtpPacket.count - 10
 
@@ -211,10 +216,10 @@ public final class SRTPContext: @unchecked Sendable {
 
     // Verify HMAC-SHA1-80 using incremental HMAC (no intermediate copy)
     let authenticatedSlice = srtpPacket[srtpPacket.startIndex..<tagStart]
-    let expectedTag = hmacSHA1Incremental(
+    let expectedTag = Self.hmacSHA1Incremental(
       key: sessionAuthKey, srtpPacket: authenticatedSlice, roc: candidateROC)
     let receivedTag = srtpPacket[tagStart..<srtpPacket.endIndex]
-    guard constantTimeCompare(receivedTag, expectedTag.prefix(10)) else {
+    guard Self.constantTimeCompare(receivedTag, expectedTag.prefix(10)) else {
       logger.debug("SRTP unprotect: auth tag mismatch")
       return nil
     }
@@ -239,7 +244,7 @@ public final class SRTPContext: @unchecked Sendable {
     let decryptedPayload: Data? = withUnsafeTemporaryAllocation(byteCount: 16, alignment: 1) {
       ivBuffer in
       Self.buildIV(ssrc: ssrc, packetIndex: packetIndex, salt: sessionSalt, into: ivBuffer)
-      return aesCTREncrypt(
+      return Self.aesCTREncrypt(
         key: sessionKey, iv: UnsafeRawBufferPointer(ivBuffer), data: encryptedPayload)
     }
     guard let decryptedPayload else {
@@ -257,6 +262,10 @@ public final class SRTPContext: @unchecked Sendable {
   /// Encrypt and authenticate an RTCP packet, returning the SRTCP packet.
   /// Returns nil if encryption fails (caller should skip sending).
   /// Format: RTCP_header(8B) || encrypted_payload || E_flag+SRTCP_index(4B) || auth_tag(10B)
+  ///
+  /// Note: No corresponding `unprotectRTCP` exists because HomeKit does not
+  /// require decrypting incoming SRTCP packets (the controller sends RTP media;
+  /// RTCP flows are outbound-only from the accessory). Add one if this changes.
   public func protectRTCP(_ rtcpPacket: Data) -> Data? {
     guard rtcpPacket.count >= 8 else { return nil }
 
@@ -274,7 +283,7 @@ public final class SRTPContext: @unchecked Sendable {
     let encryptedPayload: Data? = withUnsafeTemporaryAllocation(byteCount: 16, alignment: 1) {
       ivBuffer in
       Self.buildIV(ssrc: ssrc, packetIndex: UInt64(index), salt: srtcpSalt, into: ivBuffer)
-      return aesCTREncrypt(
+      return Self.aesCTREncrypt(
         key: srtcpKey, iv: UnsafeRawBufferPointer(ivBuffer),
         data: rtcpPacket[rtcpPacket.startIndex + 8..<rtcpPacket.endIndex])
     }
@@ -293,7 +302,7 @@ public final class SRTPContext: @unchecked Sendable {
     withUnsafeBytes(of: eIndex.bigEndian) { srtcpPacket.append(contentsOf: $0) }
 
     // Auth tag covers: header + encrypted payload + E||index
-    let tag = hmacSHA1(key: srtcpAuthKey, data: srtcpPacket)
+    let tag = Self.hmacSHA1(key: srtcpAuthKey, data: srtcpPacket)
     srtcpPacket.append(tag.prefix(10))
 
     return srtcpPacket
@@ -388,7 +397,7 @@ public final class SRTPContext: @unchecked Sendable {
   // not support CTR mode in CommonCrypto (documented as "not implemented for
   // stream ciphers").  The per-packet create/release overhead is small (~1µs)
   // relative to the encryption itself.
-  private func aesCTREncrypt(key: Data, iv: UnsafeRawBufferPointer, data: Data) -> Data? {
+  private static func aesCTREncrypt(key: Data, iv: UnsafeRawBufferPointer, data: Data) -> Data? {
     guard !data.isEmpty else { return data }
 
     var cryptorRef: CCCryptorRef?
@@ -435,7 +444,7 @@ public final class SRTPContext: @unchecked Sendable {
 
   // MARK: - Constant-Time Comparison
 
-  private func constantTimeCompare(_ lhs: Data, _ rhs: Data) -> Bool {
+  private static func constantTimeCompare(_ lhs: Data, _ rhs: Data) -> Bool {
     guard lhs.count == rhs.count else { return false }
     return lhs.withUnsafeBytes { lhsPtr in
       rhs.withUnsafeBytes { rhsPtr in
@@ -459,7 +468,7 @@ public final class SRTPContext: @unchecked Sendable {
 
   // MARK: - HMAC-SHA1
 
-  private func hmacSHA1(key: Data, data: Data) -> Data {
+  private static func hmacSHA1(key: Data, data: Data) -> Data {
     var result = Data(count: Int(CC_SHA1_DIGEST_LENGTH))
     result.withUnsafeMutableBytes { resultPtr in
       data.withUnsafeBytes { dataPtr in
@@ -477,7 +486,7 @@ public final class SRTPContext: @unchecked Sendable {
   }
 
   /// Incremental HMAC-SHA1 over (srtpPacket || ROC) without copying into a single buffer.
-  private func hmacSHA1Incremental(key: Data, srtpPacket: Data, roc: UInt32) -> Data {
+  private static func hmacSHA1Incremental(key: Data, srtpPacket: Data, roc: UInt32) -> Data {
     var ctx = CCHmacContext()
     key.withUnsafeBytes { keyPtr in
       CCHmacInit(&ctx, CCHmacAlgorithm(kCCHmacAlgSHA1), keyPtr.baseAddress, key.count)

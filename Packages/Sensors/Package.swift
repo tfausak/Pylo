@@ -12,6 +12,7 @@ let package = Package(
     .package(path: "../Locked"),
   ],
   targets: [
-    .target(name: "Sensors", dependencies: ["HAP", "Locked"])
+    .target(name: "Sensors", dependencies: ["HAP", "Locked"]),
+    .testTarget(name: "SensorsTests", dependencies: ["Sensors"]),
   ]
 )

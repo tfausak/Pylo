@@ -115,40 +115,40 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   private let _callbacks = Locked(initialState: Callbacks())
 
   var onSnapshotWillCapture: (() -> Void)? {
-    get { _callbacks.withLock { $0.onSnapshotWillCapture } }
-    set { _callbacks.withLock { $0.onSnapshotWillCapture = newValue } }
+    get { _callbacks.withLockUnchecked { $0.onSnapshotWillCapture } }
+    set { _callbacks.withLockUnchecked { $0.onSnapshotWillCapture = newValue } }
   }
   var onSnapshotDidCapture: (() -> Void)? {
-    get { _callbacks.withLock { $0.onSnapshotDidCapture } }
-    set { _callbacks.withLock { $0.onSnapshotDidCapture = newValue } }
+    get { _callbacks.withLockUnchecked { $0.onSnapshotDidCapture } }
+    set { _callbacks.withLockUnchecked { $0.onSnapshotDidCapture = newValue } }
   }
   var onMonitoringCaptureNeeded: ((_ needed: Bool, _ existingSession: AVCaptureSession?) -> Void)? {
-    get { _callbacks.withLock { $0.onMonitoringCaptureNeeded } }
-    set { _callbacks.withLock { $0.onMonitoringCaptureNeeded = newValue } }
+    get { _callbacks.withLockUnchecked { $0.onMonitoringCaptureNeeded } }
+    set { _callbacks.withLockUnchecked { $0.onMonitoringCaptureNeeded = newValue } }
   }
   var onMonitoringSessionHandoff: (() -> AVCaptureSession?)? {
-    get { _callbacks.withLock { $0.onMonitoringSessionHandoff } }
-    set { _callbacks.withLock { $0.onMonitoringSessionHandoff = newValue } }
+    get { _callbacks.withLockUnchecked { $0.onMonitoringSessionHandoff } }
+    set { _callbacks.withLockUnchecked { $0.onMonitoringSessionHandoff = newValue } }
   }
   var onStreamingStart: (() -> Void)? {
-    get { _callbacks.withLock { $0.onStreamingStart } }
-    set { _callbacks.withLock { $0.onStreamingStart = newValue } }
+    get { _callbacks.withLockUnchecked { $0.onStreamingStart } }
+    set { _callbacks.withLockUnchecked { $0.onStreamingStart = newValue } }
   }
   var onVideoMotionChange: ((Bool) -> Void)? {
-    get { _callbacks.withLock { $0.onVideoMotionChange } }
-    set { _callbacks.withLock { $0.onVideoMotionChange = newValue } }
+    get { _callbacks.withLockUnchecked { $0.onVideoMotionChange } }
+    set { _callbacks.withLockUnchecked { $0.onVideoMotionChange = newValue } }
   }
 
   /// Whether video motion detection is active on the streaming session.
   var videoMotionEnabled: Bool {
-    get { streamState.withLock { $0.videoMotionEnabled } }
+    get { streamState.withLockUnchecked { $0.videoMotionEnabled } }
     set {
       // Allocate detector outside the lock to avoid heavy work while locked.
       let detector: VideoMotionDetector? = newValue ? VideoMotionDetector() : nil
       detector?.onMotionChange = { [weak self] detected in
         self?.onVideoMotionChange?(detected)
       }
-      streamState.withLock { s in
+      streamState.withLockUnchecked { s in
         s.videoMotionEnabled = newValue
         if newValue {
           s.videoMotionDetector = detector
@@ -171,12 +171,12 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   }
   private let streamState = Locked(initialState: StreamState())
   var videoMotionDetector: VideoMotionDetector? {
-    get { streamState.withLock { $0.videoMotionDetector } }
-    set { streamState.withLock { $0.videoMotionDetector = newValue } }
+    get { streamState.withLockUnchecked { $0.videoMotionDetector } }
+    set { streamState.withLockUnchecked { $0.videoMotionDetector = newValue } }
   }
   var ambientLightDetector: AmbientLightDetector? {
-    get { streamState.withLock { $0.ambientLightDetector } }
-    set { streamState.withLock { $0.ambientLightDetector = newValue } }
+    get { streamState.withLockUnchecked { $0.ambientLightDetector } }
+    set { streamState.withLockUnchecked { $0.ambientLightDetector = newValue } }
   }
 
   let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "Camera")
@@ -205,19 +205,19 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
 
   /// Active streaming session (nil when idle).
   var streamSession: CameraStreamSession? {
-    get { streamState.withLock { $0.streamSession } }
-    set { streamState.withLock { $0.streamSession = newValue } }
+    get { streamState.withLockUnchecked { $0.streamSession } }
+    set { streamState.withLockUnchecked { $0.streamSession = newValue } }
   }
 
   /// Atomically checks whether a stream session is active (avoids TOCTOU race).
   var hasActiveStreamSession: Bool {
-    streamState.withLock { $0.streamSession != nil }
+    streamState.withLockUnchecked { $0.streamSession != nil }
   }
 
   /// Atomically detaches and returns the current stream session, setting it to nil.
   /// This prevents two concurrent callers from both getting a non-nil session.
   func detachStreamSession() -> CameraStreamSession? {
-    streamState.withLock { s in
+    streamState.withLockUnchecked { s in
       let prev = s.streamSession
       s.streamSession = nil
       return prev
@@ -227,7 +227,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   /// Atomically clears the stream session only if it is the same instance as `expected`.
   /// Prevents a stale caller from wiping a newer session installed by another device.
   func clearStreamSession(ifIdenticalTo expected: CameraStreamSession) {
-    streamState.withLock { s in
+    streamState.withLockUnchecked { s in
       if s.streamSession === expected { s.streamSession = nil }
     }
   }
@@ -322,16 +322,16 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   var hksvEnabled: Bool = false
 
   var onRecordingConfigChange: ((_ active: Bool) -> Void)? {
-    get { _callbacks.withLock { $0.onRecordingConfigChange } }
-    set { _callbacks.withLock { $0.onRecordingConfigChange = newValue } }
+    get { _callbacks.withLockUnchecked { $0.onRecordingConfigChange } }
+    set { _callbacks.withLockUnchecked { $0.onRecordingConfigChange = newValue } }
   }
   var onRecordingAudioActiveChange: ((_ active: Bool) -> Void)? {
-    get { _callbacks.withLock { $0.onRecordingAudioActiveChange } }
-    set { _callbacks.withLock { $0.onRecordingAudioActiveChange = newValue } }
+    get { _callbacks.withLockUnchecked { $0.onRecordingAudioActiveChange } }
+    set { _callbacks.withLockUnchecked { $0.onRecordingAudioActiveChange = newValue } }
   }
   var onSelectedRecordingConfigChange: ((_ config: Data) -> Void)? {
-    get { _callbacks.withLock { $0.onSelectedRecordingConfigChange } }
-    set { _callbacks.withLock { $0.onSelectedRecordingConfigChange = newValue } }
+    get { _callbacks.withLockUnchecked { $0.onSelectedRecordingConfigChange } }
+    set { _callbacks.withLockUnchecked { $0.onSelectedRecordingConfigChange = newValue } }
   }
 
   // Pending setup endpoint response (written by controller, read back after).
@@ -355,8 +355,8 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   var onSetupDataStream:
     ((_ request: Data, _ sharedSecret: SharedSecret?, _ respond: @escaping (Data) -> Void) -> Void)?
   {
-    get { _callbacks.withLock { $0.onSetupDataStream } }
-    set { _callbacks.withLock { $0.onSetupDataStream = newValue } }
+    get { _callbacks.withLockUnchecked { $0.onSetupDataStream } }
+    set { _callbacks.withLockUnchecked { $0.onSetupDataStream = newValue } }
   }
 
   init(
@@ -542,12 +542,12 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
       switch value {
       case .bool(let v):
         audioSettings.withLock { $0.isMuted = v }
-        streamState.withLock({ $0.streamSession })?.isMuted = v
+        streamState.withLockUnchecked({ $0.streamSession })?.isMuted = v
         return true
       case .int(let v):
         let muted = v != 0
         audioSettings.withLock { $0.isMuted = muted }
-        streamState.withLock({ $0.streamSession })?.isMuted = muted
+        streamState.withLockUnchecked({ $0.streamSession })?.isMuted = muted
         return true
       default:
         return false
@@ -556,12 +556,12 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
       switch value {
       case .bool(let v):
         audioSettings.withLock { $0.speakerMuted = v }
-        streamState.withLock({ $0.streamSession })?.speakerMuted = v
+        streamState.withLockUnchecked({ $0.streamSession })?.speakerMuted = v
         return true
       case .int(let v):
         let muted = v != 0
         audioSettings.withLock { $0.speakerMuted = muted }
-        streamState.withLock({ $0.streamSession })?.speakerMuted = muted
+        streamState.withLockUnchecked({ $0.streamSession })?.speakerMuted = muted
         return true
       default:
         return false
@@ -570,7 +570,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
       if case .int(let v) = value {
         let vol = max(0, min(100, v))
         audioSettings.withLock { $0.speakerVolume = vol }
-        streamState.withLock({ $0.streamSession })?.speakerVolume = vol
+        streamState.withLockUnchecked({ $0.streamSession })?.speakerVolume = vol
         return true
       }
       return false

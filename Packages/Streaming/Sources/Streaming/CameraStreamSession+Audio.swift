@@ -159,23 +159,11 @@ extension CameraStreamSession {
 
   private nonisolated func sendAudioRTPPacket(payload: Data) {
     dispatchPrecondition(condition: .onQueue(rtpQueue))
-    // Reuse rtpBuffer — audio and video sends are serialized on rtpQueue.
-    rtpBuffer.count = 0
-    rtpBuffer.reserveCapacity(12 + payload.count)
-
-    // Build 12-byte RTP header
-    rtpBuffer.append(0x80)  // V=2
-    rtpBuffer.append(0x80 | (audioPayloadType & 0x7F))  // M=1 (every AAC frame is a complete AU)
-    rtpBuffer.append(UInt8(audioRTPSeq >> 8))
-    rtpBuffer.append(UInt8(audioRTPSeq & 0xFF))
-    rtpBuffer.append(UInt8((audioRTPTimestamp >> 24) & 0xFF))
-    rtpBuffer.append(UInt8((audioRTPTimestamp >> 16) & 0xFF))
-    rtpBuffer.append(UInt8((audioRTPTimestamp >> 8) & 0xFF))
-    rtpBuffer.append(UInt8(audioRTPTimestamp & 0xFF))
-    rtpBuffer.append(UInt8((audioSSRC >> 24) & 0xFF))
-    rtpBuffer.append(UInt8((audioSSRC >> 16) & 0xFF))
-    rtpBuffer.append(UInt8((audioSSRC >> 8) & 0xFF))
-    rtpBuffer.append(UInt8(audioSSRC & 0xFF))
+    // M=1 always: every AAC frame is a complete AU.
+    Self.writeRTPHeader(
+      into: &rtpBuffer, marker: true, payloadType: audioPayloadType,
+      sequenceNumber: audioRTPSeq, timestamp: audioRTPTimestamp, ssrc: audioSSRC,
+      payloadSize: payload.count)
 
     audioRTPSeq &+= 1
     audioRTPTimestamp &+= UInt32(aacFrameSamples)  // 480 samples at 16kHz clock
@@ -315,15 +303,7 @@ extension CameraStreamSession {
   /// Send data via the BSD audio socket to the controller's audio port.
   private nonisolated func sendAudioUDP(_ data: Data) {
     guard audioSocketFD >= 0, var addr = controllerAudioAddr else { return }
-    data.withUnsafeBytes { buf in
-      guard let base = buf.baseAddress else { return }
-      withUnsafePointer(to: &addr) { addrPtr in
-        addrPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
-          _ = sendto(
-            audioSocketFD, base, buf.count, 0, sockPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
-        }
-      }
-    }
+    Self.sendUDP(data, fd: audioSocketFD, addr: &addr)
   }
 
   /// Called by GCD read source when data is available on the audio socket.
