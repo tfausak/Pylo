@@ -203,7 +203,7 @@ public enum TLV8 {
   // MARK: - Raw-Tag Builder (for camera / non-pairing TLV8)
 
   /// Builder for constructing TLV8 blobs with raw UInt8 tags.
-  public struct Builder {
+  public struct Builder: Sendable {
     public private(set) var data = Data()
 
     public init() {}
