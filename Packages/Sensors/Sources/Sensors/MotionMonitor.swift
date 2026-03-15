@@ -9,6 +9,10 @@ import os
 /// Monitors device motion using the accelerometer and reports motion detected / not detected.
 /// At rest the accelerometer reads ~1g; significant deviation from that indicates movement.
 /// On macOS, the accelerometer is not available (isAvailable = false).
+///
+/// `@unchecked Sendable` is required because CMMotionManager and OperationQueue
+/// are not Sendable, but all mutable state is protected by Locked and the
+/// motionQueue serializes accelerometer callbacks.
 public nonisolated final class MotionMonitor: @unchecked Sendable {
 
   /// Callback for motion state changes.
