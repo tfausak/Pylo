@@ -991,18 +991,19 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
       let nalHeader = nal[nal.startIndex]
       let nri = nalHeader & 0x60  // NRI bits
       let nalType = nalHeader & 0x1F  // NAL unit type
+      let fuIndicator: UInt8 = nri | 28  // Type 28 = FU-A
 
-      var offset = 1  // Skip original NAL header
-      let nalBody = nal.dropFirst()
-      let total = nalBody.count
+      // bodyStart/bodyEnd define the NAL body (everything after the header byte).
+      let bodyStart = nal.startIndex + 1
+      let bodyEnd = nal.endIndex
+      var pos = bodyStart
 
-      while offset - 1 < total {
-        let remaining = total - (offset - 1)
+      while pos < bodyEnd {
+        let remaining = bodyEnd - pos
         let chunkSize = min(maxPayload - 2, remaining)  // -2 for FU indicator + FU header
-        let isFirst = (offset == 1)
+        let isFirst = (pos == bodyStart)
         let isLast = (chunkSize == remaining)
 
-        let fuIndicator: UInt8 = nri | 28  // Type 28 = FU-A
         var fuHeader: UInt8 = nalType
         if isFirst { fuHeader |= 0x80 }  // Start bit
         if isLast { fuHeader |= 0x40 }  // End bit
@@ -1010,10 +1011,10 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
         writeRTPHeader(marker: isLast && marker, payloadSize: 2 + chunkSize)
         rtpBuffer.append(fuIndicator)
         rtpBuffer.append(fuHeader)
-        rtpBuffer.append(nal[(nal.startIndex + offset)..<(nal.startIndex + offset + chunkSize)])
+        rtpBuffer.append(nal[pos..<pos + chunkSize])
         encryptAndSendVideo(payloadSize: 2 + chunkSize)
 
-        offset += chunkSize
+        pos += chunkSize
       }
     }
   }
