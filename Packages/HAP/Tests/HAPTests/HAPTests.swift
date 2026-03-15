@@ -2150,3 +2150,397 @@ struct HDSRawDataSendEventTests {
     }
   }
 }
+
+// MARK: - In-Memory KeyStore for Testing
+
+private final class InMemoryKeyStore: KeyStore, @unchecked Sendable {
+  private var store: [String: Data] = [:]
+  var failOnSave = false
+
+  @discardableResult
+  func save(key: String, data: Data) -> Bool {
+    if failOnSave { return false }
+    store[key] = data
+    return true
+  }
+
+  func load(key: String) -> Data? {
+    store[key]
+  }
+}
+
+// MARK: - DeviceIdentity Tests
+
+@Suite("DeviceIdentity")
+struct DeviceIdentityTests {
+
+  @Test("init with empty key store generates new identity")
+  func generateFreshIdentity() {
+    let ks = InMemoryKeyStore()
+    let identity = DeviceIdentity(keyStore: ks)
+    #expect(!identity.deviceID.isEmpty)
+    #expect(identity.deviceID.contains(":"))
+    // Key was persisted
+    #expect(ks.load(key: "device-signing-key") != nil)
+    #expect(ks.load(key: "device-id") != nil)
+  }
+
+  @Test("init with populated key store loads existing identity")
+  func loadExistingIdentity() {
+    let ks = InMemoryKeyStore()
+    let first = DeviceIdentity(keyStore: ks)
+    let second = DeviceIdentity(keyStore: ks)
+    #expect(first.deviceID == second.deviceID)
+    #expect(first.publicKey.rawRepresentation == second.publicKey.rawRepresentation)
+  }
+
+  @Test("init with corrupt key data generates new identity")
+  func corruptKeyFallback() {
+    let ks = InMemoryKeyStore()
+    ks.save(key: "device-signing-key", data: Data([0x00, 0x01]))  // too short
+    ks.save(key: "device-id", data: Data("AA:BB:CC:DD:EE:FF".utf8))
+    let identity = DeviceIdentity(keyStore: ks)
+    // Should have generated a new identity, not the stored one
+    // (the corrupt key can't be loaded as a valid Curve25519 key)
+    #expect(!identity.deviceID.isEmpty)
+  }
+
+  @Test("publicKey matches signingKey")
+  func publicKeyConsistency() {
+    let key = Curve25519.Signing.PrivateKey()
+    let identity = DeviceIdentity(signingKey: key, deviceID: "AA:BB:CC:DD:EE:FF")
+    #expect(identity.publicKey.rawRepresentation == key.publicKey.rawRepresentation)
+  }
+}
+
+// MARK: - HKDF deriveSymmetricKey Tests
+
+@Suite("HKDF deriveSymmetricKey Overloads")
+struct HKDFDeriveSymmetricKeyTests {
+
+  @Test("deriveSymmetricKey from Data returns non-empty key")
+  func deriveFromData() {
+    let ikm = Data(repeating: 0xAA, count: 32)
+    let key = HKDF<SHA512>.deriveSymmetricKey(
+      inputKeyMaterial: ikm,
+      salt: Data("test-salt".utf8),
+      info: Data("test-info".utf8)
+    )
+    let keyData = key.withUnsafeBytes { Data($0) }
+    #expect(keyData.count == 32)
+  }
+
+  @Test("deriveSymmetricKey from SymmetricKey returns same result as from Data")
+  func deriveConsistency() {
+    let ikm = Data(repeating: 0xBB, count: 32)
+    let salt = Data("consistency-salt".utf8)
+    let info = Data("consistency-info".utf8)
+
+    let fromData = HKDF<SHA512>.deriveSymmetricKey(
+      inputKeyMaterial: ikm, salt: salt, info: info)
+    let fromKey = HKDF<SHA512>.deriveSymmetricKey(
+      inputKeyMaterial: SymmetricKey(data: ikm), salt: salt, info: info)
+
+    let d1 = fromData.withUnsafeBytes { Data($0) }
+    let d2 = fromKey.withUnsafeBytes { Data($0) }
+    #expect(d1 == d2)
+  }
+
+  @Test("deriveKey (Data return) matches deriveSymmetricKey raw bytes")
+  func deriveKeyVsDeriveSymmetricKey() {
+    let ikm = Data(repeating: 0xCC, count: 32)
+    let salt = Data("compare-salt".utf8)
+    let info = Data("compare-info".utf8)
+
+    let rawData = HKDF<SHA512>.deriveKey(
+      inputKeyMaterial: ikm, salt: salt, info: info)
+    let symKey = HKDF<SHA512>.deriveSymmetricKey(
+      inputKeyMaterial: ikm, salt: salt, info: info)
+    let symData = symKey.withUnsafeBytes { Data($0) }
+    #expect(rawData == symData)
+  }
+}
+
+// MARK: - CharacteristicID Tests
+
+@Suite("CharacteristicID Hashable Semantics")
+struct CharacteristicIDTests {
+
+  @Test("Equal IDs have same hash")
+  func equalIDsSameHash() {
+    let a = CharacteristicID(aid: 1, iid: 9)
+    let b = CharacteristicID(aid: 1, iid: 9)
+    #expect(a == b)
+    #expect(a.hashValue == b.hashValue)
+  }
+
+  @Test("Different aid makes IDs unequal")
+  func differentAid() {
+    let a = CharacteristicID(aid: 1, iid: 9)
+    let b = CharacteristicID(aid: 2, iid: 9)
+    #expect(a != b)
+  }
+
+  @Test("Different iid makes IDs unequal")
+  func differentIid() {
+    let a = CharacteristicID(aid: 1, iid: 9)
+    let b = CharacteristicID(aid: 1, iid: 10)
+    #expect(a != b)
+  }
+
+  @Test("Set deduplicates correctly")
+  func setDeduplication() {
+    var set = Set<CharacteristicID>()
+    set.insert(CharacteristicID(aid: 1, iid: 9))
+    set.insert(CharacteristicID(aid: 1, iid: 9))
+    set.insert(CharacteristicID(aid: 2, iid: 9))
+    #expect(set.count == 2)
+    set.remove(CharacteristicID(aid: 1, iid: 9))
+    #expect(set.count == 1)
+    #expect(set.contains(CharacteristicID(aid: 2, iid: 9)))
+  }
+}
+
+// MARK: - Occupancy Sensor Tests
+
+@Suite("HAP Occupancy Sensor Accessory")
+struct HAPOccupancySensorTests {
+
+  @Test("Initial state is unoccupied")
+  func initialState() {
+    let sensor = HAPOccupancySensorAccessory(aid: AccessoryID.occupancySensor)
+    #expect(sensor.isOccupancyDetected == false)
+    #expect(sensor.readCharacteristic(iid: HAPOccupancySensorAccessory.iidOccupancyDetected) == .int(0))
+  }
+
+  @Test("Update occupancy detected")
+  func updateOccupancy() {
+    let sensor = HAPOccupancySensorAccessory(aid: AccessoryID.occupancySensor)
+    sensor.updateOccupancyDetected(true)
+    #expect(sensor.isOccupancyDetected == true)
+    #expect(sensor.readCharacteristic(iid: HAPOccupancySensorAccessory.iidOccupancyDetected) == .int(1))
+  }
+
+  @Test("Update fires state change callback with int value")
+  func stateChangeCallback() {
+    let sensor = HAPOccupancySensorAccessory(aid: AccessoryID.occupancySensor)
+    nonisolated(unsafe) var received: HAPValue?
+    sensor.onStateChange = { _, iid, value in
+      if iid == HAPOccupancySensorAccessory.iidOccupancyDetected { received = value }
+    }
+    sensor.updateOccupancyDetected(true)
+    #expect(received == .int(1))
+  }
+
+  @Test("toJSON has occupancy sensor service")
+  func toJSON() {
+    let sensor = HAPOccupancySensorAccessory(aid: AccessoryID.occupancySensor)
+    let json = sensor.toJSON()
+    let services = json["services"] as! [[String: Any]]
+    #expect(services.count == 3)
+    #expect(services[2]["type"] as? String == "86")
+  }
+}
+
+// MARK: - Light Sensor Tests
+
+@Suite("HAP Light Sensor Accessory")
+struct HAPLightSensorTests {
+
+  @Test("Initial lux is 1.0")
+  func initialState() {
+    let sensor = HAPLightSensorAccessory(aid: AccessoryID.lightSensor)
+    #expect(sensor.currentLux == 1.0)
+    #expect(sensor.readCharacteristic(iid: HAPLightSensorAccessory.iidCurrentAmbientLightLevel) == .float(1.0))
+  }
+
+  @Test("Update lux fires callback")
+  func updateLux() {
+    let sensor = HAPLightSensorAccessory(aid: AccessoryID.lightSensor)
+    nonisolated(unsafe) var received: HAPValue?
+    sensor.onStateChange = { _, iid, value in
+      if iid == HAPLightSensorAccessory.iidCurrentAmbientLightLevel { received = value }
+    }
+    sensor.updateLux(500.0)
+    #expect(received == .float(500.0))
+    #expect(sensor.currentLux == 500.0)
+  }
+
+  @Test("toJSON clamps zero lux to minimum")
+  func toJSONZeroLux() {
+    let sensor = HAPLightSensorAccessory(aid: AccessoryID.lightSensor)
+    sensor.updateLux(0)
+    let json = sensor.toJSON()
+    let services = json["services"] as! [[String: Any]]
+    let chars = services[2]["characteristics"] as! [[String: Any]]
+    let value = chars[0]["value"] as? Double ?? 0
+    #expect(value >= 0.0001)
+  }
+}
+
+// MARK: - Button Accessory Tests
+
+@Suite("HAP Button Accessory")
+struct HAPButtonAccessoryTests {
+
+  @Test("Trigger fires event with single-press value")
+  func trigger() {
+    let button = HAPButtonAccessory(aid: AccessoryID.button)
+    nonisolated(unsafe) var received: (Int, HAPValue)?
+    button.onStateChange = { _, iid, value in received = (iid, value) }
+    button.trigger()
+    #expect(received?.0 == HAPButtonAccessory.iidProgrammableSwitchEvent)
+    #expect(received?.1 == .int(0))
+  }
+
+  @Test("Read event returns null")
+  func readEvent() {
+    let button = HAPButtonAccessory(aid: AccessoryID.button)
+    #expect(button.readCharacteristic(iid: HAPButtonAccessory.iidProgrammableSwitchEvent) == .null)
+  }
+
+  @Test("Read service label index")
+  func readServiceLabel() {
+    let button = HAPButtonAccessory(aid: AccessoryID.button)
+    #expect(button.readCharacteristic(iid: HAPButtonAccessory.iidServiceLabelIndex) == .int(1))
+    #expect(button.readCharacteristic(iid: HAPButtonAccessory.iidServiceLabelNamespace) == .int(1))
+  }
+
+  @Test("toJSON has 4 services without battery")
+  func toJSON() {
+    let button = HAPButtonAccessory(aid: AccessoryID.button)
+    let json = button.toJSON()
+    let services = json["services"] as! [[String: Any]]
+    // accessory info + protocol info + programmable switch + service label
+    #expect(services.count == 4)
+  }
+
+  @Test("Write to non-identify IID returns false")
+  func writeNonIdentify() {
+    let button = HAPButtonAccessory(aid: AccessoryID.button)
+    #expect(!button.writeCharacteristic(iid: HAPButtonAccessory.iidProgrammableSwitchEvent, value: .int(0)))
+  }
+}
+
+// MARK: - HDSCodec NULL Back-Reference Tests
+
+@Suite("HDSCodec NULL Tracking")
+struct HDSCodecNullTrackingTests {
+
+  @Test("NULL is tracked for back-references")
+  func nullTracked() {
+    // Encode a dict with a NULL value followed by another key
+    // Decode should handle the NULL correctly
+    var data = Data()
+    data.append(0xE2)  // dict of 2
+    // key "a"
+    data.append(0x41)  // string len 1
+    data.append(0x61)  // 'a'
+    // value: NULL
+    data.append(0x04)
+    // key "b"
+    data.append(0x41)  // string len 1
+    data.append(0x62)  // 'b'
+    // value: back-ref to index 2 (NULL was appended after "a" and its value)
+    // tracked: [0]="a", [1]=NSNull, [2]="b"
+    // So back-ref 0xA1 should point to NSNull
+    data.append(0xA1)
+
+    let decoded = HDSCodec.decode(data) as? [String: Any]
+    #expect(decoded != nil)
+    #expect(decoded?["a"] is NSNull)
+    #expect(decoded?["b"] is NSNull)
+  }
+}
+
+// MARK: - HDSMessage Edge Cases
+
+@Suite("HDSMessage Edge Cases")
+struct HDSMessageEdgeCaseTests {
+
+  @Test("Decode with header length exceeding data returns nil")
+  func headerTooLong() {
+    // headerLen = 255, but data is only 5 bytes
+    let data = Data([0xFF, 0x01, 0x02, 0x03, 0x04])
+    #expect(HDSMessage.decode(data) == nil)
+  }
+
+  @Test("Decode with no protocol key returns nil")
+  func missingProtocol() {
+    // Encode a header dict without "protocol"
+    let header = HDSCodec.encode(["event": "test"])
+    var data = Data()
+    data.append(UInt8(header.count))
+    data.append(header)
+    data.append(HDSCodec.encode([:])) // body
+    #expect(HDSMessage.decode(data) == nil)
+  }
+
+  @Test("Decode with no event/request/response key returns nil")
+  func missingMessageType() {
+    let header = HDSCodec.encode(["protocol": "test"])
+    var data = Data()
+    data.append(UInt8(header.count))
+    data.append(header)
+    data.append(HDSCodec.encode([:]))
+    #expect(HDSMessage.decode(data) == nil)
+  }
+
+  @Test("Unknown response status defaults to protocolError")
+  func unknownStatus() {
+    let header = HDSCodec.encode([
+      "protocol": "test",
+      "response": "hello",
+      "id": 1,
+      "status": 99,
+    ])
+    var data = Data()
+    data.append(UInt8(header.count))
+    data.append(header)
+    data.append(HDSCodec.encode([:]))
+    let msg = HDSMessage.decode(data)
+    #expect(msg?.status == .protocolError)
+  }
+}
+
+// MARK: - Battery Service JSON Tests
+
+@Suite("Battery Service JSON Structure")
+struct BatteryServiceJSONTests {
+
+  @Test("batteryServiceJSON returns nil when state is nil")
+  func nilState() {
+    let bridge = HAPBridgeInfo()
+    #expect(bridge.batteryServiceJSON(state: nil) == nil)
+  }
+
+  @Test("batteryServiceJSON has correct IIDs and UUIDs")
+  func structureCorrectness() {
+    let state = BatteryState()
+    state.update(level: 75, chargingState: 1, statusLowBattery: 0)
+    let bridge = HAPBridgeInfo()
+    guard let json = bridge.batteryServiceJSON(state: state) else {
+      Issue.record("Expected non-nil battery service JSON")
+      return
+    }
+    #expect(json["iid"] as? Int == BatteryIID.service)
+    #expect(json["type"] as? String == BatteryUUID.service)
+    let chars = json["characteristics"] as! [[String: Any]]
+    #expect(chars.count == 3)
+
+    // Battery level
+    #expect(chars[0]["iid"] as? Int == BatteryIID.batteryLevel)
+    #expect(chars[0]["value"] as? Int == 75)
+    #expect(chars[0]["unit"] as? String == "percentage")
+    #expect(chars[0]["minValue"] as? Int == 0)
+    #expect(chars[0]["maxValue"] as? Int == 100)
+
+    // Charging state
+    #expect(chars[1]["iid"] as? Int == BatteryIID.chargingState)
+    #expect(chars[1]["value"] as? Int == 1)
+
+    // Low battery
+    #expect(chars[2]["iid"] as? Int == BatteryIID.statusLowBattery)
+    #expect(chars[2]["value"] as? Int == 0)
+  }
+}
