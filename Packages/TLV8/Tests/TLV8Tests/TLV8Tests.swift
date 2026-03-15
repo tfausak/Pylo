@@ -275,6 +275,15 @@ struct TLV8Tests {
     let data = builder.build()
     #expect(data == Data([0xFF, 0x00]))
   }
+  @Test("Builder accepts Tag-typed overloads")
+  func builderTagOverloads() {
+    var builder = TLV8.Builder()
+    builder.add(.state, byte: 0x01)
+    builder.add(.salt, Data([0xAA, 0xBB]))
+    let data = builder.build()
+    #expect(data == Data([0x06, 0x01, 0x01, 0x02, 0x02, 0xAA, 0xBB]))
+  }
+
   @Test("Builder addDelimiter inserts 00 00")
   func builderDelimiter() {
     var builder = TLV8.Builder()

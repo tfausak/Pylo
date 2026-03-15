@@ -276,6 +276,15 @@ public enum TLV8 {
       }
     }
 
+    // MARK: Tag-typed overloads
+
+    public mutating func add(_ tag: Tag, _ value: Data) { add(tag.rawValue, value) }
+    public mutating func add(_ tag: Tag, byte: UInt8) { add(tag.rawValue, byte: byte) }
+    public mutating func add(_ tag: Tag, uint16: UInt16) { add(tag.rawValue, uint16: uint16) }
+    public mutating func add(_ tag: Tag, uint32: UInt32) { add(tag.rawValue, uint32: uint32) }
+    public mutating func add(_ tag: Tag, uint64: UInt64) { add(tag.rawValue, uint64: uint64) }
+    public mutating func add(_ tag: Tag, tlv: Builder) { add(tag.rawValue, tlv: tlv) }
+
     public func build() -> Data { data }
     public func base64() -> String { data.base64EncodedString() }
   }
