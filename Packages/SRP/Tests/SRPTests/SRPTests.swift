@@ -163,6 +163,9 @@ struct SRPClientPublicKeyTests {
 // MARK: - SRP End-to-End Test
 
 /// Minimal SRP-6a client implementation for testing the full handshake.
+/// Intentionally duplicates prime/g/pad from SRPServer rather than sharing them —
+/// an independent reimplementation ensures the test validates the protocol math
+/// rather than just round-tripping through the same code.
 private enum SRPTestClient {
   static let prime = BigUInt(
     "FFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD1"
