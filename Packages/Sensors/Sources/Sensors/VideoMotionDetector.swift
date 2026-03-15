@@ -3,7 +3,7 @@ import CoreVideo
 import Locked
 import os
 
-/// Detects motion by comparing consecutive video frames using vImage.
+/// Detects motion by comparing consecutive video frames using vDSP.
 /// Downscales each frame to a small grayscale thumbnail and computes the
 /// sum of squared differences against the previous frame.
 public nonisolated final class VideoMotionDetector {
