@@ -173,8 +173,8 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
 
   /// Append an encoded AAC-ELD frame to be included in the next fragment.
   /// Audio samples are drained when the next video fragment is emitted; if video
-  /// keyframes stop arriving, this caps accumulation at ~10s of audio (~330 frames)
-  /// to prevent unbounded memory growth.
+  /// keyframes stop arriving, this caps accumulation at ~10s of audio (340 frames
+  /// at 16kHz/480 = 33.3 fps) to prevent unbounded memory growth.
   public func appendAudioSample(_ encodedFrame: Data) {
     _writerState.withLock { state in
       if state.pendingAudioSamples.count < 340 {
