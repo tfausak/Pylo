@@ -122,6 +122,20 @@ struct TLV8Tests {
     #expect(pairs[1].1 == Data([0xDE, 0xAD]))
   }
 
+  @Test("Dictionary decode last-occurrence-wins for duplicate tags")
+  func decodeDictionaryDuplicateTags() {
+    // Two non-consecutive .state TLVs (separated by a different tag so
+    // they aren't coalesced as fragments). Last occurrence wins.
+    let raw = Data([
+      0x06, 0x01, 0xAA,  // state = 0xAA
+      0x02, 0x01, 0x01,  // salt = 0x01
+      0x06, 0x01, 0xBB,  // state = 0xBB (duplicate)
+    ])
+    let dict: [TLV8.Tag: Data] = TLV8.decode(raw)
+    #expect(dict[.state] == Data([0xBB]))
+    #expect(dict[.salt] == Data([0x01]))
+  }
+
   @Test("Dictionary decode rejects blobs containing separators")
   func decodeDictionaryRejectsSeparators() {
     // A multi-record blob with a separator should return empty from the

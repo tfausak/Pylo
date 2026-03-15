@@ -107,6 +107,11 @@ public enum TLV8 {
   /// indicate either a newer spec revision (which we can't handle anyway)
   /// or malformed data. Use the raw `[(UInt8, Data)]` overload if you need
   /// to preserve all tags.
+  ///
+  /// If a tag appears more than once (non-consecutively, so not a fragment),
+  /// the last occurrence wins. This is acceptable because the HAP spec does
+  /// not permit duplicate tags within a single record — any such input is
+  /// already malformed.
   public static func decode(_ data: Data) -> [Tag: Data] {
     let pairs: [(UInt8, Data)] = decode(data)
     var dict: [Tag: Data] = [:]
