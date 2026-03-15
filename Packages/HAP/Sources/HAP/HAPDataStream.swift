@@ -203,6 +203,16 @@ public final class HAPDataStream: @unchecked Sendable {
       "HDS keys derived: controllerSalt=\(controllerKeySalt.count)B, accessorySalt=\(accessoryKeySalt.count)B"
     )
 
+    // Check port availability BEFORE mutating state — if the listener isn't
+    // ready, we must not store keys or start connections for a session the hub
+    // considers failed.
+    guard let listenPort = port else {
+      logger.error("SetupDataStreamTransport: HDS listener not ready (port unavailable)")
+      var error = TLV8.Builder()
+      error.add(0x01, byte: 0x01)  // Status: Generic Error
+      return error.build()
+    }
+
     // If a TCP connection arrived before keys were available (TCP-first ordering),
     // start it now with the newly-derived keys. Otherwise, store keys as pending
     // for newConnectionHandler to pick up.
@@ -233,14 +243,6 @@ public final class HAPDataStream: @unchecked Sendable {
       }
     }
 
-    // Build response TLV (flat format matching HAP-NodeJS)
-    guard let listenPort = port else {
-      logger.error("SetupDataStreamTransport: HDS listener not ready (port unavailable)")
-      var error = TLV8.Builder()
-      error.add(0x01, byte: 0x01)  // Status: Generic Error
-      return error.build()
-    }
-
     var transportParams = TLV8.Builder()
     transportParams.add(0x01, uint16: UInt16(listenPort))  // TCP listening port
 
@@ -259,6 +261,7 @@ public final class HAPDataStream: @unchecked Sendable {
       let l = s.listener
       s.connection = nil
       s.listener = nil
+      s.fragmentWriter = nil
       s.pendingReadKey = nil
       s.pendingWriteKey = nil
       return (c, l)

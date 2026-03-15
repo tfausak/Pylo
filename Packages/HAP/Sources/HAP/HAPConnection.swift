@@ -459,6 +459,7 @@ public final class HAPConnection: @unchecked Sendable {
       completion: .contentProcessed { [weak self] error in
         if let error {
           self?.logger.error("EVENT send error: \(error)")
+          self?.cancel()
         }
       })
   }

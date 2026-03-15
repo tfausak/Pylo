@@ -23,9 +23,11 @@ public final class HDSConnection: @unchecked Sendable {
   private var writeKey: SymmetricKey?
 
   /// Whether encryption has been configured via setupEncryption().
-  /// Used by HAPDataStream's orphaned-connection watchdog to distinguish
-  /// "keys never arrived" from "keys were applied and pendingReadKey cleared".
-  public private(set) var isEncrypted = false
+  /// Used by HAPDataStream's orphaned-connection watchdog (HAP queue) and
+  /// setupTransport (HAP queue) to distinguish "keys never arrived" from
+  /// "keys were applied". Protected by Locked since it's read cross-queue.
+  private let _isEncrypted = Locked(initialState: false)
+  public var isEncrypted: Bool { _isEncrypted.withLock { $0 } }
   private let nonces = Locked(initialState: (read: UInt64(0), write: UInt64(0)))
 
   /// The fragment writer to serve video from.
@@ -58,7 +60,7 @@ public final class HDSConnection: @unchecked Sendable {
     precondition(!isEncrypted, "setupEncryption called twice on the same HDSConnection")
     self.readKey = readKey
     self.writeKey = writeKey
-    self.isEncrypted = true
+    _isEncrypted.withLock { $0 = true }
   }
 
   public func start() {
