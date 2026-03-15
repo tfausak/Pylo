@@ -109,8 +109,10 @@ public final class HAPDataStream: @unchecked Sendable {
         // Set a watchdog to cancel this connection if keys never arrive.
         queue.asyncAfter(deadline: .now() + 30) { [weak self] in
           guard let self else { return }
+          // Check isEncrypted (not pendingReadKey == nil) to distinguish
+          // "keys never arrived" from "keys were applied and cleared".
           let orphaned = self.stateLock.withLockUnchecked { s -> Bool in
-            guard s.connection === conn, s.pendingReadKey == nil else { return false }
+            guard s.connection === conn, !conn.isEncrypted else { return false }
             s.connection = nil
             return true
           }
@@ -201,18 +203,35 @@ public final class HAPDataStream: @unchecked Sendable {
       "HDS keys derived: controllerSalt=\(controllerKeySalt.count)B, accessorySalt=\(accessoryKeySalt.count)B"
     )
 
-    // Cancel any existing connection — a new setupTransport means a new HAP
-    // session with different keys, so the old connection can't be reused.
-    // The hub will open a fresh TCP connection that picks up the new keys
-    // in newConnectionHandler.
-    let oldConn = stateLock.withLockUnchecked { s -> HDSConnection? in
+    // If a TCP connection arrived before keys were available (TCP-first ordering),
+    // start it now with the newly-derived keys. Otherwise, store keys as pending
+    // for newConnectionHandler to pick up.
+    let (oldConn, connToStart, hdsQueue) = stateLock.withLockUnchecked {
+      s -> (HDSConnection?, HDSConnection?, DispatchQueue?) in
       let old = s.connection
+      // If a connection is waiting (not yet encrypted), start it with keys directly.
+      if let waiting = old, !waiting.isEncrypted {
+        // Clear pending keys — they'll be applied directly.
+        s.pendingReadKey = nil
+        s.pendingWriteKey = nil
+        return (nil, waiting, s.queue)
+      }
+      // Otherwise, cancel the old connection (different HAP session) and store
+      // keys for the next newConnectionHandler call.
       s.connection = nil
       s.pendingReadKey = readKey
       s.pendingWriteKey = writeKey
-      return old
+      return (old, nil, s.queue)
     }
     oldConn?.cancel()
+
+    // Start the waiting connection on the HDS queue (setupTransport runs on the HAP queue).
+    if let conn = connToStart, let q = hdsQueue {
+      q.async {
+        conn.setupEncryption(readKey: readKey, writeKey: writeKey)
+        conn.start()
+      }
+    }
 
     // Build response TLV (flat format matching HAP-NodeJS)
     guard let listenPort = port else {

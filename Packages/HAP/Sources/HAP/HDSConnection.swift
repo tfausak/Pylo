@@ -21,6 +21,11 @@ public final class HDSConnection: @unchecked Sendable {
   // Encryption keys — set once in setupEncryption (on queue), then read-only.
   private var readKey: SymmetricKey?
   private var writeKey: SymmetricKey?
+
+  /// Whether encryption has been configured via setupEncryption().
+  /// Used by HAPDataStream's orphaned-connection watchdog to distinguish
+  /// "keys never arrived" from "keys were applied and pendingReadKey cleared".
+  public private(set) var isEncrypted = false
   private let nonces = Locked(initialState: (read: UInt64(0), write: UInt64(0)))
 
   /// The fragment writer to serve video from.
@@ -50,8 +55,10 @@ public final class HDSConnection: @unchecked Sendable {
   /// Configure encryption keys. Must be called on `queue` before `start()`.
   public func setupEncryption(readKey: SymmetricKey, writeKey: SymmetricKey) {
     dispatchPrecondition(condition: .onQueue(queue))
+    precondition(!isEncrypted, "setupEncryption called twice on the same HDSConnection")
     self.readKey = readKey
     self.writeKey = writeKey
+    self.isEncrypted = true
   }
 
   public func start() {
