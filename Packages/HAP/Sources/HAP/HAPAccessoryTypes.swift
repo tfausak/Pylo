@@ -444,21 +444,21 @@ public final class HAPSirenAccessory: HAPAccessoryProtocol, @unchecked Sendable 
       identify()
       return true
     case Self.iidOn:
-      if case .bool(let on) = value {
-        _isOn.withLock { $0 = on }
-        onSirenActivate?(on)
-        onStateChange?(aid, Self.iidOn, .bool(on))
-        return true
+      let on: Bool
+      if case .bool(let v) = value {
+        on = v
+      } else if case .int(let v) = value {
+        on = v != 0
+      } else {
+        return false
       }
-      // HomeKit sometimes sends 0/1 as int
-      if case .int(let v) = value {
-        let on = v != 0
-        _isOn.withLock { $0 = on }
-        onSirenActivate?(on)
-        onStateChange?(aid, Self.iidOn, .bool(on))
-        return true
-      }
-      return false
+      _isOn.withLock { $0 = on }
+      onSirenActivate?(on)
+      // Read back _isOn — the callback may have rejected the change (e.g.
+      // camera is streaming) by calling updateOn(false).
+      let finalOn = _isOn.withLock { $0 }
+      onStateChange?(aid, Self.iidOn, .bool(finalOn))
+      return true
     default:
       return false
     }

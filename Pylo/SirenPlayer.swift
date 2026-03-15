@@ -32,21 +32,27 @@ nonisolated final class SirenPlayer: @unchecked Sendable {
 
   private let _state = Locked(initialState: State())
 
-  init() {}
+  init() {
+    #if os(iOS)
+      NotificationCenter.default.addObserver(
+        self, selector: #selector(handleInterruption(_:)),
+        name: AVAudioSession.interruptionNotification, object: nil)
+      NotificationCenter.default.addObserver(
+        self, selector: #selector(handleEngineConfigChange(_:)),
+        name: .AVAudioEngineConfigurationChange, object: nil)
+    #endif
+  }
+
+  deinit {
+    NotificationCenter.default.removeObserver(self)
+  }
 
   func start() {
     audioQueue.async { [self] in
       guard !_state.withLockUnchecked({ $0.isPlaying }) else { return }
 
-      let engine = AVAudioEngine()
-      let sampleRate = Float(engine.outputNode.outputFormat(forBus: 0).sampleRate)
-      guard sampleRate > 0 else {
-        logger.error("Audio output not available (sample rate is 0)")
-        return
-      }
-
-      // Configure audio session for playback. Use .playAndRecord with
-      // .mixWithOthers to coexist with the camera's AVCaptureSession audio.
+      // Configure audio session BEFORE creating the engine so the output
+      // node's format reflects the session settings (correct sample rate).
       #if os(iOS)
         do {
           let session = AVAudioSession.sharedInstance()
@@ -56,8 +62,18 @@ nonisolated final class SirenPlayer: @unchecked Sendable {
           try session.setActive(true)
         } catch {
           logger.error("Failed to configure audio session: \(error)")
+          onActiveChange?(false)
+          return
         }
       #endif
+
+      let engine = AVAudioEngine()
+      let sampleRate = Float(engine.outputNode.outputFormat(forBus: 0).sampleRate)
+      guard sampleRate > 0 else {
+        logger.error("Audio output not available (sample rate is 0)")
+        onActiveChange?(false)
+        return
+      }
 
       let format = AVAudioFormat(standardFormatWithSampleRate: Double(sampleRate), channels: 1)!
 
@@ -106,6 +122,7 @@ nonisolated final class SirenPlayer: @unchecked Sendable {
       } catch {
         logger.error("Failed to start audio engine: \(error)")
         phases.deallocate()
+        onActiveChange?(false)
         return
       }
 
@@ -122,28 +139,77 @@ nonisolated final class SirenPlayer: @unchecked Sendable {
 
   func stop() {
     audioQueue.async { [self] in
-      guard _state.withLockUnchecked({ $0.isPlaying }) else { return }
-
-      let (engine, sourceNode, phases) = _state.withLockUnchecked {
-        state -> (AVAudioEngine?, AVAudioSourceNode?, UnsafeMutablePointer<Float>?) in
-        let e = state.engine
-        let s = state.sourceNode
-        let p = state.phases
-        state.engine = nil
-        state.sourceNode = nil
-        state.phases = nil
-        state.isPlaying = false
-        return (e, s, p)
-      }
-
-      // Detach the source node first to ensure the render callback is no
-      // longer invoked before we deallocate the phase accumulators.
-      if let sourceNode { engine?.detach(sourceNode) }
-      engine?.stop()
-      phases?.deallocate()
-
-      logger.info("Siren stopped")
-      onActiveChange?(false)
+      tearDown()
     }
   }
+
+  /// Tears down the audio engine and notifies that the siren stopped.
+  /// Must be called on `audioQueue`.
+  private func tearDown() {
+    guard _state.withLockUnchecked({ $0.isPlaying }) else { return }
+
+    let (engine, sourceNode, phases) = _state.withLockUnchecked {
+      state -> (AVAudioEngine?, AVAudioSourceNode?, UnsafeMutablePointer<Float>?) in
+      let e = state.engine
+      let s = state.sourceNode
+      let p = state.phases
+      state.engine = nil
+      state.sourceNode = nil
+      state.phases = nil
+      state.isPlaying = false
+      return (e, s, p)
+    }
+
+    // Detach the source node first to ensure the render callback is no
+    // longer invoked before we deallocate the phase accumulators.
+    if let sourceNode { engine?.detach(sourceNode) }
+    engine?.stop()
+    phases?.deallocate()
+
+    logger.info("Siren stopped")
+    onActiveChange?(false)
+  }
+
+  // MARK: - Audio Session Interruption
+
+  #if os(iOS)
+    @objc private func handleInterruption(_ notification: Notification) {
+      guard let info = notification.userInfo,
+        let typeValue = info[AVAudioSessionInterruptionTypeKey] as? UInt,
+        let type = AVAudioSession.InterruptionType(rawValue: typeValue)
+      else { return }
+
+      switch type {
+      case .began:
+        logger.info("Audio session interrupted — stopping siren")
+        audioQueue.async { [self] in tearDown() }
+
+      case .ended:
+        // Don't auto-restart — the HAP state was already reset to off.
+        // The user must re-trigger the siren from HomeKit.
+        break
+
+      @unknown default:
+        break
+      }
+    }
+
+    @objc private func handleEngineConfigChange(_ notification: Notification) {
+      // The engine's audio hardware config changed (e.g. route change, sample
+      // rate change). The engine is stopped and must be restarted, but the
+      // node graph remains intact. Try to restart; if that fails, tear down.
+      audioQueue.async { [self] in
+        guard _state.withLockUnchecked({ $0.isPlaying }) else { return }
+        guard let engine = _state.withLockUnchecked({ $0.engine }) else { return }
+
+        do {
+          try engine.start()
+          logger.info("Audio engine restarted after config change")
+        } catch {
+          logger.error("Failed to restart audio engine after config change: \(error)")
+          tearDown()
+        }
+      }
+    }
+  #endif
 }
