@@ -253,6 +253,44 @@ struct SRTPTests {
     #expect(srtcp.count == rtcp.count + 14)
   }
 
+  @Test("SRTCP output has correct structure: header + encrypted + E||index + tag")
+  func srtcpStructure() throws {
+    let ctx = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+
+    var rtcp = Data(count: 28)
+    rtcp[0] = 0x80  // V=2
+    rtcp[1] = 200  // PT=SR
+    rtcp[2] = 0x00
+    rtcp[3] = 0x06
+    rtcp[4] = 0xDE
+    rtcp[5] = 0xAD
+    rtcp[6] = 0xBE
+    rtcp[7] = 0xEF
+
+    let srtcp = try #require(ctx.protectRTCP(rtcp))
+
+    // Header (8B) preserved verbatim
+    #expect(Array(srtcp[0..<8]) == Array(rtcp[0..<8]))
+
+    // E||index field: 4 bytes before the 10-byte auth tag
+    let eIndexOffset = srtcp.count - 14
+    let eIndex =
+      UInt32(srtcp[eIndexOffset]) << 24 | UInt32(srtcp[eIndexOffset + 1]) << 16
+      | UInt32(srtcp[eIndexOffset + 2]) << 8 | UInt32(srtcp[eIndexOffset + 3])
+    // E flag (bit 31) must be set, index = 0 for first packet
+    #expect(eIndex & 0x8000_0000 != 0, "E flag must be set")
+    #expect(eIndex & 0x7FFF_FFFF == 0, "First SRTCP index should be 0")
+
+    // Second packet should have index = 1
+    let srtcp2 = try #require(ctx.protectRTCP(rtcp))
+    let eIndexOffset2 = srtcp2.count - 14
+    let eIndex2 =
+      UInt32(srtcp2[eIndexOffset2]) << 24 | UInt32(srtcp2[eIndexOffset2 + 1]) << 16
+      | UInt32(srtcp2[eIndexOffset2 + 2]) << 8 | UInt32(srtcp2[eIndexOffset2 + 3])
+    #expect(eIndex2 & 0x8000_0000 != 0, "E flag must be set")
+    #expect(eIndex2 & 0x7FFF_FFFF == 1, "Second SRTCP index should be 1")
+  }
+
   @Test("Auth failure: single bit flip in auth tag returns nil")
   func authFailureTagFlip() throws {
     let sender = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
