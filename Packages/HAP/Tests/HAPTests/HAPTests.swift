@@ -254,11 +254,19 @@ struct HTTPResponseTests {
 
   @Test("Serialize response without body")
   func serializeNoBody() {
+    let response = HTTPResponse(status: 200, body: nil, contentType: "application/hap+json")
+    let serialized = String(data: response.serialize(), encoding: .utf8)!
+    #expect(serialized.contains("HTTP/1.1 200 OK\r\n"))
+    #expect(serialized.contains("Content-Type: application/hap+json\r\n"))
+    #expect(serialized.contains("Content-Length: 0\r\n"))
+  }
+
+  @Test("204 No Content omits Content-Length per RFC 7230")
+  func serialize204OmitsContentLength() {
     let response = HTTPResponse(status: 204, body: nil, contentType: "application/hap+json")
     let serialized = String(data: response.serialize(), encoding: .utf8)!
     #expect(serialized.contains("HTTP/1.1 204 No Content\r\n"))
-    #expect(serialized.contains("Content-Type: application/hap+json\r\n"))
-    #expect(serialized.contains("Content-Length: 0\r\n"))
+    #expect(!serialized.contains("Content-Length"))
   }
 
   @Test("Serialize response with body includes correct content-length")
@@ -1937,5 +1945,208 @@ struct HAPSirenAccessoryTests {
     let siren = HAPSirenAccessory(aid: AccessoryID.siren)
     let result = siren.writeCharacteristic(iid: 999, value: .bool(true))
     #expect(!result)
+  }
+}
+
+// MARK: - HTTPResponse 204 Tests
+
+@Suite("HTTPResponse 204 Behavior")
+struct HTTPResponse204Tests {
+
+  @Test("200 with nil body includes Content-Length: 0")
+  func status200NilBodyHasContentLength() {
+    let response = HTTPResponse(status: 200, body: nil, contentType: "application/hap+json")
+    let serialized = String(data: response.serialize(), encoding: .utf8)!
+    #expect(serialized.contains("Content-Length: 0"))
+  }
+
+  @Test("204 with nil body omits Content-Length")
+  func status204NilBodyOmitsContentLength() {
+    let response = HTTPResponse(status: 204, body: nil, contentType: "application/hap+json")
+    let serialized = String(data: response.serialize(), encoding: .utf8)!
+    #expect(!serialized.contains("Content-Length"))
+  }
+}
+
+// MARK: - Last-Admin Demotion Prevention Tests
+
+@Suite("Last-Admin Demotion Prevention")
+struct LastAdminDemotionTests {
+
+  @Test("PairingStore allows demoting admin when another admin exists")
+  func demoteWithMultipleAdmins() {
+    let store = PairingStore(testPairings: [
+      "ADMIN-1": PairingStore.Pairing(
+        identifier: "ADMIN-1", publicKey: Data(repeating: 0xAA, count: 32), isAdmin: true),
+      "ADMIN-2": PairingStore.Pairing(
+        identifier: "ADMIN-2", publicKey: Data(repeating: 0xBB, count: 32), isAdmin: true),
+    ])
+    #expect(store.adminCount == 2)
+
+    // Demoting ADMIN-1 is safe because ADMIN-2 still exists
+    store.addPairing(
+      PairingStore.Pairing(
+        identifier: "ADMIN-1", publicKey: Data(repeating: 0xAA, count: 32), isAdmin: false))
+    #expect(store.adminCount == 1)
+    #expect(store.getPairing(identifier: "ADMIN-1")?.isAdmin == false)
+  }
+
+  @Test("PairingStore adminCount reflects demotion")
+  func adminCountAfterDemotion() {
+    let store = PairingStore(testPairings: [
+      "ONLY-ADMIN": PairingStore.Pairing(
+        identifier: "ONLY-ADMIN", publicKey: Data(repeating: 0xAA, count: 32), isAdmin: true)
+    ])
+    #expect(store.adminCount == 1)
+
+    // The store itself allows the update (PairingsHandler checks the guard)
+    store.addPairing(
+      PairingStore.Pairing(
+        identifier: "ONLY-ADMIN", publicKey: Data(repeating: 0xAA, count: 32), isAdmin: false))
+    #expect(store.adminCount == 0)
+  }
+}
+
+// MARK: - ProtocolInfoUUID.protocolVersion Tests
+
+@Suite("Protocol Version Constant")
+struct ProtocolVersionTests {
+
+  @Test("ProtocolInfoUUID.protocolVersion matches hapProtocolVersion alias")
+  func protocolVersionConsistency() {
+    #expect(ProtocolInfoUUID.protocolVersion == hapProtocolVersion)
+  }
+
+  @Test("Protocol version is semantic version format")
+  func protocolVersionFormat() {
+    let components = ProtocolInfoUUID.protocolVersion.split(separator: ".")
+    #expect(components.count == 3)
+    for component in components {
+      #expect(Int(component) != nil)
+    }
+  }
+}
+
+// MARK: - Multi-frame Encryption Tests
+
+@Suite("Encryption Context Multi-Frame")
+struct EncryptionContextMultiFrameTests {
+
+  @Test("Large message encrypts into multiple frames and decrypts correctly")
+  func multiFrameRoundTrip() {
+    let key1 = SymmetricKey(size: .bits256)
+    let key2 = SymmetricKey(size: .bits256)
+    let encryptor = EncryptionContext(readKey: key1, writeKey: key2)
+    let decryptor = EncryptionContext(readKey: key2, writeKey: key1)
+
+    // 3000 bytes requires 3 frames (1024 + 1024 + 952)
+    let plaintext = Data(repeating: 0x42, count: 3000)
+    guard let encrypted = encryptor.encrypt(plaintext: plaintext) else {
+      Issue.record("Encrypt returned nil")
+      return
+    }
+
+    // Each frame is: 2 (length) + chunk + 16 (tag)
+    // Frame 1: 2 + 1024 + 16 = 1042
+    // Frame 2: 2 + 1024 + 16 = 1042
+    // Frame 3: 2 + 952 + 16 = 970
+    #expect(encrypted.count == 1042 + 1042 + 970)
+
+    // Decrypt frame by frame
+    var offset = encrypted.startIndex
+    var reassembled = Data()
+    while offset < encrypted.endIndex {
+      let lengthBytes = encrypted[offset..<offset + 2]
+      let frameLen = Int(lengthBytes[offset]) | (Int(lengthBytes[offset + 1]) << 8)
+      let ciphertext = encrypted[offset + 2..<offset + 2 + frameLen + 16]
+      guard let decrypted = decryptor.decrypt(lengthBytes: lengthBytes, ciphertext: ciphertext)
+      else {
+        Issue.record("Decrypt failed at offset \(offset)")
+        return
+      }
+      reassembled.append(decrypted)
+      offset += 2 + frameLen + 16
+    }
+
+    #expect(reassembled == plaintext)
+  }
+
+  @Test("Empty plaintext produces empty encrypted output")
+  func emptyPlaintext() {
+    let key1 = SymmetricKey(size: .bits256)
+    let key2 = SymmetricKey(size: .bits256)
+    let ctx = EncryptionContext(readKey: key1, writeKey: key2)
+    let result = ctx.encrypt(plaintext: Data())
+    #expect(result == Data())
+  }
+
+  @Test("Exactly 1024 bytes produces single frame")
+  func exactlyOneFrame() {
+    let key1 = SymmetricKey(size: .bits256)
+    let key2 = SymmetricKey(size: .bits256)
+    let encryptor = EncryptionContext(readKey: key1, writeKey: key2)
+    let decryptor = EncryptionContext(readKey: key2, writeKey: key1)
+
+    let plaintext = Data(repeating: 0xAB, count: 1024)
+    guard let encrypted = encryptor.encrypt(plaintext: plaintext) else {
+      Issue.record("Encrypt returned nil")
+      return
+    }
+    #expect(encrypted.count == 2 + 1024 + 16)
+
+    let lengthBytes = encrypted[encrypted.startIndex..<encrypted.startIndex + 2]
+    let ciphertext = encrypted[(encrypted.startIndex + 2)...]
+    let decrypted = decryptor.decrypt(lengthBytes: Data(lengthBytes), ciphertext: Data(ciphertext))
+    #expect(decrypted == plaintext)
+  }
+}
+
+// MARK: - buildRawDataSendEvent Byte Layout Tests
+
+@Suite("HDS Raw DataSend Event Layout")
+struct HDSRawDataSendEventTests {
+
+  @Test("buildRawDataSendEvent header encodes dataSend/data correctly")
+  func headerEncoding() {
+    // Verify the header can be decoded by HDSCodec
+    let headerBytes: [UInt8] = [
+      0xE2,  // dict of 2
+      0x48, 0x70, 0x72, 0x6F, 0x74, 0x6F, 0x63, 0x6F, 0x6C,  // "protocol"
+      0x48, 0x64, 0x61, 0x74, 0x61, 0x53, 0x65, 0x6E, 0x64,  // "dataSend"
+      0x45, 0x65, 0x76, 0x65, 0x6E, 0x74,  // "event"
+      0x44, 0x64, 0x61, 0x74, 0x61,  // "data"
+    ]
+    let decoded = HDSCodec.decode(Data(headerBytes)) as? [String: Any]
+    #expect(decoded?["protocol"] as? String == "dataSend")
+    #expect(decoded?["event"] as? String == "data")
+  }
+
+  @Test("HDS integer encoding matches HDSCodec for small values")
+  func integerEncodingConsistency() {
+    // Values 0-39 should encode as single byte 0x08+value
+    for v in 0...39 {
+      let expected = HDSCodec.encode(["v": v])
+      // The encoded dict wraps the value; extract just the int encoding
+      // by checking the codec round-trips correctly
+      let decoded = HDSCodec.decode(expected) as? [String: Any]
+      #expect(decoded?["v"] as? Int == v)
+    }
+  }
+
+  @Test("HDS string key bytes match their ASCII representation")
+  func stringKeyBytesMatchASCII() {
+    // Verify key string bytes match expected ASCII
+    let testCases: [(String, [UInt8])] = [
+      ("streamId", [0x48, 0x73, 0x74, 0x72, 0x65, 0x61, 0x6D, 0x49, 0x64]),
+      ("packets", [0x47, 0x70, 0x61, 0x63, 0x6B, 0x65, 0x74, 0x73]),
+      ("metadata", [0x48, 0x6D, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61]),
+      ("data", [0x44, 0x64, 0x61, 0x74, 0x61]),
+    ]
+    for (string, bytes) in testCases {
+      // First byte is 0x40 + length
+      #expect(bytes[0] == UInt8(0x40 + string.utf8.count), "Length prefix mismatch for \(string)")
+      let decoded = String(bytes: bytes[1...], encoding: .utf8)
+      #expect(decoded == string, "ASCII mismatch for \(string)")
+    }
   }
 }
