@@ -882,4 +882,61 @@ struct FragmentationTriggerTests {
     let trafs = parseBoxes(moof.payload).filter { $0.type == "traf" }
     #expect(trafs.count == 2, "Fragment with audio should have 2 traf boxes")
   }
+
+  @Test("Audio traf data_offset points past video data in mdat")
+  func audioDataOffset() {
+    let videoSampleCount = 120
+    let videoDataSize = 100
+    let audioFrameCount = 100
+    let audioFrameSize = 64
+
+    let writer = FragmentedMP4Writer()
+    writer.includeAudioTrack = true
+    writer.configure(fps: 30)
+    let fmt = makeFormatDescription()
+    nonisolated(unsafe) var emitted: [MP4Fragment] = []
+    writer.onFragmentReady = { emitted.append($0) }
+
+    for i in 0..<videoSampleCount {
+      let pts = CMTime(value: Int64(i) * 33, timescale: 1000)
+      writer.appendVideoSample(
+        makeSampleBuffer(
+          pts: pts, isKeyframe: i == 0, dataSize: videoDataSize,
+          formatDescription: fmt))
+    }
+    for _ in 0..<audioFrameCount {
+      writer.appendAudioSample(Data(repeating: 0xCC, count: audioFrameSize))
+    }
+    writer.appendVideoSample(
+      makeSampleBuffer(
+        pts: CMTime(value: Int64(videoSampleCount) * 33, timescale: 1000),
+        isKeyframe: true, formatDescription: fmt))
+
+    guard let fragment = emitted.first else {
+      Issue.record("No fragment emitted")
+      return
+    }
+
+    let boxes = parseBoxes(fragment.data)
+    let moofSize = boxes[0].totalSize
+    let moof = boxes[0]
+    let trafs = parseBoxes(moof.payload).filter { $0.type == "traf" }
+    #expect(trafs.count == 2)
+
+    // Extract audio trun data_offset from second traf
+    let audioTraf = trafs[1]
+    let audioTrun = parseBoxes(audioTraf.payload).first { $0.type == "trun" }!
+    // trun payload: 4 bytes ver/flags + 4 bytes sample_count + 4 bytes data_offset
+    let audioOffset = readU32BE(audioTrun.payload, at: 8)
+
+    // Audio data_offset should be: moof size + 8 (mdat header) + total video data
+    let expectedOffset = moofSize + 8 + videoSampleCount * videoDataSize
+    #expect(audioOffset == UInt32(expectedOffset))
+
+    // Also verify mdat contains both video and audio data
+    let mdat = boxes[1]
+    let expectedMdatPayload =
+      videoSampleCount * videoDataSize + audioFrameCount * audioFrameSize
+    #expect(mdat.payload.count == expectedMdatPayload)
+  }
 }
