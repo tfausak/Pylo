@@ -18,7 +18,8 @@ import os
   /// Whether the device reports a valid battery level (false on desktops without battery).
   public private(set) var isAvailable = false
 
-  private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Sensors", category: "Battery")
+  private let logger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "Sensors", category: "Battery")
 
   /// Low battery threshold (percentage).
   private let lowThreshold = 20

@@ -139,7 +139,7 @@ import Testing
     let output = result.withUnsafeBytes { Array($0.assumingMemoryBound(to: Float.self)) }
 
     #expect(output.count == 2)
-    #expect(abs(output[0]) < 0.01)        // (1.0 + -1.0) / 2 = 0.0
+    #expect(abs(output[0]) < 0.01)  // (1.0 + -1.0) / 2 = 0.0
     #expect(abs(output[1] - 0.4) < 0.01)  // (0.6 + 0.2) / 2 = 0.4
   }
 

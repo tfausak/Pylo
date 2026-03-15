@@ -44,7 +44,8 @@ public final class DeviceIdentity: @unchecked Sendable {
     self.deviceID = newID
 
     if !keyStore.save(key: "device-signing-key", data: newKey.rawRepresentation) {
-      Self.logger.error("Failed to persist device signing key — identity will change on next launch")
+      Self.logger.error(
+        "Failed to persist device signing key — identity will change on next launch")
     }
     if !keyStore.save(key: "device-id", data: Data(newID.utf8)) {
       Self.logger.error("Failed to persist device ID — identity will change on next launch")

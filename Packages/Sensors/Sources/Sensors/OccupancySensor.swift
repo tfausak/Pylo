@@ -18,7 +18,8 @@ import os
 /// and Vision work is serialized on detectionQueue.
 public nonisolated final class OccupancySensor: @unchecked Sendable {
 
-  private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Sensors", category: "OccupancySensor")
+  private let logger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "Sensors", category: "OccupancySensor")
 
   private let _onOccupancyChange = Locked<((Bool) -> Void)?>(initialState: nil)
   public var onOccupancyChange: ((Bool) -> Void)? {
@@ -118,16 +119,17 @@ public nonisolated final class OccupancySensor: @unchecked Sendable {
         // camera frames stop (backgrounding, snapshot capture, handoff).
         scheduleCooldownTimer(delay: cooldown)
       } else {
-        let (elapsed, remaining, shouldClear): (TimeInterval?, TimeInterval?, Bool) = state
+        let (elapsed, remaining, shouldClear): (TimeInterval?, TimeInterval?, Bool) =
+          state
           .withLockUnchecked { s in
-          guard s.isOccupied else { return (nil, nil, false) }
-          let elapsed = Date().timeIntervalSince(s.lastDetectionDate)
-          if elapsed >= s.cooldown {
-            s.isOccupied = false
-            return (elapsed, 0, true)
+            guard s.isOccupied else { return (nil, nil, false) }
+            let elapsed = Date().timeIntervalSince(s.lastDetectionDate)
+            if elapsed >= s.cooldown {
+              s.isOccupied = false
+              return (elapsed, 0, true)
+            }
+            return (elapsed, s.cooldown - elapsed, false)
           }
-          return (elapsed, s.cooldown - elapsed, false)
-        }
         if let remaining {
           logger.debug(
             "not occupied, clearing in \(remaining, format: .fixed(precision: 1)) seconds"

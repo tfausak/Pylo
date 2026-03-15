@@ -26,7 +26,8 @@ public nonisolated final class MotionMonitor: @unchecked Sendable {
   /// Whether the device has an accelerometer.
   public let isAvailable: Bool
 
-  private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Sensors", category: "Motion")
+  private let logger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "Sensors", category: "Motion")
 
   #if os(iOS)
     private let motionManager = CMMotionManager()

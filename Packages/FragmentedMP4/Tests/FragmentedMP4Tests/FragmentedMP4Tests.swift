@@ -34,7 +34,7 @@ private func makeFormatDescription() -> CMFormatDescription {
   avcC.append(testPPS)
 
   let extensions: [String: Any] = [
-    "SampleDescriptionExtensionAtoms": ["avcC": avcC],
+    "SampleDescriptionExtensionAtoms": ["avcC": avcC]
   ]
 
   var fmt: CMFormatDescription?
@@ -130,7 +130,8 @@ private func parseBoxes(_ data: Data) -> [MP4Box] {
   var boxes: [MP4Box] = []
   var offset = 0
   while offset + 8 <= data.count {
-    let size = Int(data[offset]) << 24 | Int(data[offset + 1]) << 16
+    let size =
+      Int(data[offset]) << 24 | Int(data[offset + 1]) << 16
       | Int(data[offset + 2]) << 8 | Int(data[offset + 3])
     guard size >= 8, offset + size <= data.count else { break }
     let type = String(bytes: data[(offset + 4)..<(offset + 8)], encoding: .utf8) ?? "????"
@@ -512,7 +513,8 @@ struct InitSegmentStructureTests {
     // Verify SPS is embedded: after configurationVersion(1) + profile(1) + compat(1) + level(1)
     // + lengthSizeMinusOne(1) + numSPS(1) + spsLength(2) = 8 bytes, then SPS data
     let spsLenOffset = 6  // offset within avcC payload to SPS length
-    let embeddedSPSLen = Int(avcCPayload[avcCPayload.startIndex + spsLenOffset]) << 8
+    let embeddedSPSLen =
+      Int(avcCPayload[avcCPayload.startIndex + spsLenOffset]) << 8
       | Int(avcCPayload[avcCPayload.startIndex + spsLenOffset + 1])
     #expect(embeddedSPSLen == testSPS.count)
   }
@@ -943,7 +945,7 @@ struct FragmentationTriggerTests {
       let moof = parseBoxes(fragmentData)[0]
       let traf = parseBoxes(moof.payload).first { $0.type == "traf" }!
       let trun = parseBoxes(traf.payload).first { $0.type == "trun" }!
-      let flags = readU32BE(trun.payload, at: 0) & 0x00FFFFFF
+      let flags = readU32BE(trun.payload, at: 0) & 0x00FF_FFFF
       let sampleCount = Int(readU32BE(trun.payload, at: 4))
       // Skip: ver/flags(4) + sample_count(4) + data_offset(4) + [first_sample_flags(4)]
       let hasFirstSampleFlags = (flags & 0x004) != 0

@@ -28,7 +28,7 @@ import Testing
       into: &buf, marker: true, payloadType: 99,
       sequenceNumber: 0, timestamp: 0, ssrc: 0, payloadSize: 0)
     #expect(buf[1] & 0x80 == 0x80)  // M=1
-    #expect(buf[1] & 0x7F == 99)     // PT=99
+    #expect(buf[1] & 0x7F == 99)  // PT=99
   }
 
   @Test func markerBitClear() {
@@ -37,7 +37,7 @@ import Testing
       into: &buf, marker: false, payloadType: 110,
       sequenceNumber: 0, timestamp: 0, ssrc: 0, payloadSize: 0)
     #expect(buf[1] & 0x80 == 0x00)  // M=0
-    #expect(buf[1] & 0x7F == 110)    // PT=110
+    #expect(buf[1] & 0x7F == 110)  // PT=110
   }
 
   @Test func sequenceNumberBigEndian() {
@@ -53,7 +53,7 @@ import Testing
     var buf = Data()
     CameraStreamSession.writeRTPHeader(
       into: &buf, marker: false, payloadType: 99,
-      sequenceNumber: 0, timestamp: 0xAABBCCDD, ssrc: 0, payloadSize: 0)
+      sequenceNumber: 0, timestamp: 0xAABB_CCDD, ssrc: 0, payloadSize: 0)
     #expect(buf[4] == 0xAA)
     #expect(buf[5] == 0xBB)
     #expect(buf[6] == 0xCC)
@@ -64,7 +64,7 @@ import Testing
     var buf = Data()
     CameraStreamSession.writeRTPHeader(
       into: &buf, marker: false, payloadType: 99,
-      sequenceNumber: 0, timestamp: 0, ssrc: 0x12345678, payloadSize: 0)
+      sequenceNumber: 0, timestamp: 0, ssrc: 0x1234_5678, payloadSize: 0)
     #expect(buf[8] == 0x12)
     #expect(buf[9] == 0x34)
     #expect(buf[10] == 0x56)

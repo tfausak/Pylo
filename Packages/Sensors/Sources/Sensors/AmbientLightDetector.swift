@@ -34,7 +34,8 @@ public nonisolated final class AmbientLightDetector {
   }
   private let state = Locked(initialState: State())
 
-  private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Sensors", category: "AmbientLight")
+  private let logger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "Sensors", category: "AmbientLight")
 
   public var currentLux: Float {
     state.withLockUnchecked { $0.currentLux }

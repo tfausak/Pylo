@@ -2310,7 +2310,8 @@ struct HAPOccupancySensorTests {
   func initialState() {
     let sensor = HAPOccupancySensorAccessory(aid: AccessoryID.occupancySensor)
     #expect(sensor.isOccupancyDetected == false)
-    #expect(sensor.readCharacteristic(iid: HAPOccupancySensorAccessory.iidOccupancyDetected) == .int(0))
+    #expect(
+      sensor.readCharacteristic(iid: HAPOccupancySensorAccessory.iidOccupancyDetected) == .int(0))
   }
 
   @Test("Update occupancy detected")
@@ -2318,7 +2319,8 @@ struct HAPOccupancySensorTests {
     let sensor = HAPOccupancySensorAccessory(aid: AccessoryID.occupancySensor)
     sensor.updateOccupancyDetected(true)
     #expect(sensor.isOccupancyDetected == true)
-    #expect(sensor.readCharacteristic(iid: HAPOccupancySensorAccessory.iidOccupancyDetected) == .int(1))
+    #expect(
+      sensor.readCharacteristic(iid: HAPOccupancySensorAccessory.iidOccupancyDetected) == .int(1))
   }
 
   @Test("Update fires state change callback with int value")
@@ -2351,7 +2353,9 @@ struct HAPLightSensorTests {
   func initialState() {
     let sensor = HAPLightSensorAccessory(aid: AccessoryID.lightSensor)
     #expect(sensor.currentLux == 1.0)
-    #expect(sensor.readCharacteristic(iid: HAPLightSensorAccessory.iidCurrentAmbientLightLevel) == .float(1.0))
+    #expect(
+      sensor.readCharacteristic(iid: HAPLightSensorAccessory.iidCurrentAmbientLightLevel)
+        == .float(1.0))
   }
 
   @Test("Update lux fires callback")
@@ -2418,7 +2422,9 @@ struct HAPButtonAccessoryTests {
   @Test("Write to non-identify IID returns false")
   func writeNonIdentify() {
     let button = HAPButtonAccessory(aid: AccessoryID.button)
-    #expect(!button.writeCharacteristic(iid: HAPButtonAccessory.iidProgrammableSwitchEvent, value: .int(0)))
+    #expect(
+      !button.writeCharacteristic(
+        iid: HAPButtonAccessory.iidProgrammableSwitchEvent, value: .int(0)))
   }
 }
 
@@ -2472,7 +2478,7 @@ struct HDSMessageEdgeCaseTests {
     var data = Data()
     data.append(UInt8(header.count))
     data.append(header)
-    data.append(HDSCodec.encode([:])) // body
+    data.append(HDSCodec.encode([:]))  // body
     #expect(HDSMessage.decode(data) == nil)
   }
 

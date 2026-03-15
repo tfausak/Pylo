@@ -247,8 +247,10 @@ struct SRTPTests {
     let sender2 = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
 
     let payload = Data(repeating: 0x42, count: 40)
-    let srtp1 = try #require(sender1.protect(makeRTPPacket(seq: 1, ssrc: 0x1111_1111, payload: payload)))
-    let srtp2 = try #require(sender2.protect(makeRTPPacket(seq: 1, ssrc: 0x2222_2222, payload: payload)))
+    let srtp1 = try #require(
+      sender1.protect(makeRTPPacket(seq: 1, ssrc: 0x1111_1111, payload: payload)))
+    let srtp2 = try #require(
+      sender2.protect(makeRTPPacket(seq: 1, ssrc: 0x2222_2222, payload: payload)))
 
     // Encrypted payloads (bytes 12..<count-10) must differ despite identical plaintext
     // and identical packet index, because the IV includes the SSRC.

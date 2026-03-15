@@ -248,7 +248,7 @@ private func makeBGRAPixelBuffer(width: Int, height: Int, gray: UInt8) -> CVPixe
       ptr[offset + 0] = gray  // B
       ptr[offset + 1] = gray  // G
       ptr[offset + 2] = gray  // R
-      ptr[offset + 3] = 255   // A
+      ptr[offset + 3] = 255  // A
     }
   }
   return pb

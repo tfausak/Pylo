@@ -13,7 +13,7 @@ import Testing
 
   @Test func senderReportHeader() {
     let sr = CameraStreamSession.buildRTCPSenderReport(
-      ssrc: 0x12345678, rtpTimestamp: 0, packetsSent: 0, octetsSent: 0)
+      ssrc: 0x1234_5678, rtpTimestamp: 0, packetsSent: 0, octetsSent: 0)
     // V=2, P=0, RC=0 → 0x80
     #expect(sr[0] == 0x80)
     // PT=200 (SR)
@@ -25,7 +25,7 @@ import Testing
 
   @Test func senderReportSSRC() {
     let sr = CameraStreamSession.buildRTCPSenderReport(
-      ssrc: 0xDEADBEEF, rtpTimestamp: 0, packetsSent: 0, octetsSent: 0)
+      ssrc: 0xDEAD_BEEF, rtpTimestamp: 0, packetsSent: 0, octetsSent: 0)
     #expect(sr[4] == 0xDE)
     #expect(sr[5] == 0xAD)
     #expect(sr[6] == 0xBE)
@@ -54,7 +54,7 @@ import Testing
 
   @Test func senderReportRTPTimestamp() {
     let sr = CameraStreamSession.buildRTCPSenderReport(
-      ssrc: 0, rtpTimestamp: 0xAABBCCDD, packetsSent: 0, octetsSent: 0)
+      ssrc: 0, rtpTimestamp: 0xAABB_CCDD, packetsSent: 0, octetsSent: 0)
     #expect(sr[16] == 0xAA)
     #expect(sr[17] == 0xBB)
     #expect(sr[18] == 0xCC)
@@ -63,7 +63,7 @@ import Testing
 
   @Test func senderReportPacketAndOctetCounts() {
     let sr = CameraStreamSession.buildRTCPSenderReport(
-      ssrc: 0, rtpTimestamp: 0, packetsSent: 256, octetsSent: 0x00010002)
+      ssrc: 0, rtpTimestamp: 0, packetsSent: 256, octetsSent: 0x0001_0002)
     // 256 = 0x00000100
     #expect(sr[20] == 0x00)
     #expect(sr[21] == 0x00)

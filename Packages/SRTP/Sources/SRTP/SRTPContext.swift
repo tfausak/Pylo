@@ -150,7 +150,8 @@ public final class SRTPContext: @unchecked Sendable {
     let encryptedPayload: Data? = withUnsafeTemporaryAllocation(byteCount: 16, alignment: 1) {
       ivBuffer in
       Self.buildIV(ssrc: ssrc, packetIndex: packetIndex, salt: sessionSalt, into: ivBuffer)
-      return Self.aesCTREncrypt(key: sessionKey, iv: UnsafeRawBufferPointer(ivBuffer), data: payload)
+      return Self.aesCTREncrypt(
+        key: sessionKey, iv: UnsafeRawBufferPointer(ivBuffer), data: payload)
     }
     guard let encryptedPayload else { return nil }
 
