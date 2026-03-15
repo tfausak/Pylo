@@ -431,6 +431,21 @@ public final class HAPServer: @unchecked Sendable {
     }
   }
 
+  /// Terminate ALL verified sessions after a short delay.
+  /// Used when all pairings are cleared (last-admin removal) — every active
+  /// session belongs to a pairing that no longer exists.
+  public func terminateAllSessionsAfterResponse() {
+    queue.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+      guard let self else { return }
+      PairSetupHandler.isPairSetupInProgress = false
+      let all = self.connections
+      self.connections.removeAll()
+      for (_, conn) in all {
+        conn.cancel()
+      }
+    }
+  }
+
   /// Notify all subscribed connections of a characteristic change.
   /// Dispatches to the server queue so `connections` is accessed thread-safely.
   public func notifySubscribers(aid: Int, iid: Int, value: HAPValue) {

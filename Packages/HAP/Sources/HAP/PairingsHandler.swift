@@ -124,11 +124,15 @@ public enum PairingsHandler {
       server.pairingStore.removePairing(identifier: id)
     }
 
-    // HAP spec §5.11: terminate sessions for the removed controller.
-    // Use a short delay to ensure the M2 response bytes are flushed
-    // to the TCP stack before the connection is torn down.
-    // Normalize to uppercase to match verifiedControllerID (set in PairVerify).
-    server.terminateSessionsAfterResponse(forController: id.uppercased())
+    // HAP spec §5.11: terminate sessions after a short delay to ensure the
+    // response is flushed before teardown.
+    if isLastAdmin {
+      // All pairings cleared — every active session is now orphaned.
+      server.terminateAllSessionsAfterResponse()
+    } else {
+      // Normalize to uppercase to match verifiedControllerID (set in PairVerify).
+      server.terminateSessionsAfterResponse(forController: id.uppercased())
+    }
 
     // If last admin was removed (all pairings cleared) or no pairings
     // remain, update advertisement to indicate unpaired state.
