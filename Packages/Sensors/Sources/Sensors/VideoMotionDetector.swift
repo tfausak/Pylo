@@ -196,12 +196,22 @@ public nonisolated final class VideoMotionDetector {
     let count = min(previous.count, current.count)
     guard count > 0, count <= Self.scratchCount else { return 0 }
 
-    vDSP.convertElements(of: previous, to: &scratchPrev)
-    vDSP.convertElements(of: current, to: &scratchCurr)
+    // Use C-level vDSP calls with explicit count throughout so only the
+    // populated portion of the scratch buffers is processed. The high-level
+    // Swift vDSP overlay (convertElements, subtract, square) operates on the
+    // full array length, which would process stale data in the tail when
+    // count < scratchCount.
+    let n = vDSP_Length(count)
+    previous.withUnsafeBufferPointer { prev in
+      vDSP_vfltu8(prev.baseAddress!, 1, &scratchPrev, 1, n)
+    }
+    current.withUnsafeBufferPointer { curr in
+      vDSP_vfltu8(curr.baseAddress!, 1, &scratchCurr, 1, n)
+    }
 
     // Squared difference
-    vDSP.subtract(scratchPrev, scratchCurr, result: &scratchDiff)
-    vDSP.square(scratchDiff, result: &scratchDiff)
+    vDSP_vsub(scratchCurr, 1, scratchPrev, 1, &scratchDiff, 1, n)
+    vDSP_vsq(scratchDiff, 1, &scratchDiff, 1, n)
 
     // Count pixels where squared difference exceeds threshold (e.g., 25^2 = 625)
     // A pixel value change of 25 out of 255 is considered significant.

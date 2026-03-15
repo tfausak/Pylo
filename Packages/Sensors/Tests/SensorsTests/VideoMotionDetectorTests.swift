@@ -54,6 +54,18 @@ import Testing
     #expect(ratio > 0.45 && ratio < 0.55)
   }
 
+  @Test func subScratchCountInputsAreCorrect() {
+    let detector = VideoMotionDetector()
+    // Use a small array (10 pixels) — well below the 160*120 scratch buffer size.
+    // This exercises the count-limited vDSP path: only the first 10 elements
+    // should be processed, not the full scratch buffer.
+    let a = [UInt8](repeating: 0, count: 10)
+    let b = [UInt8](repeating: 255, count: 10)
+    let ratio = detector.computeChangeRatio(previous: a, current: b)
+    // All 10 pixels differ by 255 (squared = 65025 >> 625 threshold), so ratio ≈ 1.0
+    #expect(ratio > 0.99)
+  }
+
   // MARK: - State machine
 
   @Test func firstFrameDoesNotTriggerMotion() {
