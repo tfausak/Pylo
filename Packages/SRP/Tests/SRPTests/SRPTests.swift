@@ -131,6 +131,15 @@ struct SRPClientPublicKeyTests {
     #expect(server.setClientPublicKey(Data()) == false)
   }
 
+  @Test("Rejects client public key equal to N (non-zero multiple of prime)")
+  func rejectsKeyEqualToN() {
+    let server = SRPServer(username: "Pair-Setup", password: "111-22-333")!
+    // A = N serializes to exactly 384 bytes, is non-zero, but A % N == 0
+    let keyEqualToN = SRPTestClient.pad(SRPTestClient.prime)
+    #expect(keyEqualToN.count == 384)
+    #expect(server.setClientPublicKey(keyEqualToN) == false)
+  }
+
   @Test("Rejects second call to setClientPublicKey")
   func rejectsDoubleSet() {
     let server = SRPServer(username: "Pair-Setup", password: "111-22-333")!
