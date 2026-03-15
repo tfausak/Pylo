@@ -23,6 +23,15 @@ import os
   /// Low battery threshold (percentage).
   private let lowThreshold = 20
 
+  // HAP ChargingState characteristic values.
+  private static let hapNotCharging = 0
+  private static let hapCharging = 1
+  private static let hapNotChargeable = 2
+
+  // HAP StatusLowBattery characteristic values.
+  private static let hapBatteryNormal = 0
+  private static let hapBatteryLow = 1
+
   private var observers: [Any] = []
 
   public init() {}
@@ -92,21 +101,24 @@ import os
       let charging: Int
       switch UIDevice.current.batteryState {
       case .charging, .full:
-        charging = 1  // Charging
+        charging = Self.hapCharging
       case .unplugged:
-        charging = 0  // Not Charging
+        charging = Self.hapNotCharging
       default:
-        charging = 2  // Not Chargeable
+        charging = Self.hapNotChargeable
       }
     #elseif os(macOS)
       let level = max(0, min(100, macOSBatteryLevel() ?? 0))
-      let charging = macOSIsCharging() ? 1 : 0
+      let charging = macOSIsCharging() ? Self.hapCharging : Self.hapNotCharging
+    #else
+      let level = 0
+      let charging = Self.hapNotChargeable
     #endif
 
     state.update(
       level: level,
       chargingState: charging,
-      statusLowBattery: level <= lowThreshold ? 1 : 0)
+      statusLowBattery: level <= lowThreshold ? Self.hapBatteryLow : Self.hapBatteryNormal)
     return state
   }
 
