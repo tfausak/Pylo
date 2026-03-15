@@ -94,6 +94,29 @@ public final class SRPServer {
 
   // MARK: - Initialization
 
+  /// Computes the SRP verifier and server public key from the given inputs.
+  /// Shared by both the public and package initializers.
+  private static func deriveServerValues(
+    username: String, password: String, salt: Data, privateKey: BigUInt
+  ) -> (verifier: BigUInt, publicKey: Data) {
+    // x = H(s | H(I | ":" | P))
+    let identityHash = SHA512.hash(data: Data("\(username):\(password)".utf8))
+    var xData = Data()
+    xData.append(salt)
+    xData.append(contentsOf: identityHash)
+    let x = BigUInt(Data(SHA512.hash(data: xData)))
+
+    // v = g^x mod N
+    let verifier = g.power(x, modulus: prime)
+
+    // B = (k*v + g^b mod N) mod N
+    let gb = g.power(privateKey, modulus: prime)
+    let kv = (k * verifier) % prime
+    let serverPublicKey = (kv + gb) % prime
+
+    return (verifier, pad(serverPublicKey))
+  }
+
   /// Creates a new SRP server session.
   /// Generates salt and computes the server's public key B.
   public init?(username: String, password: String) {
@@ -101,38 +124,24 @@ public final class SRPServer {
     self.password = password
     self.hashI = Data(SHA512.hash(data: Data(username.utf8)))
 
-    // 1. Generate random 16-byte salt (s)
+    // Generate random 16-byte salt (s)
     var saltBytes = [UInt8](repeating: 0, count: 16)
     guard SecRandomCopyBytes(kSecRandomDefault, saltBytes.count, &saltBytes) == errSecSuccess else {
       return nil
     }
     self.salt = Data(saltBytes)
 
-    // 2. Compute x = H(s | H(I | ":" | P))
-    // where I = username, P = password, H = SHA-512
-    let identityHash = SHA512.hash(data: Data("\(username):\(password)".utf8))
-    var xData = Data()
-    xData.append(self.salt)
-    xData.append(contentsOf: identityHash)
-    let x = BigUInt(Data(SHA512.hash(data: xData)))
-
-    // 3. Compute verifier v = g^x mod N
-    self.verifier = Self.g.power(x, modulus: Self.prime)
-
-    // 4. Generate random private key b (256 bits = 32 bytes)
+    // Generate random private key b (256 bits = 32 bytes)
     var bBytes = [UInt8](repeating: 0, count: 32)
     guard SecRandomCopyBytes(kSecRandomDefault, bBytes.count, &bBytes) == errSecSuccess else {
       return nil
     }
     self.privateKey = BigUInt(Data(bBytes))
 
-    // 5. Compute B = (k*v + g^b mod N) mod N
-    let gb = Self.g.power(self.privateKey, modulus: Self.prime)
-    let kv = (Self.k * self.verifier) % Self.prime
-    let serverPublicKey = (kv + gb) % Self.prime
-
-    // 7. Store B as public key
-    self.publicKey = Self.pad(serverPublicKey)
+    let derived = Self.deriveServerValues(
+      username: username, password: password, salt: self.salt, privateKey: self.privateKey)
+    self.verifier = derived.verifier
+    self.publicKey = derived.publicKey
   }
 
   /// Test-only initializer with fixed salt and private key for deterministic verification.
@@ -142,19 +151,12 @@ public final class SRPServer {
     self.password = password
     self.hashI = Data(SHA512.hash(data: Data(username.utf8)))
     self.salt = fixedSalt
-
-    let identityHash = SHA512.hash(data: Data("\(username):\(password)".utf8))
-    var xData = Data()
-    xData.append(fixedSalt)
-    xData.append(contentsOf: identityHash)
-    let x = BigUInt(Data(SHA512.hash(data: xData)))
-    self.verifier = Self.g.power(x, modulus: Self.prime)
     self.privateKey = BigUInt(fixedPrivateKey)
 
-    let gb = Self.g.power(self.privateKey, modulus: Self.prime)
-    let kv = (Self.k * self.verifier) % Self.prime
-    let serverPublicKey = (kv + gb) % Self.prime
-    self.publicKey = Self.pad(serverPublicKey)
+    let derived = Self.deriveServerValues(
+      username: username, password: password, salt: fixedSalt, privateKey: self.privateKey)
+    self.verifier = derived.verifier
+    self.publicKey = derived.publicKey
   }
 
   // MARK: - Step 2: Receive Client Public Key
