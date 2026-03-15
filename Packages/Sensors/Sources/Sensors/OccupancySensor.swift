@@ -7,6 +7,12 @@ import os
 /// Processes pixel buffers from MonitoringCaptureSession at low frequency (~2.5s).
 /// Maintains occupancy state with configurable cooldown to avoid flapping.
 ///
+/// Not unit-tested: the core logic depends on VNDetectHumanRectanglesRequest which
+/// requires real pixel buffers with recognizable human shapes — synthetic buffers
+/// don't produce meaningful Vision results. The cooldown timer path
+/// (scheduleCooldownTimer) also depends on DispatchSourceTimer timing. Both would
+/// require integration-level tests with real images and real timer waits.
+///
 /// `@unchecked Sendable` is required because VNDetectHumanRectanglesRequest and
 /// DispatchSourceTimer are not Sendable. All mutable state is protected by Locked
 /// and Vision work is serialized on detectionQueue.
