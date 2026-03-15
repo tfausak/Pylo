@@ -196,7 +196,8 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
       as? [[CFString: Any]]
     let isKeyframe = !(attachments?.first?[kCMSampleAttachmentKey_NotSync] as? Bool ?? false)
 
-    // Extract raw H.264 data from the CMBlockBuffer
+    // Extract raw H.264 data from the CMBlockBuffer.
+    // CMBlockBuffer.dataBytes (iOS 16+) would be cleaner, but we target iOS 15.
     guard let dataBuffer = sampleBuffer.dataBuffer else { return }
     var totalLength = 0
     var dataPointer: UnsafeMutablePointer<CChar>?
@@ -825,15 +826,11 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
   }
 
   private static func putU32BE(_ data: inout Data, _ value: UInt32) {
-    data.append(UInt8((value >> 24) & 0xFF))
-    data.append(UInt8((value >> 16) & 0xFF))
-    data.append(UInt8((value >> 8) & 0xFF))
-    data.append(UInt8(value & 0xFF))
+    withUnsafeBytes(of: value.bigEndian) { data.append(contentsOf: $0) }
   }
 
   private static func putU16BE(_ data: inout Data, _ value: UInt16) {
-    data.append(UInt8((value >> 8) & 0xFF))
-    data.append(UInt8(value & 0xFF))
+    withUnsafeBytes(of: value.bigEndian) { data.append(contentsOf: $0) }
   }
 
   private static func appendIdentityMatrix(_ data: inout Data) {
