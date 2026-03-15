@@ -79,7 +79,6 @@ public final class SRPServer: @unchecked Sendable {
   // SRPServer is Sendable and may be accessed from multiple threads.
   private struct MutableState {
     var clientPublicKey: BigUInt?
-    var u: BigUInt?
     var sharedSecret: BigUInt?
     var sessionKey: SymmetricKey?
   }
@@ -198,7 +197,6 @@ public final class SRPServer: @unchecked Sendable {
     return _state.withLock { state in
       guard state.clientPublicKey == nil else { return false }
       state.clientPublicKey = clientA
-      state.u = computedU
       state.sharedSecret = s
       return true
     }
