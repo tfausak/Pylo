@@ -213,32 +213,20 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
     // to prevent deadlock if the callback reenters the writer.
     // At most two fragments can be emitted: one from a PTS gap flush, one from a keyframe flush.
 
-    // Check if init segment needs to be built (outside lock since it's heavy)
-    let needsInitSegment = _writerState.withLock { state in
-      state.videoFormatDescription == nil && fmt != nil
+    // Build the init segment outside the lock (it's heavy) if we don't have one yet.
+    // Read the needed state in one lock acquisition, build outside, then store with a
+    // single check-and-set. If includeAudioTrack changed during the build, we accept
+    // the stale value — the next call to the includeAudioTrack setter will clear
+    // videoFormatDescription and initSegment, triggering a rebuild on the next sample.
+    let (needsBuild, includeAudio) = _writerState.withLock { state in
+      (state.videoFormatDescription == nil && fmt != nil, state.includeAudioTrack)
     }
-    if needsInitSegment, let fmt {
-      let includeAudio = _writerState.withLock { $0.includeAudioTrack }
+    if needsBuild, let fmt {
       let initSeg = buildInitSegment(videoFormat: fmt, includeAudio: includeAudio)
-      let needsRebuild = _writerState.withLock { state -> Bool in
-        // Double-check under lock in case another thread raced us
-        guard state.videoFormatDescription == nil else { return false }
-        // Re-check includeAudioTrack in case it changed while we were building
-        if state.includeAudioTrack != includeAudio { return true }
+      _writerState.withLock { state in
+        guard state.videoFormatDescription == nil else { return }
         state.videoFormatDescription = fmt
         state.initSegment = initSeg
-        return false
-      }
-      if needsRebuild {
-        let currentAudio = _writerState.withLock { $0.includeAudioTrack }
-        let rebuilt = buildInitSegment(videoFormat: fmt, includeAudio: currentAudio)
-        _writerState.withLock { state in
-          guard state.videoFormatDescription == nil,
-            state.includeAudioTrack == currentAudio
-          else { return }
-          state.videoFormatDescription = fmt
-          state.initSegment = rebuilt
-        }
       }
     }
 
