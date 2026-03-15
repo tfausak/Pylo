@@ -235,6 +235,17 @@ struct TLV8Tests {
     #expect(data == Data([0x02, 0x03, 0x01, 0x01, 0xFF]))
   }
 
+  @Test("Builder closure initializer")
+  func builderClosureInit() {
+    let builder = TLV8.Builder { b in
+      b.add(0x06, byte: 0x01)
+      b.add(0x02, uint16: 1920)
+    }
+    let data = builder.build()
+    // state=0x01 then uint16 1920 (0x0780) little-endian
+    #expect(data == Data([0x06, 0x01, 0x01, 0x02, 0x02, 0x80, 0x07]))
+  }
+
   @Test("Builder base64 encoding")
   func builderBase64() {
     var builder = TLV8.Builder()

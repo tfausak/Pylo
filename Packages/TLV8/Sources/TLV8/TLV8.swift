@@ -208,6 +208,12 @@ public enum TLV8 {
 
     public init() {}
 
+    /// Closure-based initializer to reduce `var`/`build()` boilerplate.
+    public init(_ configure: (inout Builder) -> Void) {
+      self.init()
+      configure(&self)
+    }
+
     public mutating func add(_ tag: UInt8, _ value: Data) {
       var offset = value.startIndex
       if value.isEmpty {
