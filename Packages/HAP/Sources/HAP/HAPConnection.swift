@@ -531,6 +531,13 @@ public final class HAPConnection: @unchecked Sendable {
 
   /// Validate and consume a pending timed write. Returns true if the PID matches
   /// and the TTL has not expired.
+  ///
+  /// Not unit-tested: the timed write state (timedWritePID/timedWriteExpiry) is
+  /// private to HAPConnection, and handlePrepare (which sets it) is also private.
+  /// Testing requires a live NWConnection with pair-verify, making this an
+  /// integration test. The logic is straightforward enough to verify by inspection:
+  /// non-timed writes (pid==nil) always pass, timed writes must match PID and not
+  /// be expired, and the state is always consumed on a timed-write attempt.
   func validateTimedWrite(pid: UInt64?) -> Bool {
     guard let pid, let expectedPID = timedWritePID, let expiry = timedWriteExpiry else {
       return pid == nil  // Non-timed writes always pass
