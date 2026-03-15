@@ -748,7 +748,6 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
     if size < 0x80 {
       return Data([UInt8(size)])
     }
-    var result = Data()
     var remaining = size
     // Encode in big-endian with continuation bits (MSB set on all but last byte)
     var bytes: [UInt8] = []
@@ -759,8 +758,7 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
       remaining >>= 7
     }
     bytes.reverse()
-    result.append(contentsOf: bytes)
-    return result
+    return Data(bytes)
   }
 
   private static func buildEsds(trackID: UInt32, audioConfig: Data) -> Data {
