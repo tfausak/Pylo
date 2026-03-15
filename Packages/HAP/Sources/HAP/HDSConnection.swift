@@ -127,7 +127,10 @@ public final class HDSConnection: @unchecked Sendable {
 
       self.connection.receive(
         minimumIncompleteLength: totalRead, maximumLength: totalRead
-      ) { [weak self] payload, _, isPayloadComplete, error in
+      ) { [weak self] payload, _, _, error in
+        // isPayloadComplete is intentionally ignored — we always loop via
+        // receiveFrame() after handling the payload, and partial-close is
+        // handled by the nil/short-data guard below.
         guard let self else { return }
 
         if let error {
