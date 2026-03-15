@@ -1946,6 +1946,24 @@ struct HAPSirenAccessoryTests {
     let result = siren.writeCharacteristic(iid: 999, value: .bool(true))
     #expect(!result)
   }
+
+  @Test("onStateChange reflects rejected state when callback calls updateOn(false)")
+  func writeRejectedByCallback() {
+    let siren = HAPSirenAccessory(aid: AccessoryID.siren)
+    // Simulate the camera-streaming guard: callback immediately rejects the on.
+    siren.onSirenActivate = { [weak siren] on in
+      if on { siren?.updateOn(false) }
+    }
+    nonisolated(unsafe) var lastStateValue: HAPValue?
+    siren.onStateChange = { _, iid, value in
+      if iid == HAPSirenAccessory.iidOn { lastStateValue = value }
+    }
+    siren.writeCharacteristic(iid: HAPSirenAccessory.iidOn, value: .bool(true))
+    // The final onStateChange from writeCharacteristic should reflect the
+    // rejected state (false), not the originally written value (true).
+    #expect(lastStateValue == .bool(false))
+    #expect(siren.isOn == false)
+  }
 }
 
 // MARK: - HTTPResponse 204 Tests

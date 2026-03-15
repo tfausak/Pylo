@@ -45,6 +45,21 @@ nonisolated final class SirenPlayer: @unchecked Sendable {
 
   deinit {
     NotificationCenter.default.removeObserver(self)
+    // Synchronous cleanup — don't dispatch async work that captures self.
+    let (engine, sourceNode, phases) = _state.withLockUnchecked {
+      state -> (AVAudioEngine?, AVAudioSourceNode?, UnsafeMutablePointer<Float>?) in
+      let e = state.engine
+      let s = state.sourceNode
+      let p = state.phases
+      state.engine = nil
+      state.sourceNode = nil
+      state.phases = nil
+      state.isPlaying = false
+      return (e, s, p)
+    }
+    if let sourceNode { engine?.detach(sourceNode) }
+    engine?.stop()
+    phases?.deallocate()
   }
 
   func start() {
@@ -71,6 +86,7 @@ nonisolated final class SirenPlayer: @unchecked Sendable {
       let sampleRate = Float(engine.outputNode.outputFormat(forBus: 0).sampleRate)
       guard sampleRate > 0 else {
         logger.error("Audio output not available (sample rate is 0)")
+        Self.deactivateAudioSession()
         onActiveChange?(false)
         return
       }
@@ -122,6 +138,7 @@ nonisolated final class SirenPlayer: @unchecked Sendable {
       } catch {
         logger.error("Failed to start audio engine: \(error)")
         phases.deallocate()
+        Self.deactivateAudioSession()
         onActiveChange?(false)
         return
       }
@@ -165,10 +182,20 @@ nonisolated final class SirenPlayer: @unchecked Sendable {
     if let sourceNode { engine?.detach(sourceNode) }
     engine?.stop()
     phases?.deallocate()
+    Self.deactivateAudioSession()
 
     logger.info("Siren stopped")
     onActiveChange?(false)
   }
+
+  #if os(iOS)
+    private static func deactivateAudioSession() {
+      try? AVAudioSession.sharedInstance().setActive(
+        false, options: .notifyOthersOnDeactivation)
+    }
+  #else
+    private static func deactivateAudioSession() {}
+  #endif
 
   // MARK: - Audio Session Interruption
 
