@@ -677,6 +677,46 @@ struct SRTPThreadSafetyTests {
       recovered5 == rtp5, "Normal packets must still decrypt after high-seq packet at ROC=0")
   }
 
+  @Test("Late packet from ROC=0 decrypts correctly after receiver advances to ROC=1")
+  func latePacketAtROCOne() throws {
+    // Exercises the roc -= 1 branch when ROC > 0: after the receiver advances
+    // to ROC=1 via a sequence rollover, a late packet from the previous ROC
+    // period (ROC=0) should still decrypt successfully.
+    let sender = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
+    let receiver = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
+
+    // Advance both sender and receiver through the ROC=0→1 rollover.
+    // Send 0xFFFE, 0xFFFF (ROC=0), then 0x0000, 0x0001 (ROC=1).
+    var srtpPackets: [UInt16: (rtp: Data, srtp: Data)] = [:]
+    for seq: UInt16 in [0xFFFE, 0xFFFF, 0x0000, 0x0001, 0x0002] {
+      let rtp = makeRTPPacket(
+        seq: seq, ssrc: 0xDEAD_BEEF, payload: Data(repeating: UInt8(seq & 0xFF), count: 20))
+      let srtp = sender.protect(rtp)!
+      srtpPackets[seq] = (rtp, srtp)
+    }
+
+    // Receive in order up to seq 0x0001 — receiver now has ROC=1, s_l=0x0001
+    for seq: UInt16 in [0xFFFE, 0xFFFF, 0x0000, 0x0001] {
+      let recovered = receiver.unprotect(srtpPackets[seq]!.srtp)
+      #expect(recovered == srtpPackets[seq]!.rtp, "Setup: failed at seq \(seq)")
+    }
+
+    // Now deliver seq 0xFFFE again (a late/reordered packet from ROC=0).
+    // The receiver should detect s_l < 0x8000 (s_l=0x0001) and
+    // seq=0xFFFE > s_l + 0x8000, triggering the roc -= 1 branch (ROC=1→0).
+    // Since the sender encrypted this at ROC=0, auth should succeed.
+    let late = receiver.unprotect(srtpPackets[0xFFFE]!.srtp)
+    #expect(
+      late == srtpPackets[0xFFFE]!.rtp,
+      "Late packet from ROC=0 should decrypt after receiver advanced to ROC=1")
+
+    // Verify forward progress still works at ROC=1
+    let recovered = receiver.unprotect(srtpPackets[0x0002]!.srtp)
+    #expect(
+      recovered == srtpPackets[0x0002]!.rtp,
+      "Normal packets must still decrypt after late-packet from previous ROC")
+  }
+
   @Test("ROC boundary: s_l=0x8000, SEQ=0x0000 does not spuriously increment ROC")
   func rocBoundaryNoSpuriousIncrement() throws {
     // This tests the off-by-one fix: when s_l=0x8000 and SEQ=0x0000,
