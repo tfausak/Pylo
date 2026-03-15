@@ -102,13 +102,10 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
   public let ringBuffer = FragmentRingBuffer(capacity: 6)
 
   /// Called when a new fragment is completed.
-  private struct CallbackBox: @unchecked Sendable {
-    var handler: ((MP4Fragment) -> Void)?
-  }
-  private let _onFragmentReady = Locked<CallbackBox>(initialState: CallbackBox())
+  private let _onFragmentReady = Locked<((MP4Fragment) -> Void)?>(initialState: nil)
   public var onFragmentReady: ((MP4Fragment) -> Void)? {
-    get { _onFragmentReady.withLockUnchecked { $0.handler } }
-    set { _onFragmentReady.withLockUnchecked { $0.handler = newValue } }
+    get { _onFragmentReady.withLockUnchecked { $0 } }
+    set { _onFragmentReady.withLockUnchecked { $0 = newValue } }
   }
 
   private let logger = Logger(subsystem: logSubsystem, category: "fMP4Writer")
