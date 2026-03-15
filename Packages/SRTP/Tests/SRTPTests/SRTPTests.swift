@@ -237,14 +237,17 @@ struct SRTPTests {
 
   @Test("Different SSRCs produce different ciphertext (IV incorporates SSRC)")
   func differentSSRCs() throws {
-    let sender = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
+    // Use separate contexts so both packets have identical packet index (ROC=0, seq=1).
+    // This isolates the SSRC as the only IV difference.
+    let sender1 = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
+    let sender2 = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
 
     let payload = Data(repeating: 0x42, count: 40)
-    let srtp1 = try #require(sender.protect(makeRTPPacket(seq: 1, ssrc: 0x1111_1111, payload: payload)))
-    let srtp2 = try #require(sender.protect(makeRTPPacket(seq: 2, ssrc: 0x2222_2222, payload: payload)))
+    let srtp1 = try #require(sender1.protect(makeRTPPacket(seq: 1, ssrc: 0x1111_1111, payload: payload)))
+    let srtp2 = try #require(sender2.protect(makeRTPPacket(seq: 1, ssrc: 0x2222_2222, payload: payload)))
 
-    // Encrypted payloads (bytes 12..<count-10) must differ despite identical plaintext,
-    // because the IV includes the SSRC.
+    // Encrypted payloads (bytes 12..<count-10) must differ despite identical plaintext
+    // and identical packet index, because the IV includes the SSRC.
     let cipher1 = srtp1[12..<srtp1.count - 10]
     let cipher2 = srtp2[12..<srtp2.count - 10]
     #expect(cipher1 != cipher2)
