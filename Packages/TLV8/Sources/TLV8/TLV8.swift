@@ -49,7 +49,11 @@ public enum TLV8 {
 
   /// Decodes a TLV8-encoded Data blob into an ordered list of (tag, value) pairs.
   /// Consecutive items with the same tag are coalesced (fragmented values).
-  /// Returns `[]` on truncated input (logged as a warning to aid debugging).
+  ///
+  /// Uses fail-closed semantics: returns `[]` if any part of the blob is
+  /// truncated, even if earlier TLVs parsed successfully. This prevents
+  /// partial parses from being mistaken for complete messages in a security
+  /// protocol. Truncation is logged as a warning to aid debugging.
   public static func decode(_ data: Data) -> [(UInt8, Data)] {
     var results: [(UInt8, Data)] = []
     var offset = data.startIndex
