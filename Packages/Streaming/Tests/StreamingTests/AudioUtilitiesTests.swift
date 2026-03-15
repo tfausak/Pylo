@@ -117,6 +117,61 @@ import Testing
     }
   }
 
+  @Test func float32StereoAt16kHzDownmixes() {
+    // Stereo Float32 at 16kHz — should downmix to mono.
+    // L=1.0, R=-1.0 → average = 0.0 per frame
+    let samples: [Float] = [1.0, -1.0, 0.6, 0.2]
+    let data = samples.withUnsafeBytes { Data($0) }
+
+    let asbd = AudioStreamBasicDescription(
+      mSampleRate: 16000,
+      mFormatID: kAudioFormatLinearPCM,
+      mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked,
+      mBytesPerPacket: 8,
+      mFramesPerPacket: 1,
+      mBytesPerFrame: 8,
+      mChannelsPerFrame: 2,
+      mBitsPerChannel: 32,
+      mReserved: 0
+    )
+
+    let result = convertToFloat32At16kHz(data, sourceASBD: asbd)
+    let output = result.withUnsafeBytes { Array($0.assumingMemoryBound(to: Float.self)) }
+
+    #expect(output.count == 2)
+    #expect(abs(output[0]) < 0.01)        // (1.0 + -1.0) / 2 = 0.0
+    #expect(abs(output[1] - 0.4) < 0.01)  // (0.6 + 0.2) / 2 = 0.4
+  }
+
+  @Test func resamplingAt44100Hz() {
+    // 44.1kHz mono Float32 → 16kHz (non-integer ratio ≈ 0.3628).
+    let count = 441  // 10ms at 44.1kHz
+    let samples = [Float](repeating: 0.25, count: count)
+    let data = samples.withUnsafeBytes { Data($0) }
+
+    let asbd = AudioStreamBasicDescription(
+      mSampleRate: 44100,
+      mFormatID: kAudioFormatLinearPCM,
+      mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked,
+      mBytesPerPacket: 4,
+      mFramesPerPacket: 1,
+      mBytesPerFrame: 4,
+      mChannelsPerFrame: 1,
+      mBitsPerChannel: 32,
+      mReserved: 0
+    )
+
+    let result = convertToFloat32At16kHz(data, sourceASBD: asbd)
+    let output = result.withUnsafeBytes { Array($0.assumingMemoryBound(to: Float.self)) }
+
+    // 441 * (16000/44100) ≈ 159.86 → 160
+    #expect(output.count == 160)
+    // Constant input → output should be constant (interpolation of equal values)
+    for sample in output {
+      #expect(abs(sample - 0.25) < 0.01)
+    }
+  }
+
   @Test func singleSampleDoesNotCrash() {
     // Edge case: single sample at non-16kHz should not crash (vDSP_vlint needs >= 2).
     let samples: [Float] = [0.5]
