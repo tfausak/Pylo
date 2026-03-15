@@ -126,11 +126,10 @@ public final class SRTPContext: @unchecked Sendable {
     guard rtpPacket.count >= 12 else { return nil }
 
     let firstByte = rtpPacket[rtpPacket.startIndex]
-    // Reject packets with CSRC entries (CC != 0) or header extensions (X bit).
-    // This implementation assumes a fixed 12-byte header (HomeKit always uses
-    // CC=0, no extensions). Packets with additional header fields would be
-    // silently mis-encrypted if we didn't reject them here.
-    guard firstByte & 0x0F == 0, firstByte & 0x10 == 0 else { return nil }
+    // Validate V=2, X=0, CC=0. This implementation assumes a fixed 12-byte
+    // header (HomeKit always uses V=2, CC=0, no extensions). Packets with a
+    // wrong version or additional header fields would be silently mis-encrypted.
+    guard firstByte & 0xDF == 0x80 else { return nil }  // V=2, X=0, CC=0
 
     let headerEnd = rtpPacket.startIndex + 12
 
@@ -188,7 +187,7 @@ public final class SRTPContext: @unchecked Sendable {
     guard srtpPacket.count >= 22 else { return nil }  // 12 header + 0 payload + 10 tag
 
     let firstByte = srtpPacket[srtpPacket.startIndex]
-    guard firstByte & 0x0F == 0, firstByte & 0x10 == 0 else { return nil }
+    guard firstByte & 0xDF == 0x80 else { return nil }  // V=2, X=0, CC=0
 
     let tagStart = srtpPacket.startIndex + srtpPacket.count - 10
 

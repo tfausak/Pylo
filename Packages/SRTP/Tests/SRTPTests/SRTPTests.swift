@@ -400,10 +400,19 @@ struct SRTPTests {
     #expect(ctx.protect(pkt) == nil)
   }
 
+  @Test("Packets with wrong RTP version are rejected by protect")
+  func protectRejectsWrongVersion() {
+    let ctx = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
+    var pkt = makeRTPPacket(seq: 1, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0x42, count: 20))
+    pkt[0] = 0x00  // V=0
+    #expect(ctx.protect(pkt) == nil)
+    pkt[0] = 0xC0  // V=3
+    #expect(ctx.protect(pkt) == nil)
+  }
+
   @Test("Packets with CSRC (CC > 0) are rejected by unprotect")
   func unprotectRejectsCSRC() {
     let ctx = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
-    // Build a minimal SRTP-sized packet with CC=1
     var pkt = Data(repeating: 0x00, count: 32)
     pkt[0] = 0x81  // V=2, CC=1
     #expect(ctx.unprotect(pkt) == nil)
@@ -414,6 +423,16 @@ struct SRTPTests {
     let ctx = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
     var pkt = Data(repeating: 0x00, count: 32)
     pkt[0] = 0x90  // V=2, X=1
+    #expect(ctx.unprotect(pkt) == nil)
+  }
+
+  @Test("Packets with wrong RTP version are rejected by unprotect")
+  func unprotectRejectsWrongVersion() {
+    let ctx = SRTPContext(masterKey: testMasterKey, masterSalt: testMasterSalt)
+    var pkt = Data(repeating: 0x00, count: 32)
+    pkt[0] = 0x00  // V=0
+    #expect(ctx.unprotect(pkt) == nil)
+    pkt[0] = 0xC0  // V=3
     #expect(ctx.unprotect(pkt) == nil)
   }
 
