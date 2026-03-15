@@ -417,6 +417,7 @@ public final class HAPConnection: @unchecked Sendable {
         completion: .contentProcessed { [weak self] error in
           if let error {
             self?.logger.error("Send error: \(error)")
+            self?.cancel()
           }
         })
     } else {
@@ -425,6 +426,7 @@ public final class HAPConnection: @unchecked Sendable {
         completion: .contentProcessed { [weak self] error in
           if let error {
             self?.logger.error("Send error: \(error)")
+            self?.cancel()
           }
         })
     }
@@ -532,9 +534,9 @@ public final class HAPConnection: @unchecked Sendable {
   private func handleIdentify(server: HAPServer) -> HTTPResponse {
     // Identify is only valid when not paired. Flash the torch briefly.
     if server.pairingStore.isPaired {
-      // Return -70401 (insufficient privileges) when paired
+      // HAP §6.7.2.5: return 470 (Connection Authorization Required) when paired.
       let body = try? JSONSerialization.data(withJSONObject: ["status": -70401])
-      return HTTPResponse(status: 400, body: body, contentType: "application/hap+json")
+      return HTTPResponse(status: 470, body: body, contentType: "application/hap+json")
     }
     // Trigger identify on all accessories
     for accessory in server.accessories.values {
@@ -581,8 +583,8 @@ public final class HAPConnection: @unchecked Sendable {
       }
     }
 
-    let width = json["image-width"] as? Int ?? 320
-    let height = json["image-height"] as? Int ?? 240
+    let width = min(json["image-width"] as? Int ?? 320, 1920)
+    let height = min(json["image-height"] as? Int ?? 240, 1080)
     logger.info(
       "Snapshot requested: \(width)x\(height) from aid \(aid), reason=\(reason.map(String.init) ?? "none")"
     )
