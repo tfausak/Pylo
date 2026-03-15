@@ -18,6 +18,13 @@ struct SRPServerTests {
     #expect(server!.publicKey.count == 384)
   }
 
+  @Test("Server public key B is not a multiple of N")
+  func serverPublicKeyNotMultipleOfN() {
+    let server = SRPServer(username: "Pair-Setup", password: "111-22-333")!
+    let b = BigUInt(server.publicKey)
+    #expect(b % SRPTestClient.prime != 0)
+  }
+
   @Test("Reject client public key of zero")
   func rejectZeroPublicKey() {
     let server = SRPServer(username: "Pair-Setup", password: "111-22-333")!
