@@ -69,7 +69,7 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   }
 
   public let logger = Logger(
-    subsystem: Bundle.main.bundleIdentifier!, category: "MonitoringCapture")
+    subsystem: Bundle.main.bundleIdentifier ?? "Streaming", category: "MonitoringCapture")
 
   private var interruptionObservers: [NSObjectProtocol] = []
 
@@ -108,10 +108,10 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   }
 
   public init() {
-    let sQueue = DispatchQueue(label: "\(Bundle.main.bundleIdentifier!).monitorSession")
+    let sQueue = DispatchQueue(label: "\(Bundle.main.bundleIdentifier ?? "Streaming").monitorSession")
     sQueue.setSpecific(key: sessionQueueKey, value: true)
     self.sessionQueue = sQueue
-    self.captureQueue = DispatchQueue(label: "\(Bundle.main.bundleIdentifier!).monitorCapture")
+    self.captureQueue = DispatchQueue(label: "\(Bundle.main.bundleIdentifier ?? "Streaming").monitorCapture")
   }
 
   /// AAC-ELD frame size in samples (480 for 16kHz).

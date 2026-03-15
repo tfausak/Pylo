@@ -33,15 +33,15 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
   public let videoSSRC: UInt32
   public let audioSSRC: UInt32
 
-  public let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "CameraStream")
+  public let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Streaming", category: "CameraStream")
 
   // Video pipeline
   private var captureSession: AVCaptureSession?
   private var interruptionObservers: [NSObjectProtocol] = []
   private var videoOutput: AVCaptureVideoDataOutput?
   private var compressionSession: VTCompressionSession?
-  public let captureQueue = DispatchQueue(label: "\(Bundle.main.bundleIdentifier!).camera.capture")
-  public let rtpQueue = DispatchQueue(label: "\(Bundle.main.bundleIdentifier!).camera.rtp")
+  public let captureQueue = DispatchQueue(label: "\(Bundle.main.bundleIdentifier ?? "Streaming").camera.capture")
+  public let rtpQueue = DispatchQueue(label: "\(Bundle.main.bundleIdentifier ?? "Streaming").camera.rtp")
 
   // Video UDP — BSD socket (immune to ICMP route-poisoning that kills NWConnection)
   private var videoSocketFD: Int32 = -1
