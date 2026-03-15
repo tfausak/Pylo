@@ -171,6 +171,9 @@ public nonisolated func videoOrientation(from angle: Int) -> AVCaptureVideoOrien
 // MARK: - Audio Converter Callback Data
 
 /// Helper for passing PCM data through the AudioConverter encoder C callback.
+/// `@unchecked Sendable` because the struct holds an UnsafeRawPointer — it is
+/// never actually sent across isolation boundaries; it only exists within
+/// the synchronous scope of withUnsafeMutablePointer during AudioConverter calls.
 public nonisolated struct AudioEncoderInput: @unchecked Sendable {
   public var srcData: UnsafeRawPointer?
   public var srcSize: UInt32
