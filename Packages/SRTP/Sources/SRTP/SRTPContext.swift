@@ -100,14 +100,15 @@ public final class SRTPContext: @unchecked Sendable {
     let ak = deriveKey(masterKey: testKey, masterSalt: testSalt, label: 0x01, length: 20)
 
     let pass = (ck == expectedCipherKey && cs == expectedSalt && ak == expectedAuthKey)
-    logger.info("SRTP self-test: \(pass ? "PASS" : "FAIL")")
     if !pass {
-      logger.error(
-        "SRTP self-test FAILED! cipher=\(ck == expectedCipherKey) salt=\(cs == expectedSalt) auth=\(ak == expectedAuthKey)"
+      // If key derivation doesn't match known RFC vectors, the implementation
+      // is fundamentally broken — every packet would be mis-encrypted.
+      preconditionFailure(
+        "SRTP self-test FAILED against RFC 3711 B.3 vectors: "
+          + "cipher=\(ck == expectedCipherKey) salt=\(cs == expectedSalt) auth=\(ak == expectedAuthKey)"
       )
-      logger.error("  Got cipher: \(ck.map { String(format: "%02x", $0) }.joined())")
-      logger.error("  Expected:   \(expectedCipherKey.map { String(format: "%02x", $0) }.joined())")
     }
+    logger.info("SRTP self-test: PASS")
   }
 
   /// Encrypt and authenticate an RTP packet in place, returning the SRTP packet.
