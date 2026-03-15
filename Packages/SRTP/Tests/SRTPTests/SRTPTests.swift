@@ -300,6 +300,24 @@ struct SRTPTests {
     #expect(result == nil)
   }
 
+  @Test("Pinned ciphertext: protect() output matches frozen byte sequence")
+  func pinnedCiphertext() throws {
+    let ctx = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+    let rtp = Self.makeRTPPacket(
+      seq: 1, ssrc: 0xDEAD_BEEF, payload: Data(repeating: 0x42, count: 16))
+    let srtp = try #require(ctx.protect(rtp))
+
+    // Frozen output: header (12B) + encrypted payload (16B) + HMAC-SHA1-80 tag (10B)
+    // Catches regressions where protect/unprotect break symmetrically.
+    let expected = Data([
+      0x80, 0x60, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0xDE, 0xAD, 0xBE, 0xEF,
+      0x48, 0xEF, 0xBB, 0xE3, 0xC2, 0x4E, 0x46, 0x2E, 0x12, 0xF0, 0x02, 0xFF,
+      0x81, 0x51, 0xC0, 0x3E,
+      0x35, 0x28, 0x38, 0x13, 0x6B, 0xE7, 0x21, 0x26, 0x94, 0x84,
+    ])
+    #expect(srtp == expected)
+  }
+
   @Test("Packets with CSRC (CC > 0) are rejected by protect")
   func protectRejectsCSRC() {
     let ctx = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
