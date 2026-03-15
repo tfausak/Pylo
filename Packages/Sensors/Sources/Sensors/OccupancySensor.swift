@@ -58,7 +58,10 @@ public nonisolated final class OccupancySensor: @unchecked Sendable {
       })
     else { return }
 
-    // CVPixelBuffer is refcounted and retained by the closure.
+    // CVPixelBuffer is a CFType (refcounted). The closure below retains it,
+    // so it stays alive until the async block completes. nonisolated(unsafe)
+    // suppresses the Sendable warning — a Sendable wrapper would add overhead
+    // with no safety benefit since the buffer is only read, never mutated.
     nonisolated(unsafe) let pixelBuffer = pixelBuffer
     detectionQueue.async { [self] in
       defer { _processing.withLock { $0 = false } }
