@@ -135,14 +135,6 @@ struct SRTPTests {
   /// RFC 3711 Appendix B.3 test vectors for key derivation.
   @Test("Key derivation matches RFC 3711 B.3 test vectors")
   func keyDerivationRFC3711() {
-    let testKey = Data([
-      0xE1, 0xF9, 0x7A, 0x0D, 0x3E, 0x01, 0x8B, 0xE0,
-      0xD6, 0x4F, 0xA3, 0x2C, 0x06, 0xDE, 0x41, 0x39,
-    ])
-    let testSalt = Data([
-      0x0E, 0xC6, 0x75, 0xAD, 0x49, 0x8A, 0xFE, 0xEB,
-      0xB6, 0x96, 0x0B, 0x3A, 0xAB, 0xE6,
-    ])
     let expectedCipherKey = Data([
       0xC6, 0x1E, 0x7A, 0x93, 0x74, 0x4F, 0x39, 0xEE,
       0x10, 0x73, 0x4A, 0xFE, 0x3F, 0xF7, 0xA0, 0x87,
@@ -158,17 +150,16 @@ struct SRTPTests {
     ])
 
     let ck = SRTPContext.deriveKey(
-      masterKey: testKey, masterSalt: testSalt, label: 0x00, length: 16)
+      masterKey: testMasterKey, masterSalt: testMasterSalt, label: 0x00, length: 16)
     let cs = SRTPContext.deriveKey(
-      masterKey: testKey, masterSalt: testSalt, label: 0x02, length: 14)
+      masterKey: testMasterKey, masterSalt: testMasterSalt, label: 0x02, length: 14)
     let ak = SRTPContext.deriveKey(
-      masterKey: testKey, masterSalt: testSalt, label: 0x01, length: 20)
+      masterKey: testMasterKey, masterSalt: testMasterSalt, label: 0x01, length: 20)
 
     #expect(ck == expectedCipherKey)
     #expect(cs == expectedSalt)
     #expect(ak == expectedAuthKey)
   }
-
 
   @Test("Protect/unprotect roundtrip with known keys")
   func protectUnprotectRoundtrip() throws {
