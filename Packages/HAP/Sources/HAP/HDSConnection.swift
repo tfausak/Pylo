@@ -118,7 +118,7 @@ public final class HDSConnection: @unchecked Sendable {
       // Cap at 512 KB to prevent memory exhaustion from malformed frames.
       // Real HDS frames (fMP4 fragments) are well under this limit.
       guard payloadLen > 0, payloadLen <= 512_000 else {
-        self.logger.error("HDS frame too large (\(payloadLen) bytes), disconnecting")
+        self.logger.error("HDS invalid frame size (\(payloadLen) bytes), disconnecting")
         self.cancel()
         return
       }

@@ -38,6 +38,7 @@ public enum HAPAccessoryCategory: Int, Sendable {
   case window = 13
   case windowCovering = 14
   case programmableSwitch = 15
+  case doorbell = 16
   case ipCamera = 17
 }
 

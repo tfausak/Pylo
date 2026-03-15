@@ -18,10 +18,9 @@ public enum PairingsHandler {
   public static func handle(request: HTTPRequest, connection: HAPConnection, server: HAPServer)
     -> HTTPResponse
   {
-    // Pairings management requires an encrypted session
-    guard connection.encryptionContext != nil else {
-      return errorResponse(error: .authentication)
-    }
+    // routeRequest already gates POST /pairings on encryptionContext != nil
+    // and returns 470 if not verified. This assert documents the invariant.
+    assert(connection.encryptionContext != nil, "POST /pairings reached without encryption")
 
     guard let body = request.body else {
       return errorResponse(error: .unknown)

@@ -53,6 +53,10 @@ public enum CharacteristicsHandler {
         entry["value"] = value.jsonValue
         entry["status"] = 0
       } else {
+        // TODO: Distinguish write-only characteristics (should return -70405)
+        // from non-existent ones (-70409). Currently readCharacteristic returns
+        // nil for both cases (e.g. Identify is write-only). Fixing this requires
+        // adding a hasCharacteristic(iid:) method to HAPAccessoryProtocol.
         entry["status"] = -70409  // Resource does not exist
       }
       characteristics.append(entry)

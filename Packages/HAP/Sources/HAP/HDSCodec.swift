@@ -186,6 +186,7 @@ public enum HDSCodec {
       return false
 
     case 0x04:  // NULL
+      tracked.append(NSNull())
       return NSNull()
 
     case 0x05:  // UUID (16 bytes big-endian)

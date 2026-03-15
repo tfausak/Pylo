@@ -504,12 +504,22 @@ public final class HAPConnection: @unchecked Sendable {
 
   /// Handle PUT /prepare for HAP timed writes (HAP §6.7.2.4).
   /// Stores the PID and TTL so subsequent PUT /characteristics can be validated.
+  /// Maximum timed write TTL in milliseconds (60 seconds). HAP spec §6.7.2.4
+  /// does not define a cap, but accessories should bound defensively to prevent
+  /// effectively-permanent timed writes from unreasonable TTL values.
+  private static let maxTimedWriteTTL = 60_000
+
   private func handlePrepare(_ request: HTTPRequest) -> HTTPResponse {
     guard let body = request.body,
       let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
-      let ttl = json["ttl"] as? Int, ttl > 0,
+      let ttlNumber = json["ttl"] as? NSNumber,
       let pidNumber = json["pid"] as? NSNumber
     else {
+      let errBody = try? JSONSerialization.data(withJSONObject: ["status": -70410])
+      return HTTPResponse(status: 200, body: errBody, contentType: "application/hap+json")
+    }
+    let ttl = ttlNumber.intValue
+    guard ttl > 0, ttl <= Self.maxTimedWriteTTL else {
       let errBody = try? JSONSerialization.data(withJSONObject: ["status": -70410])
       return HTTPResponse(status: 200, body: errBody, contentType: "application/hap+json")
     }

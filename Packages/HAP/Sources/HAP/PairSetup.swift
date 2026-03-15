@@ -156,9 +156,9 @@ public enum PairSetupHandler {
     // Slow path: read keyStore outside _setupCode lock to avoid
     // nesting _setupCode → _keyStore (potential deadlock if the
     // acquisition order were ever inverted).
-    precondition(
-      keyStore != nil, "PairSetupHandler.keyStore must be set before accessing setupCode")
-    let ks = keyStore!
+    guard let ks = keyStore else {
+      fatalError("PairSetupHandler.keyStore must be set before accessing setupCode")
+    }
     return _setupCode.withLock { cached in
       // Re-check under lock in case another thread raced us.
       if let code = cached { return code }
@@ -169,7 +169,9 @@ public enum PairSetupHandler {
         code = stored
       } else {
         code = generateSetupCode()
-        ks.save(key: "setup-code", data: Data(code.utf8))
+        if !ks.save(key: "setup-code", data: Data(code.utf8)) {
+          logger.error("Failed to persist setup code — will regenerate on next launch")
+        }
       }
       cached = code
       return code
@@ -181,9 +183,9 @@ public enum PairSetupHandler {
   private static let _setupID = Locked<String?>(initialState: nil)
   public static var setupID: String {
     if let id = _setupID.withLock({ $0 }) { return id }
-    precondition(
-      keyStore != nil, "PairSetupHandler.keyStore must be set before accessing setupID")
-    let ks = keyStore!
+    guard let ks = keyStore else {
+      fatalError("PairSetupHandler.keyStore must be set before accessing setupID")
+    }
     return _setupID.withLock { cached in
       if let id = cached { return id }
       let id: String
@@ -194,7 +196,9 @@ public enum PairSetupHandler {
       } else {
         let chars = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ")
         id = String((0..<4).map { _ in chars[Int.random(in: chars.indices)] })
-        ks.save(key: "setup-id", data: Data(id.utf8))
+        if !ks.save(key: "setup-id", data: Data(id.utf8)) {
+          logger.error("Failed to persist setup ID — will regenerate on next launch")
+        }
       }
       cached = id
       return id

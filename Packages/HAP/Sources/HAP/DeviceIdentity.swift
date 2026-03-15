@@ -43,8 +43,12 @@ public final class DeviceIdentity: @unchecked Sendable {
     let newID = bytes.map { String(format: "%02X", $0) }.joined(separator: ":")
     self.deviceID = newID
 
-    keyStore.save(key: "device-signing-key", data: newKey.rawRepresentation)
-    keyStore.save(key: "device-id", data: Data(newID.utf8))
+    if !keyStore.save(key: "device-signing-key", data: newKey.rawRepresentation) {
+      Self.logger.error("Failed to persist device signing key — identity will change on next launch")
+    }
+    if !keyStore.save(key: "device-id", data: Data(newID.utf8)) {
+      Self.logger.error("Failed to persist device ID — identity will change on next launch")
+    }
     Self.logger.info("Generated new identity: \(newID)")
   }
 
