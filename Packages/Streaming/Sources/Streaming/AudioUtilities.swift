@@ -83,8 +83,10 @@ public nonisolated func convertToFloat32At16kHz(
     return Data()
   }
 
-  // Resample to 16kHz using vectorized linear interpolation
-  if abs(sourceSampleRate - 16000) > 1 {
+  // Resample to 16kHz using vectorized linear interpolation.
+  // vDSP_vlint needs at least 2 source samples for interpolation (it reads
+  // both floor(index) and floor(index)+1). Skip resampling for degenerate input.
+  if abs(sourceSampleRate - 16000) > 1, monoFloat.count >= 2 {
     let ratio = 16000.0 / sourceSampleRate
     let outputCount = Int((Double(monoFloat.count) * ratio).rounded())
     guard outputCount > 0 else { return Data() }
