@@ -54,6 +54,10 @@ public enum TLV8 {
   /// truncated, even if earlier TLVs parsed successfully. This prevents
   /// partial parses from being mistaken for complete messages in a security
   /// protocol. Truncation is logged as a warning to aid debugging.
+  ///
+  /// Returns tuples rather than a named struct because call sites
+  /// universally destructure as `for (tag, value) in pairs`, which
+  /// is more ergonomic with tuples than with a struct.
   public static func decode(_ data: Data) -> [(UInt8, Data)] {
     var results: [(UInt8, Data)] = []
     var offset = data.startIndex
