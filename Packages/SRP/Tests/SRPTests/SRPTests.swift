@@ -368,6 +368,36 @@ struct SRPProofIdempotencyTests {
     // Session key should still be available from the first successful call
     #expect(server.sessionKey != nil)
   }
+
+  @Test("Correct proof succeeds after a prior failed attempt")
+  func retryAfterFailedProof() {
+    let username = "Pair-Setup"
+    let password = "111-22-333"
+
+    let server = SRPServer(username: username, password: password)!
+
+    guard
+      let client = SRPTestClient.handshake(
+        username: username, password: password,
+        salt: server.salt, serverPublicKey: server.publicKey
+      )
+    else {
+      Issue.record("Client handshake computation failed")
+      return
+    }
+
+    #expect(server.setClientPublicKey(client.clientPublicKey) == true)
+
+    // First attempt with wrong proof should fail
+    let wrongProof = Data(repeating: 0xAB, count: 64)
+    #expect(server.verifyClientProof(wrongProof) == nil)
+    #expect(server.sessionKey == nil)
+
+    // Retry with correct proof should succeed
+    let correctResult = server.verifyClientProof(client.clientProof)
+    #expect(correctResult != nil, "Correct proof should succeed after a failed attempt")
+    #expect(server.sessionKey != nil)
+  }
 }
 
 // MARK: - SRP Concurrency Tests
