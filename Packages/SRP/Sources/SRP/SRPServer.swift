@@ -12,7 +12,7 @@ import Locked
 //   - Password: the setup code (e.g. "111-22-333")
 
 /// SRP-6a server session for HAP pair-setup.
-public final class SRPServer {
+public final class SRPServer: @unchecked Sendable {
 
   // MARK: - 3072-bit SRP Group (RFC 5054, Appendix A)
 
@@ -76,8 +76,7 @@ public final class SRPServer {
   private let privateKey: BigUInt  // b (random private key)
 
   // Client's public key and derived values — protected by a lock since
-  // PairSetupSession is @unchecked Sendable and could theoretically be
-  // accessed from multiple threads.
+  // SRPServer is Sendable and may be accessed from multiple threads.
   private struct MutableState {
     var clientPublicKey: BigUInt?
     var u: BigUInt?

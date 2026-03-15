@@ -367,6 +367,42 @@ struct SRPProofIdempotencyTests {
   }
 }
 
+// MARK: - SRP Concurrency Tests
+
+@Suite("SRP Concurrency")
+struct SRPConcurrencyTests {
+
+  @Test("Concurrent setClientPublicKey calls — exactly one succeeds")
+  func concurrentSetClientPublicKey() async {
+    let server = SRPServer(username: "Pair-Setup", password: "111-22-333")!
+
+    // Generate distinct valid (non-zero) client public keys
+    let keys: [Data] = (1...10).map { i in
+      var key = Data(repeating: 0, count: 384)
+      key[383] = UInt8(i)
+      return key
+    }
+
+    let results = await withTaskGroup(of: Bool.self, returning: [Bool].self) { group in
+      for key in keys {
+        group.addTask {
+          server.setClientPublicKey(key)
+        }
+      }
+      var collected: [Bool] = []
+      for await result in group {
+        collected.append(result)
+      }
+      return collected
+    }
+
+    let successes = results.filter { $0 }.count
+    let failures = results.filter { !$0 }.count
+    #expect(successes == 1, "Exactly one concurrent setClientPublicKey should succeed")
+    #expect(failures == 9, "All other concurrent calls should fail")
+  }
+}
+
 // MARK: - SRP Deterministic Test Vectors
 
 @Suite("SRP Deterministic Vectors")
