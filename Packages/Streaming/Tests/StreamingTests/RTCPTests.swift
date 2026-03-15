@@ -86,4 +86,18 @@ import Testing
     // UInt32.max + 2 truncates to 1
     #expect(sr[24] == 0 && sr[25] == 0 && sr[26] == 0 && sr[27] == 1)
   }
+
+  @Test func senderReportNTPDoesNotTrapAfter2036() {
+    // NTP era 1 rollover: Feb 7, 2036 06:28:16 UTC.
+    // Unix timestamp = 2085978496, NTP seconds = 2085978496 + 2208988800 = 4294967296
+    // This exceeds UInt32.max — must wrap to 0, not trap.
+    let post2036 = Date(timeIntervalSince1970: 2_085_978_496.0 + 100)
+    let sr = CameraStreamSession.buildRTCPSenderReport(
+      ssrc: 0, rtpTimestamp: 0, packetsSent: 0, octetsSent: 0, now: post2036)
+    // Should not crash, and NTP seconds should wrap (small value near 0)
+    #expect(sr.count == 28)
+    // NTP seconds field at bytes 8-11 — should be a small wrapped value, not crash
+    let ntpSec = UInt32(sr[8]) << 24 | UInt32(sr[9]) << 16 | UInt32(sr[10]) << 8 | UInt32(sr[11])
+    #expect(ntpSec < 1000)  // wrapped past 0, should be ~100
+  }
 }

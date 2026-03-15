@@ -19,11 +19,15 @@ extension CameraStreamSession {
     // Header: V=2, P=0, RC=0, PT=200 (SR), length=6 (in 32-bit words minus one)
     sr.appendBigEndian(UInt32(0x80C8_0006))
     sr.appendBigEndian(ssrc)
-    // NTP timestamp (seconds since 1900-01-01)
+    // NTP timestamp (seconds since 1900-01-01).
+    // Uses truncating conversion so NTP era 1 rollover (Feb 2036) wraps
+    // instead of trapping, matching RFC 4330 §3 behavior.
     let ntpEpochOffset: TimeInterval = 2_208_988_800
     let ntpTime = now.timeIntervalSince1970 + ntpEpochOffset
-    sr.appendBigEndian(UInt32(ntpTime))
-    sr.appendBigEndian(UInt32((ntpTime - Double(UInt32(ntpTime))) * 4_294_967_296.0))
+    let ntpSec = UInt32(truncatingIfNeeded: Int64(ntpTime))
+    let ntpFrac = UInt32((ntpTime - ntpTime.rounded(.down)) * 4_294_967_296.0)
+    sr.appendBigEndian(ntpSec)
+    sr.appendBigEndian(ntpFrac)
     sr.appendBigEndian(rtpTimestamp)
     sr.appendBigEndian(UInt32(truncatingIfNeeded: packetsSent))
     sr.appendBigEndian(UInt32(truncatingIfNeeded: octetsSent))
