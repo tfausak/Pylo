@@ -563,6 +563,29 @@ struct SRTPThreadSafetyTests {
     }
   }
 
+  @Test("Concurrent unprotect calls do not crash")
+  func concurrentUnprotect() async {
+    let sender = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+    let receiver = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+
+    // Pre-generate SRTP packets sequentially (sender ROC must be consistent)
+    var srtpPackets: [Data] = []
+    for i: UInt16 in 0..<100 {
+      let rtp = Self.makeRTPPacket(
+        seq: i, ssrc: 0xDEAD_BEEF, payload: Data(repeating: UInt8(i), count: 80))
+      srtpPackets.append(sender.protect(rtp)!)
+    }
+
+    // Unprotect them concurrently on the receiver
+    await withTaskGroup(of: Void.self) { group in
+      for srtp in srtpPackets {
+        group.addTask {
+          _ = receiver.unprotect(srtp)
+        }
+      }
+    }
+  }
+
   @Test("Concurrent protect produces SRTP packets of correct size")
   func concurrentProtectCorrectSize() async {
     let ctx = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
