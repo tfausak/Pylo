@@ -178,7 +178,9 @@ public final class SRPServer {
     }
 
     // 4. Compute u = H(PAD(A) | PAD(B))
-    // RFC 5054 §2.5.4: abort if u == 0
+    // RFC 5054 §2.5.4: abort if u == 0.
+    // Not feasibly testable — would require a SHA-512 preimage that hashes to
+    // all zeros, but the check is required by the spec for defense-in-depth.
     var uData = Data()
     uData.append(Self.pad(clientA))
     uData.append(self.publicKey)
