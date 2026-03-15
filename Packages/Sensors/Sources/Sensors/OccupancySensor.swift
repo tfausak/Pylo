@@ -108,8 +108,8 @@ public nonisolated final class OccupancySensor: @unchecked Sendable {
         // camera frames stop (backgrounding, snapshot capture, handoff).
         scheduleCooldownTimer(delay: cooldown)
       } else {
-        let (elapsed, remaining, shouldClear): (TimeInterval?, TimeInterval?, Bool) = state.withLock
-        { s in
+        let (elapsed, remaining, shouldClear): (TimeInterval?, TimeInterval?, Bool) = state
+          .withLockUnchecked { s in
           guard s.isOccupied else { return (nil, nil, false) }
           let elapsed = Date().timeIntervalSince(s.lastDetectionDate)
           if elapsed >= s.cooldown {
