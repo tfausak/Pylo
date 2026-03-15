@@ -1024,24 +1024,26 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
   /// Write the 12-byte RTP header into rtpBuffer and advance the sequence number.
   private func writeRTPHeader(marker: Bool, payloadSize: Int) {
     dispatchPrecondition(condition: .onQueue(rtpQueue))
-    rtpBuffer.count = 0
-    rtpBuffer.reserveCapacity(12 + payloadSize)
-
-    // RTP header (12 bytes) per RFC 3550
-    rtpBuffer.append(0x80)  // V=2, P=0, X=0, CC=0
-    rtpBuffer.append((marker ? 0x80 : 0x00) | (rtpPayloadType & 0x7F))  // M bit + dynamic PT
-    rtpBuffer.append(UInt8(sequenceNumber >> 8))
-    rtpBuffer.append(UInt8(sequenceNumber & 0xFF))
-    rtpBuffer.append(UInt8((rtpTimestamp >> 24) & 0xFF))
-    rtpBuffer.append(UInt8((rtpTimestamp >> 16) & 0xFF))
-    rtpBuffer.append(UInt8((rtpTimestamp >> 8) & 0xFF))
-    rtpBuffer.append(UInt8(rtpTimestamp & 0xFF))
-    rtpBuffer.append(UInt8((videoSSRC >> 24) & 0xFF))
-    rtpBuffer.append(UInt8((videoSSRC >> 16) & 0xFF))
-    rtpBuffer.append(UInt8((videoSSRC >> 8) & 0xFF))
-    rtpBuffer.append(UInt8(videoSSRC & 0xFF))
-
+    Self.writeRTPHeader(
+      into: &rtpBuffer, marker: marker, payloadType: rtpPayloadType,
+      sequenceNumber: sequenceNumber, timestamp: rtpTimestamp, ssrc: videoSSRC,
+      payloadSize: payloadSize)
     sequenceNumber &+= 1
+  }
+
+  /// Write a 12-byte RTP header (RFC 3550) into the given buffer, resetting and reserving space.
+  nonisolated static func writeRTPHeader(
+    into buffer: inout Data, marker: Bool, payloadType: UInt8,
+    sequenceNumber: UInt16, timestamp: UInt32, ssrc: UInt32,
+    payloadSize: Int
+  ) {
+    buffer.count = 0
+    buffer.reserveCapacity(12 + payloadSize)
+    buffer.append(0x80)  // V=2, P=0, X=0, CC=0
+    buffer.append((marker ? 0x80 : 0x00) | (payloadType & 0x7F))
+    buffer.appendBigEndian(sequenceNumber)
+    buffer.appendBigEndian(timestamp)
+    buffer.appendBigEndian(ssrc)
   }
 
   /// Encrypt rtpBuffer with SRTP and send via UDP socket.

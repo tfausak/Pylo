@@ -159,23 +159,11 @@ extension CameraStreamSession {
 
   private nonisolated func sendAudioRTPPacket(payload: Data) {
     dispatchPrecondition(condition: .onQueue(rtpQueue))
-    // Reuse rtpBuffer — audio and video sends are serialized on rtpQueue.
-    rtpBuffer.count = 0
-    rtpBuffer.reserveCapacity(12 + payload.count)
-
-    // Build 12-byte RTP header
-    rtpBuffer.append(0x80)  // V=2
-    rtpBuffer.append(0x80 | (audioPayloadType & 0x7F))  // M=1 (every AAC frame is a complete AU)
-    rtpBuffer.append(UInt8(audioRTPSeq >> 8))
-    rtpBuffer.append(UInt8(audioRTPSeq & 0xFF))
-    rtpBuffer.append(UInt8((audioRTPTimestamp >> 24) & 0xFF))
-    rtpBuffer.append(UInt8((audioRTPTimestamp >> 16) & 0xFF))
-    rtpBuffer.append(UInt8((audioRTPTimestamp >> 8) & 0xFF))
-    rtpBuffer.append(UInt8(audioRTPTimestamp & 0xFF))
-    rtpBuffer.append(UInt8((audioSSRC >> 24) & 0xFF))
-    rtpBuffer.append(UInt8((audioSSRC >> 16) & 0xFF))
-    rtpBuffer.append(UInt8((audioSSRC >> 8) & 0xFF))
-    rtpBuffer.append(UInt8(audioSSRC & 0xFF))
+    // M=1 always: every AAC frame is a complete AU.
+    Self.writeRTPHeader(
+      into: &rtpBuffer, marker: true, payloadType: audioPayloadType,
+      sequenceNumber: audioRTPSeq, timestamp: audioRTPTimestamp, ssrc: audioSSRC,
+      payloadSize: payload.count)
 
     audioRTPSeq &+= 1
     audioRTPTimestamp &+= UInt32(aacFrameSamples)  // 480 samples at 16kHz clock

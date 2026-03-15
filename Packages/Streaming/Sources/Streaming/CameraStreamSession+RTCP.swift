@@ -32,6 +32,10 @@ extension CameraStreamSession {
 }
 
 extension Data {
+  mutating func appendBigEndian(_ value: UInt16) {
+    Swift.withUnsafeBytes(of: value.bigEndian) { append(contentsOf: $0) }
+  }
+
   mutating func appendBigEndian(_ value: UInt32) {
     Swift.withUnsafeBytes(of: value.bigEndian) { append(contentsOf: $0) }
   }
