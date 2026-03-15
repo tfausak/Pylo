@@ -35,9 +35,21 @@ struct LockedTests {
     }
   }
 
+  @Test("State reflects partial mutation after throw")
+  func throwMidMutation() {
+    struct E: Error {}
+    let locked = Locked(initialState: 0)
+    try? locked.withLock { state in
+      state = 42
+      throw E()
+    }
+    #expect(locked.withLock { $0 } == 42)
+  }
+
   @Test("withLockUnchecked returns non-Sendable values")
   func uncheckedReturn() {
-    // NSObject is non-Sendable — withLockUnchecked allows returning it
+    // NSObject is non-Sendable — withLockUnchecked allows returning it.
+    // withLock would reject this at compile time due to its Sendable constraints.
     let locked = Locked(initialState: NSObject())
     let obj = locked.withLockUnchecked { $0 }
     #expect(obj is NSObject)
