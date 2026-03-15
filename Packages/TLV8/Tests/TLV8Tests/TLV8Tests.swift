@@ -449,4 +449,78 @@ struct TLV8SeparatorTests {
     // Should encode as FF 00 regardless of the data payload
     #expect(encoded == Data([0xFF, 0x00]))
   }
+
+  @Test("Only separators decodes to empty records")
+  func onlySeparators() {
+    let data = Data([0xFF, 0x00, 0xFF, 0x00])
+    let records = TLV8.decodeRecords(data)
+    #expect(records.isEmpty)
+  }
+}
+
+// MARK: - Boundary & Roundtrip Tests
+
+@Suite("TLV8 Boundary Cases")
+struct TLV8BoundaryTests {
+
+  @Test("Exactly 255 bytes produces a single fragment")
+  func exactly255Bytes() {
+    let value = Data(repeating: 0xAA, count: 255)
+    let encoded = TLV8.encode(.publicKey, value)
+    // Single fragment: tag + 0xFF + 255 bytes, no second chunk
+    #expect(encoded.count == 2 + 255)
+    #expect(encoded[0] == 0x03)
+    #expect(encoded[1] == 0xFF)
+
+    let decoded: [(UInt8, Data)] = TLV8.decode(encoded)
+    #expect(decoded.count == 1)
+    #expect(decoded[0].1 == value)
+  }
+
+  @Test("Three or more fragments encode and decode correctly")
+  func threeFragments() {
+    // 600 bytes = 255 + 255 + 90 = three fragments
+    let value = Data(repeating: 0xBB, count: 600)
+    let encoded = TLV8.encode(.encryptedData, value)
+
+    // Verify structure: 3 chunks
+    #expect(encoded[0] == 0x05)
+    #expect(encoded[1] == 0xFF)
+    let second = 2 + 255
+    #expect(encoded[second] == 0x05)
+    #expect(encoded[second + 1] == 0xFF)
+    let third = second + 2 + 255
+    #expect(encoded[third] == 0x05)
+    #expect(encoded[third + 1] == 90)
+    #expect(encoded.count == (2 + 255) * 2 + 2 + 90)
+
+    let decoded: [(UInt8, Data)] = TLV8.decode(encoded)
+    #expect(decoded.count == 1)
+    #expect(decoded[0].1 == value)
+  }
+
+  @Test("Builder output round-trips through decode")
+  func builderRoundtrip() {
+    var builder = TLV8.Builder()
+    builder.add(0x06, byte: 0x02)
+    builder.add(0x03, Data(repeating: 0xCC, count: 300))
+    builder.add(0x0A, uint16: 0x1234)
+    let encoded = builder.build()
+
+    let decoded: [(UInt8, Data)] = TLV8.decode(encoded)
+    #expect(decoded.count == 3)
+    #expect(decoded[0].0 == 0x06)
+    #expect(decoded[0].1 == Data([0x02]))
+    #expect(decoded[1].0 == 0x03)
+    #expect(decoded[1].1 == Data(repeating: 0xCC, count: 300))
+    #expect(decoded[2].0 == 0x0A)
+    #expect(decoded[2].1 == Data([0x34, 0x12]))
+  }
+
+  @Test("Builder addList with empty TLV array produces no output")
+  func builderAddListEmptyTLVs() {
+    var builder = TLV8.Builder()
+    builder.addList(0x10, tlvs: [])
+    #expect(builder.build().isEmpty)
+  }
 }
