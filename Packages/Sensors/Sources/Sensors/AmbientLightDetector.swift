@@ -42,6 +42,20 @@ public nonisolated final class AmbientLightDetector {
 
   public init() {}
 
+  /// EV-based lux estimate: lux = calibration * f² / (ISO * t), clamped to [0.0001, 100_000].
+  static func estimateLux(iso: Float, exposureDuration: Float, aperture: Float) -> Float {
+    let rawLux = 12.5 * aperture * aperture / (iso * exposureDuration)
+    return min(max(rawLux, 0.0001), 100_000)
+  }
+
+  /// Returns true if the new lux value differs from previous by more than 10%,
+  /// or if previous is zero (first reading).
+  static func shouldNotify(previous: Float, current: Float) -> Bool {
+    if previous == 0 { return true }
+    let ratio = abs(current - previous) / previous
+    return ratio > 0.1
+  }
+
   /// Called from capture delegate callbacks.
   /// Caller is responsible for throttling (e.g., calling every Nth frame).
   public func sample() {
@@ -52,20 +66,20 @@ public nonisolated final class AmbientLightDetector {
       let duration = Float(CMTimeGetSeconds(device.exposureDuration))
       guard iso > 0, duration > 0 else { return }
 
-      let aperture = device.lensAperture
-      // EV-based lux estimate: lux = calibration * f^2 / (ISO * t)
-      let rawLux = 12.5 * aperture * aperture / (iso * duration)
-      let lux = min(max(rawLux, 0.0001), 100_000)
+      let lux = Self.estimateLux(
+        iso: iso, exposureDuration: duration, aperture: device.lensAperture)
 
-      let shouldNotify = state.withLock { s in
+      let notify = state.withLock { s in
         let previous = s.currentLux
         s.currentLux = lux
-        if previous == 0 { return true }
-        let ratio = abs(lux - previous) / previous
-        return ratio > 0.1
+        return Self.shouldNotify(previous: previous, current: lux)
       }
 
-      if shouldNotify {
+      // Note: a concurrent reset() between the lock above and the callback
+      // below could nil the device and zero currentLux. The callback would
+      // still fire with the (now-stale) lux value. This is benign — reset()
+      // is only called during teardown, and an extra notification is harmless.
+      if notify {
         logger.debug("Ambient light: \(lux, format: .fixed(precision: 1)) lux")
         onLuxChange?(lux)
       }
