@@ -15,6 +15,8 @@ public final class Locked<State>: @unchecked Sendable {
     _buffer.initialize(to: Buffer(state: initialState))
   }
 
+  // Leak detection for this manual allocation is not unit-testable from Swift;
+  // use Instruments (Leaks/Allocations) or Address Sanitizer to verify.
   deinit {
     _buffer.deinitialize(count: 1)
     _buffer.deallocate()
