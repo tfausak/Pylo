@@ -40,7 +40,7 @@ extension MonitoringCaptureSession {
     // Extract a single contiguous block rather than per-frame Data copies, then
     // iterate via pointer math to avoid per-frame heap allocations.
     let frameSizeBytes = aacFrameSamples * 4  // 480 samples * 4 bytes/sample (Float32)
-    let encodableData: Data = mState.withLock { state in
+    let encodableData: Data = mState.withLockUnchecked { state in
       state.pcmAccumulator.append(pcmFloat32)
       let frameCount = state.pcmAccumulator.count / frameSizeBytes
       let consumeBytes = frameCount * frameSizeBytes
