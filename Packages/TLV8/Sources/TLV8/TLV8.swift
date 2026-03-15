@@ -224,7 +224,9 @@ public enum TLV8 {
     }
 
     public mutating func add(_ tag: UInt8, byte: UInt8) {
-      add(tag, Data([byte]))
+      data.append(tag)
+      data.append(1)
+      data.append(byte)
     }
 
     public mutating func add(_ tag: UInt8, uint16: UInt16) {
