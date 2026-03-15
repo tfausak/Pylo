@@ -11,9 +11,6 @@ private let logSubsystem = "me.fausak.taylor.Pylo"
 /// Handles key derivation and per-packet encryption/authentication per RFC 3711.
 public final class SRTPContext: @unchecked Sendable {
 
-  private let masterKey: Data  // 16 bytes
-  private let masterSalt: Data  // 14 bytes
-
   // Derived SRTP session keys
   private let sessionKey: Data  // 16 bytes — AES encryption key
   private let sessionSalt: Data  // 14 bytes — IV/counter salt
@@ -44,9 +41,6 @@ public final class SRTPContext: @unchecked Sendable {
     precondition(masterKey.count == 16, "SRTP master key must be 16 bytes (got \(masterKey.count))")
     precondition(
       masterSalt.count == 14, "SRTP master salt must be 14 bytes (got \(masterSalt.count))")
-
-    self.masterKey = masterKey
-    self.masterSalt = masterSalt
 
     // Derive SRTP session keys via AES-CM PRF (RFC 3711 §4.3.1)
     self.sessionKey = Self.deriveKey(
