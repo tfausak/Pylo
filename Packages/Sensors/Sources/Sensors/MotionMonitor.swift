@@ -38,8 +38,8 @@ public nonisolated final class MotionMonitor: @unchecked Sendable {
 
   /// Acceleration delta from gravity (in g) required to trigger motion detected.
   public var threshold: Double {
-    get { state.withLock { $0.threshold } }
-    set { state.withLock { $0.threshold = newValue } }
+    get { state.withLockUnchecked { $0.threshold } }
+    set { state.withLockUnchecked { $0.threshold = newValue } }
   }
 
   /// Seconds of calm required before reporting no motion.
@@ -100,7 +100,7 @@ public nonisolated final class MotionMonitor: @unchecked Sendable {
         case cleared(TimeInterval)
       }
 
-      let event: MotionEvent? = state.withLock { state in
+      let event: MotionEvent? = state.withLockUnchecked { state in
         if delta > state.threshold {
           state.lastMotionDate = Date()
           if !state.isMotionDetected {
@@ -135,7 +135,7 @@ public nonisolated final class MotionMonitor: @unchecked Sendable {
     #if os(iOS)
       motionManager.stopAccelerometerUpdates()
     #endif
-    state.withLock { $0.isMotionDetected = false }
+    state.withLockUnchecked { $0.isMotionDetected = false }
     logger.info("Motion monitor stopped")
   }
 }

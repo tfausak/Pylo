@@ -18,8 +18,8 @@ public nonisolated final class OccupancySensor: @unchecked Sendable {
 
   /// Seconds to stay "occupied" after last person detection before clearing.
   public var cooldown: TimeInterval {
-    get { state.withLock { $0.cooldown } }
-    set { state.withLock { $0.cooldown = newValue } }
+    get { state.withLockUnchecked { $0.cooldown } }
+    set { state.withLockUnchecked { $0.cooldown = newValue } }
   }
 
   private struct State {
@@ -51,7 +51,7 @@ public nonisolated final class OccupancySensor: @unchecked Sendable {
   /// Caller is responsible for throttling (e.g., every ~75 frames at 30fps).
   public func processPixelBuffer(_ pixelBuffer: CVPixelBuffer) {
     guard
-      _processing.withLock({ p in
+      _processing.withLockUnchecked({ p in
         guard !p else { return false }
         p = true
         return true
@@ -64,7 +64,7 @@ public nonisolated final class OccupancySensor: @unchecked Sendable {
     // with no safety benefit since the buffer is only read, never mutated.
     nonisolated(unsafe) let pixelBuffer = pixelBuffer
     detectionQueue.async { [self] in
-      defer { _processing.withLock { $0 = false } }
+      defer { _processing.withLockUnchecked { $0 = false } }
 
       let personDetected: Bool = autoreleasepool {
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
@@ -89,7 +89,7 @@ public nonisolated final class OccupancySensor: @unchecked Sendable {
       }
 
       if personDetected {
-        let (shouldNotify, cooldown) = state.withLock { s in
+        let (shouldNotify, cooldown) = state.withLockUnchecked { s in
           s.lastDetectionDate = Date()
           if !s.isOccupied {
             s.isOccupied = true
@@ -184,7 +184,7 @@ public nonisolated final class OccupancySensor: @unchecked Sendable {
   public func reset() {
     detectionQueue.async { [self] in
       cancelCooldownTimer()
-      state.withLock { s in
+      state.withLockUnchecked { s in
         s.isOccupied = false
         s.lastDetectionDate = .distantPast
       }

@@ -37,7 +37,7 @@ public nonisolated final class AmbientLightDetector {
   private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Sensors", category: "AmbientLight")
 
   public var currentLux: Float {
-    state.withLock { $0.currentLux }
+    state.withLockUnchecked { $0.currentLux }
   }
 
   public init() {}
@@ -69,7 +69,7 @@ public nonisolated final class AmbientLightDetector {
       let lux = Self.estimateLux(
         iso: iso, exposureDuration: duration, aperture: device.lensAperture)
 
-      let notify = state.withLock { s in
+      let notify = state.withLockUnchecked { s in
         let previous = s.currentLux
         s.currentLux = lux
         return Self.shouldNotify(previous: previous, current: lux)
@@ -88,7 +88,7 @@ public nonisolated final class AmbientLightDetector {
 
   public func reset() {
     _device.withLockUnchecked { $0 = nil }
-    state.withLock { s in
+    state.withLockUnchecked { s in
       s.currentLux = 0
     }
   }

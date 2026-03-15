@@ -57,7 +57,7 @@ public nonisolated final class VideoMotionDetector {
     // Guard against concurrent entry — scratch buffers are not thread-safe.
     // Uses a real lock guard (not just assert) so it works in release builds.
     guard
-      _processing.withLock({ p in
+      _processing.withLockUnchecked({ p in
         guard !p else { return false }
         p = true
         return true
@@ -66,7 +66,7 @@ public nonisolated final class VideoMotionDetector {
       logger.warning("processPixelBuffer called concurrently — skipping frame")
       return
     }
-    defer { _processing.withLock { $0 = false } }
+    defer { _processing.withLockUnchecked { $0 = false } }
 
     CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
     let ok = downsampleToGrayscale(pixelBuffer)
