@@ -166,11 +166,13 @@ public nonisolated final class VideoMotionDetector {
       // BGRA fallback: nearest-neighbor sampling the green channel (offset 1)
       guard let base = CVPixelBufferGetBaseAddress(pixelBuffer) else { return false }
       let rowBytes = CVPixelBufferGetBytesPerRow(pixelBuffer)
-      for ty in 0..<th {
-        let srcRow = base + (ty * srcHeight / th) * rowBytes
-        for tx in 0..<tw {
-          scratchGray[ty * tw + tx] = srcRow.load(
-            fromByteOffset: (tx * srcWidth / tw) * 4 + 1, as: UInt8.self)
+      scratchGray.withUnsafeMutableBufferPointer { dst in
+        for ty in 0..<th {
+          let srcRow = base + (ty * srcHeight / th) * rowBytes
+          for tx in 0..<tw {
+            dst[ty * tw + tx] = srcRow.load(
+              fromByteOffset: (tx * srcWidth / tw) * 4 + 1, as: UInt8.self)
+          }
         }
       }
       return true
