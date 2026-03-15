@@ -67,8 +67,6 @@ public final class SRPServer: @unchecked Sendable {
   public let salt: Data  // Random 16-byte salt (s)
   public let publicKey: Data  // Server public key (B)
 
-  private let username: String
-  private let password: String
   private let hashI: Data  // H(username), computed once in init
 
   // Private SRP values
@@ -118,8 +116,6 @@ public final class SRPServer: @unchecked Sendable {
   /// Creates a new SRP server session.
   /// Generates salt and computes the server's public key B.
   public init?(username: String, password: String) {
-    self.username = username
-    self.password = password
     self.hashI = Data(SHA512.hash(data: Data(username.utf8)))
 
     // Generate random 16-byte salt (s)
@@ -144,9 +140,8 @@ public final class SRPServer: @unchecked Sendable {
 
   /// Test-only initializer with fixed salt and private key for deterministic verification.
   /// Package access — callers outside the SRP package should use the public init.
-  package init?(username: String, password: String, fixedSalt: Data, fixedPrivateKey: Data) {
-    self.username = username
-    self.password = password
+  /// Non-failable since all inputs are caller-provided (no SecRandomCopyBytes).
+  package init(username: String, password: String, fixedSalt: Data, fixedPrivateKey: Data) {
     self.hashI = Data(SHA512.hash(data: Data(username.utf8)))
     self.salt = fixedSalt
     self.privateKey = BigUInt(fixedPrivateKey)

@@ -448,8 +448,6 @@ struct SRPDeterministicTests {
         username: username, password: password,
         fixedSalt: Self.fixedSalt, fixedPrivateKey: Self.fixedServerKey
       )
-      #expect(server != nil, "Server init with fixed values should succeed")
-      guard let server else { return }
 
       serverPublicKeys.append(server.publicKey)
 
@@ -493,7 +491,7 @@ struct SRPDeterministicTests {
     let server = SRPServer(
       username: username, password: password,
       fixedSalt: Self.fixedSalt, fixedPrivateKey: Self.fixedServerKey
-    )!
+    )
 
     guard
       let client = SRPTestClient.handshake(
@@ -531,7 +529,7 @@ struct SRPDeterministicTests {
     let server = SRPServer(
       username: username, password: "111-22-333",
       fixedSalt: Self.fixedSalt, fixedPrivateKey: Self.fixedServerKey
-    )!
+    )
 
     guard
       let client = SRPTestClient.handshake(
