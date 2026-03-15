@@ -250,6 +250,14 @@ struct TLV8Tests {
     #expect(data == Data([0x01, 0x04, 0x04, 0x03, 0x02, 0x01]))
   }
 
+  @Test("Builder adds uint64 as little-endian")
+  func builderUInt64() {
+    var builder = TLV8.Builder()
+    builder.add(0x01, uint64: 0x0102_0304_0506_0708)
+    let data = builder.build()
+    #expect(data == Data([0x01, 0x08, 0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01]))
+  }
+
   @Test("Builder adds nested TLV")
   func builderNestedTLV() {
     var inner = TLV8.Builder()
@@ -301,13 +309,30 @@ struct TLV8Tests {
     let data = builder.build()
     #expect(data == Data([0xFF, 0x00]))
   }
-  @Test("Builder accepts Tag-typed overloads")
+  @Test("Builder accepts Tag-typed overloads for all value types")
   func builderTagOverloads() {
-    var builder = TLV8.Builder()
-    builder.add(.state, byte: 0x01)
-    builder.add(.salt, Data([0xAA, 0xBB]))
-    let data = builder.build()
-    #expect(data == Data([0x06, 0x01, 0x01, 0x02, 0x02, 0xAA, 0xBB]))
+    // Verify each Tag-typed overload produces the same output as the
+    // equivalent raw UInt8 call.
+    var raw = TLV8.Builder()
+    raw.add(0x06, byte: 0x01)
+    raw.add(0x02, Data([0xAA, 0xBB]))
+    raw.add(0x03, uint16: 0x1234)
+    raw.add(0x04, uint32: 0x0102_0304)
+    raw.add(0x05, uint64: 0x0102_0304_0506_0708)
+
+    var inner = TLV8.Builder()
+    inner.add(0x01, byte: 0xFF)
+    raw.add(0x0A, tlv: inner)
+
+    var typed = TLV8.Builder()
+    typed.add(.state, byte: 0x01)
+    typed.add(.salt, Data([0xAA, 0xBB]))
+    typed.add(.publicKey, uint16: 0x1234)
+    typed.add(.proof, uint32: 0x0102_0304)
+    typed.add(.encryptedData, uint64: 0x0102_0304_0506_0708)
+    typed.add(.signature, tlv: inner)
+
+    #expect(raw.build() == typed.build())
   }
 
   @Test("Builder addDelimiter inserts 00 00")
