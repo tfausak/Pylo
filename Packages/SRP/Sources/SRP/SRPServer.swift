@@ -45,10 +45,21 @@ public final class SRPServer {
   private static let nLength = 384
 
   /// H(N) XOR H(g) — precomputed since prime and g are static constants.
+  /// Note: H(g) hashes the unpadded single-byte [0x05], not PAD(g). This matches
+  /// the SRP spec for M1 = H(H(N) XOR H(g) | ...), which is distinct from
+  /// k = H(PAD(N) | PAD(g)) where padding is required.
   private static let hashNxorG: Data = {
     let hashN = Data(SHA512.hash(data: prime.serialize()))
     let hashG = Data(SHA512.hash(data: g.serialize()))
     return Data(zip(hashN, hashG).map { $0 ^ $1 })
+  }()
+
+  /// k = H(PAD(N) | PAD(g)) — the SRP-6a multiplier, constant for a given group.
+  private static let k: BigUInt = {
+    var kData = Data()
+    kData.append(pad(prime))
+    kData.append(pad(g))
+    return BigUInt(Data(SHA512.hash(data: kData)))
   }()
 
   // MARK: - Session State
@@ -63,7 +74,6 @@ public final class SRPServer {
   // Private SRP values
   private let verifier: BigUInt  // v = g^x mod N
   private let privateKey: BigUInt  // b (random private key)
-  private let k: BigUInt  // k = H(N | PAD(g))
 
   // Client's public key and derived values — protected by a lock since
   // PairSetupSession is @unchecked Sendable and could theoretically be
@@ -116,15 +126,9 @@ public final class SRPServer {
     }
     self.privateKey = BigUInt(Data(bBytes))
 
-    // 5. Compute k = H(N | PAD(g)) per SRP-6a (required by HAP)
-    var kData = Data()
-    kData.append(Self.pad(Self.prime))
-    kData.append(Self.pad(Self.g))
-    self.k = BigUInt(Data(SHA512.hash(data: kData)))
-
-    // 6. Compute B = (k*v + g^b mod N) mod N
+    // 5. Compute B = (k*v + g^b mod N) mod N
     let gb = Self.g.power(self.privateKey, modulus: Self.prime)
-    let kv = (self.k * self.verifier) % Self.prime
+    let kv = (Self.k * self.verifier) % Self.prime
     let serverPublicKey = (kv + gb) % Self.prime
 
     // 7. Store B as public key
@@ -147,13 +151,8 @@ public final class SRPServer {
     self.verifier = Self.g.power(x, modulus: Self.prime)
     self.privateKey = BigUInt(fixedPrivateKey)
 
-    var kData = Data()
-    kData.append(Self.pad(Self.prime))
-    kData.append(Self.pad(Self.g))
-    self.k = BigUInt(Data(SHA512.hash(data: kData)))
-
     let gb = Self.g.power(self.privateKey, modulus: Self.prime)
-    let kv = (self.k * self.verifier) % Self.prime
+    let kv = (Self.k * self.verifier) % Self.prime
     let serverPublicKey = (kv + gb) % Self.prime
     self.publicKey = Self.pad(serverPublicKey)
   }
