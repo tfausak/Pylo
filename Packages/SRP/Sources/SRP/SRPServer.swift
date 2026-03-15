@@ -2,7 +2,6 @@ import BigInt
 import CryptoKit
 import Foundation
 import Locked
-import os
 
 // MARK: - SRP-6a Server Implementation
 // This is the core crypto piece that CryptoKit doesn't provide.
