@@ -212,10 +212,8 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
     // At most two fragments can be emitted: one from a PTS gap flush, one from a keyframe flush.
 
     // Build the init segment outside the lock (it's heavy) if we don't have one yet.
-    // Read the needed state in one lock acquisition, build outside, then store with a
-    // single check-and-set. If includeAudioTrack changed during the build, we accept
-    // the stale value — the next call to the includeAudioTrack setter will clear
-    // videoFormatDescription and initSegment, triggering a rebuild on the next sample.
+    // Read the needed state in one lock acquisition, build outside, then store only if
+    // includeAudioTrack hasn't changed — otherwise discard and let the next sample rebuild.
     let (needsBuild, includeAudio) = _writerState.withLock { state in
       (state.videoFormatDescription == nil && fmt != nil, state.includeAudioTrack)
     }
@@ -226,7 +224,8 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
         return
       }
       _writerState.withLock { state in
-        guard state.videoFormatDescription == nil else { return }
+        guard state.videoFormatDescription == nil,
+              state.includeAudioTrack == includeAudio else { return }
         state.videoFormatDescription = fmt
         state.initSegment = initSeg
       }
