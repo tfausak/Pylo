@@ -338,6 +338,13 @@ struct SRTPTests {
     #expect(result == nil)
   }
 
+  @Test("Short RTCP packets (< 8 bytes) return nil from protectRTCP")
+  func shortPacketProtectRTCP() {
+    let ctx = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
+    #expect(ctx.protectRTCP(Data(count: 7)) == nil)
+    #expect(ctx.protectRTCP(Data()) == nil)
+  }
+
   @Test("Pinned ciphertext: protect() output matches frozen byte sequence")
   func pinnedCiphertext() throws {
     let ctx = SRTPContext(masterKey: Self.testMasterKey, masterSalt: Self.testMasterSalt)
