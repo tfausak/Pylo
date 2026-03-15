@@ -380,9 +380,10 @@ struct TLV8SeparatorTests {
     #expect(pairs[1].0 == 0xFF)
   }
 
-  @Test("Consecutive separators produce separate records in decodeRecords")
-  func consecutiveSeparatorsProduceSeparateRecords() {
-    // Record 1: id=A, Record 2: (empty from double separator), Record 3: id=B
+  @Test("Consecutive separators preserve interior empty records")
+  func consecutiveSeparatorsPreserveInteriorEmpty() {
+    // Two consecutive separators between data produce an interior empty record.
+    // Record 1: id=A, Record 2: [:] (empty), Record 3: id=B
     let encoded = TLV8.encode([
       (.identifier, Data("A".utf8)),
       (.separator, Data()),
@@ -390,9 +391,10 @@ struct TLV8SeparatorTests {
       (.identifier, Data("B".utf8)),
     ])
     let records = TLV8.decodeRecords(encoded)
-    // Middle empty record gets stripped by the leading/trailing logic,
-    // but we should still get 2 non-empty records plus the empty one
-    #expect(records.count >= 2)
+    #expect(records.count == 3)
+    #expect(records[0][.identifier] == Data("A".utf8))
+    #expect(records[1].isEmpty)
+    #expect(records[2][.identifier] == Data("B".utf8))
   }
 
   @Test("Multiple leading/trailing separators are fully stripped")

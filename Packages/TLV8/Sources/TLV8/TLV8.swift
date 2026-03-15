@@ -124,7 +124,9 @@ public enum TLV8 {
         records[records.count - 1][tag] = value
       }
     }
-    // Remove empty leading/trailing records from leading/trailing separators
+    // Strip empty records caused by leading/trailing separators.
+    // Interior empty records (from consecutive separators) are preserved,
+    // as they may carry semantic meaning in some HAP contexts.
     while records.first?.isEmpty == true {
       records.removeFirst()
     }
