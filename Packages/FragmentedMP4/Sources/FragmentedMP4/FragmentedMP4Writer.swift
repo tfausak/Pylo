@@ -45,8 +45,8 @@ public final class FragmentRingBuffer: @unchecked Sendable {
   public func append(_ fragment: MP4Fragment) {
     let cap = capacity
     _state.withLock { state in
-      state.slots[state.writeIndex % cap] = fragment
-      state.writeIndex += 1
+      state.slots[state.writeIndex] = fragment
+      state.writeIndex = (state.writeIndex + 1) % cap
       state.count = min(state.count + 1, cap)
     }
   }
@@ -65,7 +65,7 @@ public final class FragmentRingBuffer: @unchecked Sendable {
     let cap = capacity
     return _state.withLock { state in
       guard state.count > 0 else { return [] }
-      let startIndex = state.writeIndex - state.count
+      let startIndex = (state.writeIndex - state.count + cap) % cap
       return (0..<state.count).compactMap { i in
         state.slots[(startIndex + i) % cap]
       }
