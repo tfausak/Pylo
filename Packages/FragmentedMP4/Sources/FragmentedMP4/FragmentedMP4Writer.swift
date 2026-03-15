@@ -220,7 +220,11 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
       (state.videoFormatDescription == nil && fmt != nil, state.includeAudioTrack)
     }
     if needsBuild, let fmt {
-      let initSeg = buildInitSegment(videoFormat: fmt, includeAudio: includeAudio)
+      guard let initSeg = buildInitSegment(videoFormat: fmt, includeAudio: includeAudio) else {
+        // Don't set videoFormatDescription — leave it nil so the next
+        // appendVideoSample retries the build instead of being stuck forever.
+        return
+      }
       _writerState.withLock { state in
         guard state.videoFormatDescription == nil else { return }
         state.videoFormatDescription = fmt
