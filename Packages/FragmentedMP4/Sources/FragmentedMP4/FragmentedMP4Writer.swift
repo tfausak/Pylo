@@ -165,7 +165,7 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
     }
   }
 
-  public func configure(width: Int, height: Int, fps: Int) {
+  public func configure(fps: Int) {
     _writerState.withLock { $0.fps = fps }
   }
 

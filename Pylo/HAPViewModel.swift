@@ -1065,7 +1065,7 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     enabledAccessories.append(camera)
 
     let writer = FragmentedMP4Writer()
-    writer.configure(width: 1920, height: 1080, fps: 30)
+    writer.configure(fps: 30)
     fmp4Writer = writer
     camera.fragmentWriter = writer
 

@@ -12,7 +12,7 @@ struct FragmentedMP4WriterThreadSafetyTests {
   @Test("Concurrent stop does not crash")
   func concurrentStop() async {
     let writer = FragmentedMP4Writer()
-    writer.configure(width: 1920, height: 1080, fps: 30)
+    writer.configure(fps: 30)
 
     await withTaskGroup(of: Void.self) { group in
       for _ in 0..<10 {
@@ -25,7 +25,7 @@ struct FragmentedMP4WriterThreadSafetyTests {
   @Test("Concurrent appendAudioSample does not crash")
   func concurrentAppendAudio() async {
     let writer = FragmentedMP4Writer()
-    writer.configure(width: 1920, height: 1080, fps: 30)
+    writer.configure(fps: 30)
 
     await withTaskGroup(of: Void.self) { group in
       for i in 0..<100 {
@@ -42,7 +42,7 @@ struct FragmentedMP4WriterThreadSafetyTests {
   @Test("includeAudioTrack property is thread-safe")
   func includeAudioTrackThreadSafe() async {
     let writer = FragmentedMP4Writer()
-    writer.configure(width: 1920, height: 1080, fps: 30)
+    writer.configure(fps: 30)
 
     await withTaskGroup(of: Void.self) { group in
       for _ in 0..<50 {
@@ -214,14 +214,14 @@ struct FragmentedMP4WriterStructureTests {
   @Test("initSegment is nil before configure with format description")
   func initSegmentNilBeforeFormat() {
     let writer = FragmentedMP4Writer()
-    writer.configure(width: 1920, height: 1080, fps: 30)
+    writer.configure(fps: 30)
     #expect(writer.initSegment == nil)
   }
 
   @Test("Stop without samples does not call onFragmentReady")
   func stopWithoutSamples() {
     let writer = FragmentedMP4Writer()
-    writer.configure(width: 1920, height: 1080, fps: 30)
+    writer.configure(fps: 30)
     nonisolated(unsafe) var callCount = 0
     writer.onFragmentReady = { _ in callCount += 1 }
     writer.stop()
@@ -237,7 +237,7 @@ struct FragmentedMP4WriterStructureTests {
   @Test("includeAudioTrack setter invalidates init segment")
   func audioTrackInvalidatesInit() {
     let writer = FragmentedMP4Writer()
-    writer.configure(width: 1920, height: 1080, fps: 30)
+    writer.configure(fps: 30)
     // initSegment is nil because no format description has been set,
     // but toggling includeAudioTrack should clear any cached format
     writer.includeAudioTrack = true
@@ -257,7 +257,7 @@ struct FragmentedMP4WriterStructureTests {
   @Test("appendAudioSample accumulates samples")
   func appendAudioAccumulates() {
     let writer = FragmentedMP4Writer()
-    writer.configure(width: 1920, height: 1080, fps: 30)
+    writer.configure(fps: 30)
     for _ in 0..<10 {
       writer.appendAudioSample(Data(repeating: 0xAA, count: 50))
     }
