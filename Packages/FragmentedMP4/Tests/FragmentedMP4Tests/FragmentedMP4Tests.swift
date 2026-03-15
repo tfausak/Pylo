@@ -828,6 +828,66 @@ struct FragmentationTriggerTests {
     #expect(emitted.isEmpty, "No fragment without a second keyframe")
   }
 
+  @Test("PTS gap with >= 30 samples flushes a fragment")
+  func ptsGapFlushes() {
+    let writer = FragmentedMP4Writer()
+    writer.configure(fps: 30)
+    let fmt = makeFormatDescription()
+    nonisolated(unsafe) var emitted: [MP4Fragment] = []
+    writer.onFragmentReady = { emitted.append($0) }
+
+    // Feed 60 frames at 33ms intervals (2 seconds) — enough to trigger gap flush
+    for i in 0..<60 {
+      let pts = CMTime(value: Int64(i) * 33, timescale: 1000)
+      writer.appendVideoSample(
+        makeSampleBuffer(pts: pts, isKeyframe: i == 0, formatDescription: fmt))
+    }
+    #expect(emitted.isEmpty, "No fragment before gap")
+
+    // Jump PTS forward by 2 seconds (a gap > 0.5s)
+    let gapPTS = CMTime(value: 60 * 33 + 2000, timescale: 1000)
+    writer.appendVideoSample(
+      makeSampleBuffer(pts: gapPTS, isKeyframe: false, formatDescription: fmt))
+
+    #expect(emitted.count == 1, "PTS gap with >= 30 pending samples should flush a fragment")
+  }
+
+  @Test("PTS gap with < 30 samples discards without emitting a fragment")
+  func ptsGapDiscards() {
+    let writer = FragmentedMP4Writer()
+    writer.configure(fps: 30)
+    let fmt = makeFormatDescription()
+    nonisolated(unsafe) var emitted: [MP4Fragment] = []
+    writer.onFragmentReady = { emitted.append($0) }
+
+    // Feed only 10 frames — below the 30-sample threshold for gap flush
+    for i in 0..<10 {
+      let pts = CMTime(value: Int64(i) * 33, timescale: 1000)
+      writer.appendVideoSample(
+        makeSampleBuffer(pts: pts, isKeyframe: i == 0, formatDescription: fmt))
+    }
+
+    // Jump PTS forward by 2 seconds
+    let gapPTS = CMTime(value: 10 * 33 + 2000, timescale: 1000)
+    writer.appendVideoSample(
+      makeSampleBuffer(pts: gapPTS, isKeyframe: false, formatDescription: fmt))
+
+    #expect(emitted.isEmpty, "PTS gap with < 30 samples should discard, not emit")
+
+    // Continue feeding and verify the writer still works (fragmentStartPTS was reset)
+    for i in 1..<120 {
+      let pts = CMTime(value: gapPTS.value + Int64(i) * 33, timescale: 1000)
+      writer.appendVideoSample(
+        makeSampleBuffer(pts: pts, isKeyframe: i == 1, formatDescription: fmt))
+    }
+    let triggerKF = makeSampleBuffer(
+      pts: CMTime(value: gapPTS.value + 120 * 33, timescale: 1000),
+      isKeyframe: true, formatDescription: fmt)
+    writer.appendVideoSample(triggerKF)
+
+    #expect(emitted.count == 1, "Writer should recover and emit after gap discard")
+  }
+
   @Test("stop() flushes pending samples as final fragment")
   func stopFlushes() {
     let writer = FragmentedMP4Writer()
