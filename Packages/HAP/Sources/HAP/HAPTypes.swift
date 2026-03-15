@@ -162,7 +162,7 @@ public final class PairVerifySession: @unchecked Sendable {
 
 extension HKDF<SHA512> {
   /// Derive raw bytes using HKDF-SHA512 — use for non-key material (e.g. signature payloads).
-  public static func deriveKey(
+  static func deriveKey(
     inputKeyMaterial: Data,
     salt: Data,
     info: Data,
@@ -179,7 +179,7 @@ extension HKDF<SHA512> {
   }
 
   /// Derive a SymmetricKey directly — avoids exposing key material through Data.
-  public static func deriveSymmetricKey(
+  static func deriveSymmetricKey(
     inputKeyMaterial: Data,
     salt: Data,
     info: Data,
@@ -195,7 +195,7 @@ extension HKDF<SHA512> {
   }
 
   /// Derive a SymmetricKey from a SymmetricKey input — keeps key material in SecureBytes.
-  public static func deriveSymmetricKey(
+  static func deriveSymmetricKey(
     inputKeyMaterial: SymmetricKey,
     salt: Data,
     info: Data,
