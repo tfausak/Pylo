@@ -873,7 +873,10 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
         return
       }
       guard let sampleBuffer else { return }
-      // CMSampleBuffer is immutable after creation and safe to send across threads.
+      // CMSampleBuffer is a CFType (refcounted, immutable after creation). The
+      // closure below retains it, so it stays alive until the async block completes.
+      // nonisolated(unsafe) suppresses the Sendable warning — a Sendable wrapper
+      // would add overhead with no safety benefit since the buffer is only read.
       nonisolated(unsafe) let buffer = sampleBuffer
       session.rtpQueue.async {
         session.processEncodedFrame(buffer)
