@@ -22,7 +22,7 @@ public nonisolated final class MotionMonitor: @unchecked Sendable {
   /// Whether the device has an accelerometer.
   public let isAvailable: Bool
 
-  private let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "Motion")
+  private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Sensors", category: "Motion")
 
   #if os(iOS)
     private let motionManager = CMMotionManager()
@@ -57,7 +57,7 @@ public nonisolated final class MotionMonitor: @unchecked Sendable {
   #if os(iOS)
     private let motionQueue: OperationQueue = {
       let q = OperationQueue()
-      q.name = "\(Bundle.main.bundleIdentifier!).motion"
+      q.name = "\(Bundle.main.bundleIdentifier ?? "Sensors").motion"
       q.maxConcurrentOperationCount = 1
       return q
     }()

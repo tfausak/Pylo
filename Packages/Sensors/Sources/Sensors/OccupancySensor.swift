@@ -8,7 +8,7 @@ import os
 /// Maintains occupancy state with configurable cooldown to avoid flapping.
 public nonisolated final class OccupancySensor: @unchecked Sendable {
 
-  private let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "OccupancySensor")
+  private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Sensors", category: "OccupancySensor")
 
   private let _onOccupancyChange = Locked<((Bool) -> Void)?>(initialState: nil)
   public var onOccupancyChange: ((Bool) -> Void)? {
@@ -32,7 +32,7 @@ public nonisolated final class OccupancySensor: @unchecked Sendable {
 
   /// Vision requests run on a dedicated queue to avoid blocking the capture pipeline.
   private let detectionQueue = DispatchQueue(
-    label: "\(Bundle.main.bundleIdentifier!).occupancy", qos: .utility)
+    label: "\(Bundle.main.bundleIdentifier ?? "Sensors").occupancy", qos: .utility)
 
   /// Reused across calls since the detection queue is serial.
   private let request = VNDetectHumanRectanglesRequest()

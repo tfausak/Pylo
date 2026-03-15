@@ -26,7 +26,7 @@ public nonisolated final class VideoMotionDetector {
     set { state.withLockUnchecked { $0.cooldown = newValue } }
   }
 
-  private let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "VideoMotion")
+  private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Sensors", category: "VideoMotion")
 
   // Target thumbnail dimensions for comparison
   private static let thumbWidth = 160
