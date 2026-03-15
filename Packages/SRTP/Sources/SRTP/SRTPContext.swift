@@ -264,6 +264,10 @@ public final class SRTPContext: @unchecked Sendable {
   /// Encrypt and authenticate an RTCP packet, returning the SRTCP packet.
   /// Returns nil if encryption fails (caller should skip sending).
   /// Format: RTCP_header(8B) || encrypted_payload || E_flag+SRTCP_index(4B) || auth_tag(10B)
+  ///
+  /// Note: No corresponding `unprotectRTCP` exists because HomeKit does not
+  /// require decrypting incoming SRTCP packets (the controller sends RTP media;
+  /// RTCP flows are outbound-only from the accessory). Add one if this changes.
   public func protectRTCP(_ rtcpPacket: Data) -> Data? {
     guard rtcpPacket.count >= 8 else { return nil }
 
