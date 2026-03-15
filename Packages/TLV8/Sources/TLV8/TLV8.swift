@@ -96,6 +96,13 @@ public enum TLV8 {
   /// Only suitable for messages that contain a single logical record (no separators).
   /// Returns an empty dictionary if the blob contains separator tags (use
   /// `decodeRecords(_:)` for multi-record TLV8).
+  ///
+  /// Tags not in the ``Tag`` enum are silently dropped. This is intentional:
+  /// the dictionary decode is used exclusively for pairing exchanges where
+  /// the tag set is fixed by the HAP spec. Unknown tags in that context
+  /// indicate either a newer spec revision (which we can't handle anyway)
+  /// or malformed data. Use the raw `[(UInt8, Data)]` overload if you need
+  /// to preserve all tags.
   public static func decode(_ data: Data) -> [Tag: Data] {
     let pairs: [(UInt8, Data)] = decode(data)
     var dict: [Tag: Data] = [:]

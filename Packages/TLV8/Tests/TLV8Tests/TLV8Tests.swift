@@ -94,6 +94,22 @@ struct TLV8Tests {
     #expect(dict[.error] == nil)
   }
 
+  @Test("Dictionary decode drops unknown tags")
+  func decodeDictionaryDropsUnknownTags() {
+    // Tag 0x20 is not in the Tag enum — it should be silently dropped
+    // from the dictionary decode but preserved in the raw decode.
+    let raw = Data([0x06, 0x01, 0x03, 0x20, 0x02, 0xDE, 0xAD])
+    let dict: [TLV8.Tag: Data] = TLV8.decode(raw)
+    #expect(dict.count == 1)
+    #expect(dict[.state] == Data([0x03]))
+
+    // Raw decode preserves the unknown tag
+    let pairs: [(UInt8, Data)] = TLV8.decode(raw)
+    #expect(pairs.count == 2)
+    #expect(pairs[1].0 == 0x20)
+    #expect(pairs[1].1 == Data([0xDE, 0xAD]))
+  }
+
   @Test("Dictionary decode rejects blobs containing separators")
   func decodeDictionaryRejectsSeparators() {
     // A multi-record blob with a separator should return empty from the
