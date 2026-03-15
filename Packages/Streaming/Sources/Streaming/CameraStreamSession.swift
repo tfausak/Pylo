@@ -1067,12 +1067,16 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
   /// Send data via the BSD video socket to the controller's video port.
   private func sendVideoUDP(_ data: Data) {
     guard videoSocketFD >= 0, var addr = controllerVideoAddr else { return }
+    Self.sendUDP(data, fd: videoSocketFD, addr: &addr)
+  }
+
+  /// Send a UDP datagram via a BSD socket to the given address.
+  nonisolated static func sendUDP(_ data: Data, fd: Int32, addr: inout sockaddr_in) {
     data.withUnsafeBytes { buf in
       guard let base = buf.baseAddress else { return }
       withUnsafePointer(to: &addr) { addrPtr in
         addrPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
-          _ = sendto(
-            videoSocketFD, base, buf.count, 0, sockPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
+          _ = sendto(fd, base, buf.count, 0, sockPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
         }
       }
     }

@@ -303,15 +303,7 @@ extension CameraStreamSession {
   /// Send data via the BSD audio socket to the controller's audio port.
   private nonisolated func sendAudioUDP(_ data: Data) {
     guard audioSocketFD >= 0, var addr = controllerAudioAddr else { return }
-    data.withUnsafeBytes { buf in
-      guard let base = buf.baseAddress else { return }
-      withUnsafePointer(to: &addr) { addrPtr in
-        addrPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
-          _ = sendto(
-            audioSocketFD, base, buf.count, 0, sockPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
-        }
-      }
-    }
+    Self.sendUDP(data, fd: audioSocketFD, addr: &addr)
   }
 
   /// Called by GCD read source when data is available on the audio socket.
