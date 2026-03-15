@@ -153,7 +153,7 @@ public final class SRTPContext: @unchecked Sendable {
     let encryptedPayload: Data? = withUnsafeTemporaryAllocation(byteCount: 16, alignment: 1) {
       ivBuffer in
       Self.buildIV(ssrc: ssrc, packetIndex: packetIndex, salt: sessionSalt, into: ivBuffer)
-      return aesCTREncrypt(key: sessionKey, iv: UnsafeRawBufferPointer(ivBuffer), data: payload)
+      return Self.aesCTREncrypt(key: sessionKey, iv: UnsafeRawBufferPointer(ivBuffer), data: payload)
     }
     guard let encryptedPayload else { return nil }
 
@@ -164,7 +164,7 @@ public final class SRTPContext: @unchecked Sendable {
     srtpPacket.append(encryptedPayload)
 
     // Compute HMAC-SHA1 auth tag incrementally: (header + encrypted payload + ROC)
-    let tag = hmacSHA1Incremental(
+    let tag = Self.hmacSHA1Incremental(
       key: sessionAuthKey, srtpPacket: srtpPacket, roc: currentROC)
     srtpPacket.append(tag.prefix(10))  // Truncate to 80 bits
 
@@ -218,10 +218,10 @@ public final class SRTPContext: @unchecked Sendable {
 
     // Verify HMAC-SHA1-80 using incremental HMAC (no intermediate copy)
     let authenticatedSlice = srtpPacket[srtpPacket.startIndex..<tagStart]
-    let expectedTag = hmacSHA1Incremental(
+    let expectedTag = Self.hmacSHA1Incremental(
       key: sessionAuthKey, srtpPacket: authenticatedSlice, roc: candidateROC)
     let receivedTag = srtpPacket[tagStart..<srtpPacket.endIndex]
-    guard constantTimeCompare(receivedTag, expectedTag.prefix(10)) else {
+    guard Self.constantTimeCompare(receivedTag, expectedTag.prefix(10)) else {
       logger.debug("SRTP unprotect: auth tag mismatch")
       return nil
     }
@@ -246,7 +246,7 @@ public final class SRTPContext: @unchecked Sendable {
     let decryptedPayload: Data? = withUnsafeTemporaryAllocation(byteCount: 16, alignment: 1) {
       ivBuffer in
       Self.buildIV(ssrc: ssrc, packetIndex: packetIndex, salt: sessionSalt, into: ivBuffer)
-      return aesCTREncrypt(
+      return Self.aesCTREncrypt(
         key: sessionKey, iv: UnsafeRawBufferPointer(ivBuffer), data: encryptedPayload)
     }
     guard let decryptedPayload else {
@@ -281,7 +281,7 @@ public final class SRTPContext: @unchecked Sendable {
     let encryptedPayload: Data? = withUnsafeTemporaryAllocation(byteCount: 16, alignment: 1) {
       ivBuffer in
       Self.buildIV(ssrc: ssrc, packetIndex: UInt64(index), salt: srtcpSalt, into: ivBuffer)
-      return aesCTREncrypt(
+      return Self.aesCTREncrypt(
         key: srtcpKey, iv: UnsafeRawBufferPointer(ivBuffer),
         data: rtcpPacket[rtcpPacket.startIndex + 8..<rtcpPacket.endIndex])
     }
@@ -300,7 +300,7 @@ public final class SRTPContext: @unchecked Sendable {
     withUnsafeBytes(of: eIndex.bigEndian) { srtcpPacket.append(contentsOf: $0) }
 
     // Auth tag covers: header + encrypted payload + E||index
-    let tag = hmacSHA1(key: srtcpAuthKey, data: srtcpPacket)
+    let tag = Self.hmacSHA1(key: srtcpAuthKey, data: srtcpPacket)
     srtcpPacket.append(tag.prefix(10))
 
     return srtcpPacket
@@ -395,7 +395,7 @@ public final class SRTPContext: @unchecked Sendable {
   // not support CTR mode in CommonCrypto (documented as "not implemented for
   // stream ciphers").  The per-packet create/release overhead is small (~1µs)
   // relative to the encryption itself.
-  private func aesCTREncrypt(key: Data, iv: UnsafeRawBufferPointer, data: Data) -> Data? {
+  private static func aesCTREncrypt(key: Data, iv: UnsafeRawBufferPointer, data: Data) -> Data? {
     guard !data.isEmpty else { return data }
 
     var cryptorRef: CCCryptorRef?
@@ -442,7 +442,7 @@ public final class SRTPContext: @unchecked Sendable {
 
   // MARK: - Constant-Time Comparison
 
-  private func constantTimeCompare(_ lhs: Data, _ rhs: Data) -> Bool {
+  private static func constantTimeCompare(_ lhs: Data, _ rhs: Data) -> Bool {
     guard lhs.count == rhs.count else { return false }
     return lhs.withUnsafeBytes { lhsPtr in
       rhs.withUnsafeBytes { rhsPtr in
@@ -466,7 +466,7 @@ public final class SRTPContext: @unchecked Sendable {
 
   // MARK: - HMAC-SHA1
 
-  private func hmacSHA1(key: Data, data: Data) -> Data {
+  private static func hmacSHA1(key: Data, data: Data) -> Data {
     var result = Data(count: Int(CC_SHA1_DIGEST_LENGTH))
     result.withUnsafeMutableBytes { resultPtr in
       data.withUnsafeBytes { dataPtr in
@@ -484,7 +484,7 @@ public final class SRTPContext: @unchecked Sendable {
   }
 
   /// Incremental HMAC-SHA1 over (srtpPacket || ROC) without copying into a single buffer.
-  private func hmacSHA1Incremental(key: Data, srtpPacket: Data, roc: UInt32) -> Data {
+  private static func hmacSHA1Incremental(key: Data, srtpPacket: Data, roc: UInt32) -> Data {
     var ctx = CCHmacContext()
     key.withUnsafeBytes { keyPtr in
       CCHmacInit(&ctx, CCHmacAlgorithm(kCCHmacAlgSHA1), keyPtr.baseAddress, key.count)
