@@ -6,7 +6,10 @@ struct AccessoryCard<Content: View>: View {
   @Binding var isOn: Bool
   var blocked: Bool = false
   var blockedMessage: String?
+  var description: String?
   @ViewBuilder var content: () -> Content
+
+  @State private var showDescription = false
 
   var body: some View {
     VStack(spacing: 0) {
@@ -26,6 +29,24 @@ struct AccessoryCard<Content: View>: View {
               .foregroundStyle(.secondary)
           }
         }
+        if let description {
+          Button {
+            showDescription.toggle()
+          } label: {
+            Image(systemName: "questionmark.circle")
+              .foregroundStyle(.secondary)
+              .font(.body)
+          }
+          .buttonStyle(.plain)
+          .popover(isPresented: $showDescription) {
+            Text(description)
+              .font(.subheadline)
+              .padding()
+              .frame(idealWidth: 260)
+              .modifier(CompactPopoverAdaptation())
+          }
+          .accessibilityLabel("\(title) info")
+        }
         Spacer()
         Toggle(title, isOn: $isOn)
           .labelsHidden()
@@ -44,5 +65,16 @@ struct AccessoryCard<Content: View>: View {
     }
     .background(Color.cardBackground, in: RoundedRectangle(cornerRadius: 12))
     .animation(.default, value: isOn)
+  }
+}
+
+/// Forces popovers to stay as popovers on iOS 16.4+; no-op on older versions.
+private struct CompactPopoverAdaptation: ViewModifier {
+  func body(content: Content) -> some View {
+    if #available(iOS 16.4, macOS 13.3, *) {
+      content.presentationCompactAdaptation(.popover)
+    } else {
+      content
+    }
   }
 }

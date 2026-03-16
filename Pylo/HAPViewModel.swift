@@ -22,6 +22,7 @@ import SwiftUI
 /// the `@Published` property's `didSet` and in `restorePreferences()` — a mismatch
 /// between the two would silently break persistence.
 private nonisolated enum PrefKey {
+  static let cameraEnabled = "cameraEnabled"
   static let flashlightEnabled = "flashlightEnabled"
   static let motionEnabled = "motionEnabled"
   static let motionSensitivity = "motionSensitivity"
@@ -47,6 +48,7 @@ private nonisolated enum PrefKey {
 /// Captures the accessory-enable state at server start so we can detect
 /// whether settings have actually diverged (not just toggled and toggled back).
 struct AccessoryConfig: Equatable {
+  var cameraEnabled: Bool
   var flashlightEnabled: Bool
   var selectedCameraID: String?
   var motionEnabled: Bool
@@ -61,6 +63,7 @@ struct AccessoryConfig: Equatable {
 extension AccessoryConfig {
   @MainActor
   init(from vm: HAPViewModel) {
+    cameraEnabled = vm.cameraEnabled
     flashlightEnabled = vm.flashlightEnabled
     selectedCameraID = vm.selectedStreamCamera?.id
     motionEnabled = vm.motionEnabled
@@ -132,6 +135,12 @@ final class HAPViewModel: ObservableObject {
       }
     }
   }
+  @Published var cameraEnabled: Bool = false {
+    didSet {
+      guard !isRestoring, cameraEnabled != oldValue else { return }
+      UserDefaults.standard.set(cameraEnabled, forKey: PrefKey.cameraEnabled)
+    }
+  }
   @Published var flashlightEnabled: Bool = false {
     didSet {
       guard !isRestoring, flashlightEnabled != oldValue else { return }
@@ -198,6 +207,7 @@ final class HAPViewModel: ObservableObject {
     }
   }
   @Published var isOccupancyDetected = false
+  @Published var currentLux: Float = 0
   @Published var videoQuality: VideoQuality = .medium {
     didSet {
       guard !isRestoring, videoQuality != oldValue else { return }
@@ -217,6 +227,7 @@ final class HAPViewModel: ObservableObject {
       UserDefaults.standard.set(buttonEnabled, forKey: PrefKey.buttonEnabled)
     }
   }
+  @Published var isButtonPressed = false
   @Published var isSirenActive = false
 
   // NOTE: iOS does not offer a background mode suitable for a HAP server.
@@ -424,6 +435,9 @@ final class HAPViewModel: ObservableObject {
   func restorePreferences() {
     isRestoring = true
     defer { isRestoring = false }
+    if UserDefaults.standard.object(forKey: PrefKey.cameraEnabled) != nil {
+      cameraEnabled = UserDefaults.standard.bool(forKey: PrefKey.cameraEnabled)
+    }
     if UserDefaults.standard.object(forKey: PrefKey.flashlightEnabled) != nil {
       flashlightEnabled = UserDefaults.standard.bool(forKey: PrefKey.flashlightEnabled)
     }
@@ -488,14 +502,21 @@ final class HAPViewModel: ObservableObject {
     )
     hasTorch = discovery.devices.contains { $0.hasTorch }
     let savedStreamID = UserDefaults.standard.string(forKey: PrefKey.selectedStreamCameraID)
-    if savedStreamID == "none" {
-      selectedStreamCamera = nil
-    } else if let savedStreamID {
-      selectedStreamCamera = cameras.first(where: { $0.id == savedStreamID })
-    } else {
-      // No saved preference (fresh install or upgrade). Leave nil so the user
-      // explicitly enables via the toggle (which requests camera permission).
-      selectedStreamCamera = nil
+    if let savedStreamID, savedStreamID != "none",
+      let saved = cameras.first(where: { $0.id == savedStreamID })
+    {
+      selectedStreamCamera = saved
+    } else if !cameras.isEmpty {
+      // Default to back camera if available, otherwise first camera.
+      selectedStreamCamera =
+        cameras.first { $0.name.localizedCaseInsensitiveContains("back") }
+        ?? cameras.first
+    }
+    // Migration: if no cameraEnabled pref exists, derive from the old selectedStreamCameraID.
+    if UserDefaults.standard.object(forKey: PrefKey.cameraEnabled) == nil {
+      if let savedStreamID, savedStreamID != "none" {
+        cameraEnabled = true
+      }
     }
     hasPairings = UserDefaults.standard.bool(forKey: PrefKey.hasPairings)
 
@@ -523,8 +544,9 @@ final class HAPViewModel: ObservableObject {
     let config = StartConfig(
       serial: deviceSerial(),
       deviceModel: deviceModelName(),
+      cameraEnabled: cameraEnabled,
       flashlightEnabled: flashlightEnabled,
-      selectedStreamCameraID: selectedStreamCamera?.id,
+      selectedStreamCameraID: cameraEnabled ? selectedStreamCamera?.id : nil,
       motionEnabled: motionEnabled,
       motionThreshold: motionSensitivity.threshold,
       minimumBitrate: videoQuality.minimumBitrate,
@@ -647,6 +669,13 @@ final class HAPViewModel: ObservableObject {
       if config.lightSensorEnabled {
         setup.lightSensor.onStateChange = { [weak server = setup.server] aid, iid, value in
           server?.notifySubscribers(aid: aid, iid: iid, value: value)
+          Task { @MainActor in
+            if iid == HAPLightSensorAccessory.iidCurrentAmbientLightLevel,
+              case .float(let lux) = value
+            {
+              vm.currentLux = Float(lux)
+            }
+          }
         }
         enabledAccessories.append(setup.lightSensor)
       }
@@ -884,6 +913,7 @@ final class HAPViewModel: ObservableObject {
   func restoreConfig(_ config: AccessoryConfig) {
     isRestoring = true
     defer { isRestoring = false }
+    cameraEnabled = config.cameraEnabled
     flashlightEnabled = config.flashlightEnabled
     selectedStreamCamera = availableCameras.first { $0.id == config.selectedCameraID }
     motionEnabled = config.motionEnabled
@@ -935,6 +965,11 @@ final class HAPViewModel: ObservableObject {
 
   func pressButton() {
     buttonAccessory?.trigger()
+    isButtonPressed = true
+    Task { @MainActor in
+      try? await Task.sleep(nanoseconds: 1_000_000_000)
+      isButtonPressed = false
+    }
   }
 }
 
@@ -944,6 +979,7 @@ final class HAPViewModel: ObservableObject {
 private struct StartConfig: Sendable {
   let serial: String
   let deviceModel: String  // "iPhone", "iPad", etc.
+  let cameraEnabled: Bool
   let flashlightEnabled: Bool
   let selectedStreamCameraID: String?
   let motionEnabled: Bool

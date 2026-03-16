@@ -1005,6 +1005,7 @@ struct AudioResamplingTests {
 struct AccessoryConfigTests {
 
   private func makeConfig(
+    cameraEnabled: Bool = false,
     flashlight: Bool = false, camera: String? = nil,
     motion: Bool = false, microphone: Bool = false,
     contact: Bool = false, lightSensor: Bool = false,
@@ -1012,6 +1013,7 @@ struct AccessoryConfigTests {
     siren: Bool = false, button: Bool = false
   ) -> AccessoryConfig {
     AccessoryConfig(
+      cameraEnabled: cameraEnabled,
       flashlightEnabled: flashlight, selectedCameraID: camera,
       motionEnabled: motion, microphoneEnabled: microphone,
       contactEnabled: contact, lightSensorEnabled: lightSensor,

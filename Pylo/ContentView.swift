@@ -117,6 +117,7 @@ struct ContentView: View {
     ScrollView {
       VStack(spacing: 20) {
         accessoriesSection
+        sectionDivider
         generalSection
       }
       .padding()
@@ -129,10 +130,28 @@ struct ContentView: View {
     ScrollView {
       VStack(spacing: 20) {
         accessoriesSection
+        sectionDivider
         generalSection
       }
       .padding()
     }
+  }
+
+  // MARK: - Section Divider
+
+  private var sectionDivider: some View {
+    HStack {
+      Rectangle()
+        .fill(.secondary.opacity(0.3))
+        .frame(height: 1)
+      Text("General")
+        .font(.subheadline.weight(.medium))
+        .foregroundStyle(.secondary)
+      Rectangle()
+        .fill(.secondary.opacity(0.3))
+        .frame(height: 1)
+    }
+    .padding(.horizontal, 4)
   }
 
   // MARK: - General Section
@@ -146,7 +165,6 @@ struct ContentView: View {
           Label("Camera", systemImage: "camera.fill")
           Spacer()
           Picker("Camera", selection: globalCameraBinding) {
-            Text("Off").tag(nil as CameraOption?)
             ForEach(viewModel.availableCameras) { camera in
               Text(camera.name).tag(camera as CameraOption?)
             }
@@ -202,22 +220,10 @@ struct ContentView: View {
       blocked: !viewModel.hasCamera || viewModel.cameraPermissionDenied,
       blockedMessage: !viewModel.hasCamera
         ? "Not available on this device"
-        : viewModel.cameraPermissionDenied ? "Permission denied" : nil
+        : viewModel.cameraPermissionDenied ? "Permission denied" : nil,
+      description: "Streams video to HomeKit. Supports live view, snapshots, and recording."
     ) {
       cameraContent
-    }
-
-    // Flashlight
-    AccessoryCard(
-      icon: "flashlight.off.fill",
-      title: "Flashlight",
-      isOn: flashlightEnabled,
-      blocked: !viewModel.hasTorch || viewModel.cameraPermissionDenied,
-      blockedMessage: !viewModel.hasTorch
-        ? "Not available on this device"
-        : viewModel.cameraPermissionDenied ? "Permission denied" : nil
-    ) {
-      flashlightContent
     }
 
     // Light Sensor
@@ -229,7 +235,8 @@ struct ContentView: View {
         || viewModel.cameraPermissionDenied,
       blockedMessage: !viewModel.hasCamera || !viewModel.hasAmbientLight
         ? "Not available on this device"
-        : viewModel.cameraPermissionDenied ? "Permission denied" : nil
+        : viewModel.cameraPermissionDenied ? "Permission denied" : nil,
+      description: "Estimates ambient light level in lux from camera exposure metadata."
     ) {
       lightSensorContent
     }
@@ -242,9 +249,25 @@ struct ContentView: View {
       blocked: !viewModel.hasCamera || viewModel.cameraPermissionDenied,
       blockedMessage: !viewModel.hasCamera
         ? "Not available on this device"
-        : viewModel.cameraPermissionDenied ? "Permission denied" : nil
+        : viewModel.cameraPermissionDenied ? "Permission denied" : nil,
+      description: "Detects people using the camera with on-device vision processing."
     ) {
       occupancyContent
+    }
+
+    // Flashlight
+    AccessoryCard(
+      icon: "flashlight.off.fill",
+      title: "Flashlight",
+      isOn: flashlightEnabled,
+      blocked: !viewModel.hasTorch || viewModel.cameraPermissionDenied,
+      blockedMessage: !viewModel.hasTorch
+        ? "Not available on this device"
+        : viewModel.cameraPermissionDenied ? "Permission denied" : nil,
+      description:
+        "Controllable light using the device torch. Includes brightness and battery status."
+    ) {
+      flashlightContent
     }
 
     // Motion Sensor
@@ -254,7 +277,8 @@ struct ContentView: View {
       isOn: motionEnabled,
       blocked: !viewModel.hasAccelerometer,
       blockedMessage: !viewModel.hasAccelerometer
-        ? "Not available on this device" : nil
+        ? "Not available on this device" : nil,
+      description: "Detects physical device movement using the accelerometer."
     ) {
       motionContent
     }
@@ -266,7 +290,8 @@ struct ContentView: View {
       isOn: contactEnabled,
       blocked: !viewModel.hasProximity,
       blockedMessage: !viewModel.hasProximity
-        ? "Not available on this device" : nil
+        ? "Not available on this device" : nil,
+      description: "Uses the proximity sensor to detect open or closed state."
     ) {
       contactContent
     }
@@ -275,7 +300,8 @@ struct ContentView: View {
     AccessoryCard(
       icon: "speaker.wave.3.fill",
       title: "Siren",
-      isOn: $viewModel.sirenEnabled
+      isOn: $viewModel.sirenEnabled,
+      description: "Plays an alarm sound through the device speaker when triggered."
     ) {
       sirenContent
     }
@@ -284,13 +310,16 @@ struct ContentView: View {
     AccessoryCard(
       icon: "hand.tap",
       title: "Button",
-      isOn: $viewModel.buttonEnabled
-    ) {
-      Text(
+      isOn: $viewModel.buttonEnabled,
+      description:
         "Stateless programmable switch. Trigger from the running screen; configure automations in Home.app."
-      )
-      .font(.caption)
-      .foregroundStyle(.secondary)
+    ) {
+      HStack {
+        Text("Status")
+          .foregroundStyle(.secondary)
+        Spacer()
+        Text(viewModel.isButtonPressed ? "Pressed" : "Idle")
+      }
     }
   }
 
@@ -328,6 +357,14 @@ struct ContentView: View {
         Spacer()
         Text(viewModel.isCameraStreaming ? "Streaming" : "Idle")
       }
+      if let camera = viewModel.selectedStreamCamera {
+        HStack {
+          Text("Using")
+            .foregroundStyle(.secondary)
+          Spacer()
+          Text(camera.name)
+        }
+      }
       HStack {
         Text("Quality")
           .foregroundStyle(.secondary)
@@ -362,12 +399,22 @@ struct ContentView: View {
 
   @ViewBuilder
   private var lightSensorContent: some View {
-    if let camera = viewModel.selectedStreamCamera {
+    VStack(spacing: 12) {
       HStack {
-        Text("Using")
+        Text("Status")
           .foregroundStyle(.secondary)
         Spacer()
-        Text(camera.name)
+        Text(
+          viewModel.currentLux >= 1
+            ? "\(Int(viewModel.currentLux)) lux" : String(format: "%.2f lux", viewModel.currentLux))
+      }
+      if let camera = viewModel.selectedStreamCamera {
+        HStack {
+          Text("Using")
+            .foregroundStyle(.secondary)
+          Spacer()
+          Text(camera.name)
+        }
       }
     }
   }
@@ -381,6 +428,14 @@ struct ContentView: View {
         Spacer()
         Text(viewModel.isOccupancyDetected ? "Occupied" : "Unoccupied")
       }
+      if let camera = viewModel.selectedStreamCamera {
+        HStack {
+          Text("Using")
+            .foregroundStyle(.secondary)
+          Spacer()
+          Text(camera.name)
+        }
+      }
       HStack {
         Text("Cooldown")
           .foregroundStyle(.secondary)
@@ -392,14 +447,6 @@ struct ContentView: View {
         }
         .labelsHidden()
         .pickerStyle(.menu)
-      }
-      if let camera = viewModel.selectedStreamCamera {
-        HStack {
-          Text("Using")
-            .foregroundStyle(.secondary)
-          Spacer()
-          Text(camera.name)
-        }
       }
     }
   }
@@ -463,7 +510,7 @@ struct ContentView: View {
 
   private var cameraEnabled: Binding<Bool> {
     Binding(
-      get: { viewModel.selectedStreamCamera != nil },
+      get: { viewModel.cameraEnabled },
       set: { enabled in
         if enabled {
           Task {
@@ -471,14 +518,10 @@ struct ContentView: View {
               viewModel.permissionAlert = .camera
               return
             }
-            viewModel.selectedStreamCamera =
-              viewModel.availableCameras.first {
-                $0.name.localizedCaseInsensitiveContains("back")
-              }
-              ?? viewModel.availableCameras.first
+            viewModel.cameraEnabled = true
           }
         } else {
-          viewModel.selectedStreamCamera = nil
+          viewModel.cameraEnabled = false
         }
       }
     )
@@ -586,16 +629,13 @@ struct ContentView: View {
     Binding(
       get: { viewModel.selectedStreamCamera },
       set: { newCamera in
-        if let newCamera {
-          Task {
-            guard await viewModel.requestCameraPermission() else {
-              viewModel.permissionAlert = .camera
-              return
-            }
-            viewModel.selectedStreamCamera = newCamera
+        guard let newCamera else { return }
+        Task {
+          guard await viewModel.requestCameraPermission() else {
+            viewModel.permissionAlert = .camera
+            return
           }
-        } else {
-          viewModel.selectedStreamCamera = nil
+          viewModel.selectedStreamCamera = newCamera
         }
       }
     )

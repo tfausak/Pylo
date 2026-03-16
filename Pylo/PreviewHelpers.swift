@@ -53,6 +53,7 @@ extension HAPViewModel {
     if running {
       if needsRestart {
         vm.startedConfig = AccessoryConfig(
+          cameraEnabled: vm.cameraEnabled,
           flashlightEnabled: !flashlightEnabled,
           selectedCameraID: vm.selectedStreamCamera?.id,
           motionEnabled: motionEnabled,
