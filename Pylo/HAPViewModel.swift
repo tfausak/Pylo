@@ -257,7 +257,9 @@ final class HAPViewModel: ObservableObject {
 
   /// Configuration snapshot taken when the server starts. Compared against
   /// current values to determine whether a restart is needed.
-  /// Internal (not private) because PreviewHelpers needs write access.
+  /// Internal (not private) because PreviewHelpers needs write access to
+  /// simulate the "needs restart" state in previews. If Swift package access
+  /// control is adopted, this could be narrowed to `package` visibility.
   var startedConfig: AccessoryConfig?
 
   /// Whether the accessory configuration has diverged from what the server launched with.
@@ -958,6 +960,9 @@ private struct StartConfig: Sendable {
 }
 
 /// Objects created off MainActor, returned to MainActor for callback wiring and UI updates.
+/// `@unchecked Sendable` is safe here because this struct is a one-shot transfer: it is
+/// created entirely within a single `Task.detached` block, then consumed once on MainActor.
+/// No concurrent access occurs — it crosses exactly one isolation boundary, one time.
 private nonisolated struct ServerSetup: @unchecked Sendable {
   let bridge: HAPBridgeInfo
   let lightbulb: HAPAccessory

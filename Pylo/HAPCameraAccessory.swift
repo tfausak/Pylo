@@ -101,6 +101,10 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   /// Callback closures set once during setup and called from the server queue.
   /// Protected by a lock since they are written from createServerSetup (off-main)
   /// and read from the server queue.
+  ///
+  /// Uses `withLockUnchecked` (not `withLock`) because the closures capture
+  /// non-Sendable types (AVCaptureSession, Data callbacks). This is safe because
+  /// the lock serializes access — no two threads read/write simultaneously.
   private struct Callbacks {
     var onSnapshotWillCapture: (() -> Void)?
     var onSnapshotDidCapture: (() -> Void)?

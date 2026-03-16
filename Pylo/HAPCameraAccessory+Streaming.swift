@@ -82,8 +82,15 @@ extension HAPCameraAccessory {
       "SetupEndpoints: controller=\(controllerAddress):\(controllerVideoPort)/\(controllerAudioPort)"
     )
 
-    // Atomically detach any existing session to avoid racing with another device
-    detachStreamSession()?.stopStreaming()
+    // Atomically detach any existing session to avoid racing with another device.
+    // The old session is stopped without notifying HomeKit — the controller holding
+    // that stream will see it go stale and time out. A proper HAP implementation
+    // would send a StreamingStatus=0 event for the old session, but single-stream
+    // devices typically just replace the session silently.
+    if let oldSession = detachStreamSession() {
+      logger.info("Replacing existing stream session for new SetupEndpoints request")
+      oldSession.stopStreaming()
+    }
 
     let videoSSRC = UInt32.random(in: 1...UInt32.max)
     let audioSSRC = UInt32.random(in: 1...UInt32.max)
@@ -300,6 +307,9 @@ extension HAPCameraAccessory {
       clearStreamSession(ifIdenticalTo: session)
       onMonitoringCaptureNeeded?(true, nil)
     }
+    // Notify subscribers of the updated streaming status. This is correct even after
+    // a failure: clearStreamSession sets streamSession=nil, so streamingStatusTLV()
+    // returns status=0 (Available), which is the right thing to report.
     onStateChange?(
       aid, Self.iidStreamingStatus, .string(streamingStatusTLV().base64EncodedString()))
   }
