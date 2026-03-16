@@ -14,11 +14,13 @@ struct WelcomeView: View {
       Text("Welcome to Pylo")
         .font(.largeTitle.weight(.bold))
 
-      Text("Turn this device into a HomeKit bridge with native accessories — camera, flashlight, sensors, and more.")
-        .font(.body)
-        .foregroundStyle(.secondary)
-        .multilineTextAlignment(.center)
-        .padding(.horizontal)
+      Text(
+        "Turn this device into a HomeKit bridge with native accessories — camera, flashlight, sensors, and more."
+      )
+      .font(.body)
+      .foregroundStyle(.secondary)
+      .multilineTextAlignment(.center)
+      .padding(.horizontal)
 
       #if os(iOS)
         Text("Pylo must remain in the foreground with the screen on to work.")

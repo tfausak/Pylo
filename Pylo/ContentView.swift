@@ -178,7 +178,6 @@ struct ContentView: View {
       }
       .padding()
 
-
       // Unpair (config only)
       if forceConfig {
         Divider().padding(.horizontal)
