@@ -842,6 +842,7 @@ final class HAPViewModel: ObservableObject {
     sirenPlayer = nil
     lightbulbAccessory?.cancelIdentify()
     lightbulbAccessory = nil
+    cameraAccessory?.stopStreaming()
     cameraAccessory = nil
     buttonAccessory = nil
     server?.stop()
