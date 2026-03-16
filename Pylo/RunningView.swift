@@ -101,39 +101,39 @@ struct RunningView: View {
 struct RunningConfigView: View {
   @ObservedObject var viewModel: HAPViewModel
   @Environment(\.dismiss) private var dismiss
-  @State private var savedConfig: AccessoryConfig?
 
   var body: some View {
     NavigationView {
       ContentView(viewModel: viewModel, forceConfig: true)
         .navigationTitle("Settings")
         .toolbar {
-          ToolbarItem(placement: .cancellationAction) {
-            Button(viewModel.needsRestart ? "Cancel" : "Close") {
-              if let savedConfig {
-                viewModel.restoreConfig(savedConfig)
+          ToolbarItem(placement: .confirmationAction) {
+            Button("Done") {
+              if viewModel.needsRestart {
+                viewModel.restart()
               }
               dismiss()
             }
-          }
-          ToolbarItem(placement: .confirmationAction) {
-            Button("Save") {
-              viewModel.restart()
-              dismiss()
-            }
             .font(.body.weight(.semibold))
-            .disabled(!viewModel.needsRestart)
           }
         }
+        .safeAreaInset(edge: .top) {
+          if viewModel.needsRestart {
+            Text("Will restart on close")
+              .font(.subheadline)
+              .foregroundStyle(.secondary)
+              .frame(maxWidth: .infinity)
+              .padding(10)
+              .background(.bar)
+              .transition(.move(edge: .top).combined(with: .opacity))
+          }
+        }
+        .animation(.default, value: viewModel.needsRestart)
     }
     #if os(iOS)
       .navigationViewStyle(.stack)
     #else
       .frame(minWidth: 480, minHeight: 500)
     #endif
-    .interactiveDismissDisabled(viewModel.needsRestart)
-    .onAppear {
-      savedConfig = AccessoryConfig(from: viewModel)
-    }
   }
 }

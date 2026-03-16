@@ -79,22 +79,7 @@ struct ContentView: View {
     }
     .navigationTitle(viewModel.isRunning ? "" : "Pylo")
     .safeAreaInset(edge: .bottom) {
-      if viewModel.needsRestart {
-        Text("Restart to Apply")
-          .font(.subheadline.weight(.medium))
-          .frame(maxWidth: .infinity)
-          .padding(12)
-          .background(.orange, in: .rect(cornerRadius: 12))
-          .foregroundStyle(.white)
-          .contentShape(Rectangle())
-          .onTapGesture {
-            viewModel.restart()
-          }
-          .accessibilityAddTraits(.isButton)
-          .padding(.horizontal)
-          .padding(.bottom, 4)
-          .transition(.move(edge: .bottom).combined(with: .opacity))
-      } else if viewModel.isWaitingForHomeApp {
+      if viewModel.isWaitingForHomeApp {
         HStack(spacing: 8) {
           ProgressView()
           Text("Updating Home…")
@@ -108,7 +93,6 @@ struct ContentView: View {
         .transition(.move(edge: .bottom).combined(with: .opacity))
       }
     }
-    .animation(.default, value: viewModel.needsRestart)
     .animation(.default, value: viewModel.isWaitingForHomeApp)
   }
 
@@ -701,8 +685,4 @@ extension View {
 
 #Preview("Paired") {
   ContentView(viewModel: .preview(running: true, paired: true, lightOn: true))
-}
-
-#Preview("Needs Restart") {
-  ContentView(viewModel: .preview(running: true, paired: true, needsRestart: true))
 }
