@@ -383,6 +383,27 @@ final class HAPViewModel: ObservableObject {
     }
   }
 
+  #if os(iOS)
+    /// Reads settings from the iOS Settings bundle and applies any changes.
+    @MainActor
+    func syncFromSettingsBundle() {
+      let defaults = UserDefaults.standard
+      if defaults.object(forKey: "keepScreenAwake") != nil {
+        let value = defaults.bool(forKey: "keepScreenAwake")
+        if value != keepScreenAwake { keepScreenAwake = value }
+      }
+      if defaults.object(forKey: "screenSaverEnabled") != nil {
+        let value = defaults.bool(forKey: "screenSaverEnabled")
+        if value != screenSaverEnabled { screenSaverEnabled = value }
+      }
+      if let raw = defaults.string(forKey: "screenSaverDelay"),
+        let delay = ScreenSaverDelay(rawValue: raw), delay != screenSaverDelay
+      {
+        screenSaverDelay = delay
+      }
+    }
+  #endif
+
   /// Stop the active camera stream when the app is backgrounded.
   /// iOS invalidates hardware codec sessions (VTCompressionSession) on suspend,
   /// so the stream is effectively dead. Notify HomeKit immediately so Home.app

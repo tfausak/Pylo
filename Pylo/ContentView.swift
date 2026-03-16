@@ -51,6 +51,9 @@ struct ContentView: View {
     .onChangeCompat(of: scenePhase) { newPhase in
       if newPhase == .active {
         viewModel.recheckPermissions()
+        #if os(iOS)
+          viewModel.syncFromSettingsBundle()
+        #endif
       } else if newPhase == .background {
         viewModel.handleBackgrounding()
       }
