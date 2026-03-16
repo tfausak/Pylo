@@ -61,6 +61,26 @@ enum OccupancyCooldown: String, CaseIterable, Identifiable {
   }
 }
 
+// MARK: - Screen Saver Delay
+
+enum ScreenSaverDelay: String, CaseIterable, Identifiable {
+  case oneMinute = "1 min"
+  case twoMinutes = "2 min"
+  case fiveMinutes = "5 min"
+  case tenMinutes = "10 min"
+
+  var id: String { rawValue }
+
+  var duration: TimeInterval {
+    switch self {
+    case .oneMinute: return 60
+    case .twoMinutes: return 120
+    case .fiveMinutes: return 300
+    case .tenMinutes: return 600
+    }
+  }
+}
+
 // MARK: - App Entry Point
 // This is the main SwiftUI app. Create a new Xcode project (iOS App, SwiftUI)
 // and replace the generated ContentView / App with this.

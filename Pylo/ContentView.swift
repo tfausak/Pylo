@@ -175,6 +175,37 @@ struct ContentView: View {
       }
       .padding()
 
+      #if os(iOS)
+        Divider().padding(.horizontal)
+
+        // Screen Saver
+        HStack {
+          Label("Screen Saver", systemImage: "sparkles.tv")
+          Spacer()
+          Toggle("", isOn: $viewModel.screenSaverEnabled)
+            .labelsHidden()
+        }
+        .padding()
+
+        if viewModel.screenSaverEnabled {
+          Divider().padding(.horizontal)
+
+          HStack {
+            Text("Delay")
+              .foregroundStyle(.secondary)
+            Spacer()
+            Picker("Delay", selection: $viewModel.screenSaverDelay) {
+              ForEach(ScreenSaverDelay.allCases) { delay in
+                Text(delay.rawValue).tag(delay)
+              }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+          }
+          .padding()
+        }
+      #endif
+
       // Unpair (config only)
       if forceConfig {
         Divider().padding(.horizontal)

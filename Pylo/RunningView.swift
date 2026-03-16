@@ -5,11 +5,24 @@ struct RunningView: View {
   @State private var showConfig = false
   @State private var pixelOffset = CGSize.zero
   @State private var buttonCooldown = false
+  #if os(iOS)
+    @State private var screenSaverActive = false
+    @State private var screenSaverOffset = CGSize.zero
+    @State private var lastInteraction = Date()
+  #endif
 
   var body: some View {
     ZStack {
       Color.black
         .ignoresSafeArea()
+
+      #if os(iOS)
+        if screenSaverActive {
+          screenSaverOverlay
+            .offset(screenSaverOffset)
+            .transition(.opacity)
+        }
+      #endif
 
       if viewModel.buttonEnabled {
         buttonTile
@@ -17,24 +30,49 @@ struct RunningView: View {
       }
     }
     .overlay(alignment: .top) {
-      HStack {
-        statusIndicator
-        Spacer()
-        gearButton
-      }
-      .padding(.horizontal, 12)
-      .offset(pixelOffset)
+      #if os(iOS)
+        if !screenSaverActive {
+          topBar
+        }
+      #else
+        topBar
+      #endif
     }
+    #if os(iOS)
+      .contentShape(Rectangle())
+      .onTapGesture {
+        if screenSaverActive {
+          withAnimation(.easeOut(duration: 0.3)) {
+            screenSaverActive = false
+          }
+        }
+        lastInteraction = Date()
+      }
+    #endif
     .task { await pixelShiftLoop() }
     #if os(iOS)
+      .task { await screenSaverLoop() }
       .fullScreenCover(isPresented: $showConfig) {
         RunningConfigView(viewModel: viewModel)
+      }
+      .onChange(of: showConfig) { _ in
+        lastInteraction = Date()
       }
     #else
       .sheet(isPresented: $showConfig) {
         RunningConfigView(viewModel: viewModel)
       }
     #endif
+  }
+
+  private var topBar: some View {
+    HStack {
+      statusIndicator
+      Spacer()
+      gearButton
+    }
+    .padding(.horizontal, 12)
+    .offset(pixelOffset)
   }
 
   // MARK: - Status Indicator
@@ -54,6 +92,7 @@ struct RunningView: View {
       viewModel.pressButton()
       #if os(iOS)
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        lastInteraction = Date()
       #endif
       buttonCooldown = true
       Task { @MainActor in
@@ -109,6 +148,41 @@ struct RunningView: View {
       }
     }
   }
+
+  // MARK: - Screen Saver (iOS)
+
+  #if os(iOS)
+    private var screenSaverOverlay: some View {
+      Text(Date(), style: .time)
+        .font(.system(size: 48, weight: .thin, design: .rounded))
+        .foregroundStyle(.white.opacity(0.4))
+    }
+
+    @MainActor
+    private func screenSaverLoop() async {
+      while !Task.isCancelled {
+        try? await Task.sleep(nanoseconds: 5_000_000_000)
+        guard !Task.isCancelled else { return }
+        guard viewModel.screenSaverEnabled else { continue }
+
+        let elapsed = Date().timeIntervalSince(lastInteraction)
+        if elapsed >= viewModel.screenSaverDelay.duration && !screenSaverActive {
+          withAnimation(.easeIn(duration: 1.0)) {
+            screenSaverActive = true
+          }
+        }
+
+        if screenSaverActive {
+          withAnimation(.easeInOut(duration: 3.0)) {
+            screenSaverOffset = CGSize(
+              width: CGFloat.random(in: -40...40),
+              height: CGFloat.random(in: -100...100)
+            )
+          }
+        }
+      }
+    }
+  #endif
 }
 
 struct RunningConfigView: View {
