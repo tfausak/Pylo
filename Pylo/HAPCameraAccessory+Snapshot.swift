@@ -24,7 +24,7 @@ extension HAPCameraAccessory {
     // on the same camera simultaneously). Use the lock-based accessor to avoid
     // a TOCTOU race with concurrent streamSession mutations.
     if hasActiveStreamSession {
-      logger.info("Stream active -- returning cached snapshot")
+      logger.debug("Stream active -- returning cached snapshot")
       return cachedSnapshot
     }
 
@@ -33,7 +33,7 @@ extension HAPCameraAccessory {
     // new AVCaptureSession, which causes HomeKit to show "No Response".
     // Only use cache if fresh (within 2s) to avoid serving stale images.
     if let cached = cachedSnapshot(maxAgeSeconds: 2) {
-      logger.info("Returning cached monitoring snapshot")
+      logger.debug("Returning cached monitoring snapshot")
       return cached
     }
 

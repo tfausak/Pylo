@@ -428,7 +428,7 @@ extension HAPCameraAccessory {
 
   func handleSetupDataStream(_ value: HAPValue, sharedSecret: SharedSecret?) -> Bool {
     guard case .string(let b64) = value, let data = Data(base64Encoded: b64) else { return false }
-    logger.info("SetupDataStreamTransport: \(data.count) bytes")
+    logger.debug("SetupDataStreamTransport: \(data.count) bytes")
     // NOTE: onSetupDataStream writes setupDataStreamResponse via a callback, but
     // writeCharacteristic returns true synchronously. If the callback is nil or
     // never fires, the next read of setupDataStreamResponse will serve stale data.

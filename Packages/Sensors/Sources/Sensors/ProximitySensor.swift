@@ -38,7 +38,7 @@ import os
         forName: UIDevice.proximityStateDidChangeNotification, object: nil, queue: .main
       ) { [weak self] _ in MainActor.assumeIsolated { self?.proximityDidChange() } }
 
-      logger.info("Proximity sensor started")
+      logger.debug("Proximity sensor started")
     #else
       isAvailable = false
       logger.info("Proximity monitoring not available on this platform")
@@ -54,7 +54,7 @@ import os
       UIDevice.current.isProximityMonitoringEnabled = false
     #endif
     isAvailable = false
-    logger.info("Proximity sensor stopped")
+    logger.debug("Proximity sensor stopped")
   }
 
   /// Current contact state: true = contact detected (near), false = no contact (far).

@@ -509,9 +509,9 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     case Self.iidSelectedCameraRecordingConfig:
       let config = hksvState.withLock { $0.selectedRecordingConfig }
       if config.isEmpty {
-        logger.info("SelectedCameraRecordingConfig read: empty (not yet configured)")
+        logger.debug("SelectedCameraRecordingConfig read: empty (not yet configured)")
       } else {
-        logger.info("SelectedCameraRecordingConfig read: \(config.count) bytes")
+        logger.debug("SelectedCameraRecordingConfig read: \(config.count) bytes")
       }
       return .string(config.base64EncodedString())
     case Self.iidRecordingAudioActive:

@@ -73,7 +73,7 @@ import os
       observers.append(timer as AnyObject)
     #endif
 
-    logger.info("Battery monitor started")
+    logger.debug("Battery monitor started")
   }
 
   public func stop() {
@@ -89,7 +89,7 @@ import os
       UIDevice.current.isBatteryMonitoringEnabled = false
     #endif
     isAvailable = false
-    logger.info("Battery monitor stopped")
+    logger.debug("Battery monitor stopped")
   }
 
   /// Read the current battery state.

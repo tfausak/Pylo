@@ -344,16 +344,16 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
               $0.pcmAccumulator = Data()
             }
             audioReady = true
-            logger.info("Monitoring audio capture + AAC-ELD encoder ready")
+            logger.debug("Monitoring audio capture + AAC-ELD encoder ready")
           }
         }
       }
     }
     if !audioReady {
       if !audioRecordingEnabled {
-        logger.info("Monitoring capture: recording audio disabled by hub, video-only mode")
+        logger.debug("Monitoring capture: recording audio disabled by hub, video-only mode")
       } else {
-        logger.info("Monitoring capture: microphone unavailable, video-only mode")
+        logger.debug("Monitoring capture: microphone unavailable, video-only mode")
       }
     }
 

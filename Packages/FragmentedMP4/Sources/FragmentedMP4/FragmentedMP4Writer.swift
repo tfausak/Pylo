@@ -454,7 +454,7 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
       let seqNum = s.moofSequenceNumber
       let baseDT = s.accumulatedDecodeTime
       let hasAudio = s.includeAudioTrack
-      logger.info(
+      logger.debug(
         "First moof: seq=\(seqNum), samples=\(nv), baseDecodeTime=\(baseDT), totalTicks=\(totalTicks), audioFrames=\(na), audio=\(hasAudio), moof=\(moof.count)B, mdat=\(mdatBoxSize)B"
       )
       s.hasLoggedFirstFragment = true
@@ -539,7 +539,7 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
     let width = UInt16(dims.width)
     let height = UInt16(dims.height)
 
-    logger.info(
+    logger.debug(
       "buildInitSegment: \(width)x\(height), SPS=\(sps.count)B, PPS=\(pps.count)B, timescale=\(self.videoTimescale), audio=\(includeAudio)"
     )
 
@@ -591,7 +591,7 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
 
     var result = ftyp
     result.append(moov)
-    logger.info("buildInitSegment: \(result.count) bytes")
+    logger.debug("buildInitSegment: \(result.count) bytes")
     return result
   }
 

@@ -235,7 +235,7 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
     logger.info(
       "Starting stream: \(width)x\(height)@\(fps)fps, \(bitrate)kbps, PT=\(payloadType) → \(self.controllerAddress):\(self.controllerVideoPort)"
     )
-    logger.info(
+    logger.debug(
       "SRTP key=\(self.videoSRTPKey.count)B salt=\(self.videoSRTPSalt.count)B SSRC=\(self.videoSSRC)"
     )
 
@@ -300,7 +300,7 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
     _ = fcntl(videoFD, F_SETFL, videoFlags | O_NONBLOCK)
 
     self.videoSocketFD = videoFD
-    logger.info("Video BSD socket bound to port \(self.localVideoPort)")
+    logger.debug("Video BSD socket bound to port \(self.localVideoPort)")
 
     var vidAddr = sockaddr_in()
     vidAddr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
@@ -365,7 +365,7 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
     _ = fcntl(fd, F_SETFL, flags | O_NONBLOCK)
 
     self.audioSocketFD = fd
-    logger.info("Audio BSD socket bound to port \(self.localAudioPort)")
+    logger.debug("Audio BSD socket bound to port \(self.localAudioPort)")
 
     // Store controller audio address for sendto()
     var ctrlAddr = sockaddr_in()
@@ -581,7 +581,7 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
       // Reuse the monitoring session's running AVCaptureSession — reconfigure
       // in-place to avoid the ~500ms cold-start of creating a new one.
       session = existing
-      logger.info("Reusing handed-off capture session (already running)")
+      logger.debug("Reusing handed-off capture session (already running)")
 
       session.beginConfiguration()
 
@@ -668,7 +668,7 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
           session.addOutput(audioOut)
           self.audioOutput = audioOut
           self.audioCaptureDelegate = audioDelegate
-          logger.info("Microphone audio capture added to session")
+          logger.debug("Microphone audio capture added to session")
         }
       } else if !microphoneEnabled {
         logger.info("Microphone disabled by user — streaming without audio")
@@ -678,7 +678,7 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
 
       captureQueue.async { [weak self] in
         session.startRunning()
-        self?.logger.info("Capture session running: \(session.isRunning)")
+        self?.logger.debug("Capture session running: \(session.isRunning)")
       }
     }
 

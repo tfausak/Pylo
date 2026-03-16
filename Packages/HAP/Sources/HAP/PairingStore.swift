@@ -65,7 +65,7 @@ public final class PairingStore: @unchecked Sendable {
       let normalized = decoded.reduce(into: [String: Pairing]()) { result, entry in
         let key = Self.normalizeID(entry.key)
         result[key] = entry.value
-        Self.logger.info("  Pairing: \(key) admin=\(entry.value.isAdmin)")
+        Self.logger.debug("  Pairing: \(key) admin=\(entry.value.isAdmin)")
       }
       lock.withLock { $0 = normalized }
       Self.logger.info("Loaded \(normalized.count) pairing(s) from disk")

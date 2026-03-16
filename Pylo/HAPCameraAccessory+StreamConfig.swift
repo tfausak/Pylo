@@ -174,14 +174,14 @@ extension HAPCameraAccessory {
         // Selected general recording configuration
         let sub = TLV8.decode(val) as [(UInt8, Data)]
         for (stag, _) in sub {
-          logger.info("Selected recording config tag 0x\(String(stag, radix: 16))")
+          logger.debug("Selected recording config tag 0x\(String(stag, radix: 16))")
         }
       } else if tag == 0x02 {
         // Selected video configuration
-        logger.info("Selected video recording config: \(val.count) bytes")
+        logger.debug("Selected video recording config: \(val.count) bytes")
       } else if tag == 0x03 {
         // Selected audio configuration
-        logger.info("Selected audio recording config: \(val.count) bytes")
+        logger.debug("Selected audio recording config: \(val.count) bytes")
       }
     }
   }

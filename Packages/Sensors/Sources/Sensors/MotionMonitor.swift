@@ -82,7 +82,7 @@ public nonisolated final class MotionMonitor: @unchecked Sendable {
         self?.handleAccelerometerUpdate(data: data, error: error)
       }
 
-      logger.info("Motion monitor started")
+      logger.debug("Motion monitor started")
     #else
       logger.info("Motion monitor not available on this platform")
     #endif
@@ -144,6 +144,6 @@ public nonisolated final class MotionMonitor: @unchecked Sendable {
       $0.isMotionDetected = false
       $0.lastMotionDate = .distantPast
     }
-    logger.info("Motion monitor stopped")
+    logger.debug("Motion monitor stopped")
   }
 }

@@ -116,7 +116,7 @@ public enum CharacteristicsHandler {
       if c["r"] as? Bool == true { flags += "r" }
       putSummary.append("\(aid).\(iid)[\(flags)]")
     }
-    logger.info("PUT chars: \(putSummary.joined(separator: ", "))\(hasPID ? " (timed)" : "")")
+    logger.debug("PUT chars: \(putSummary.joined(separator: ", "))\(hasPID ? " (timed)" : "")")
 
     var results: [[String: Any]] = []
     var allOK = true
