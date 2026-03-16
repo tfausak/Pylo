@@ -16,34 +16,22 @@ struct RunningView: View {
           .offset(pixelOffset)
       }
     }
-    .overlay(alignment: .top) {
-      HStack {
-        statusIndicator
-        Spacer()
-        gearButton
-      }
-      .padding(.horizontal, 12)
-      .offset(pixelOffset)
+    .overlay(alignment: .topTrailing) {
+      gearButton
+        .padding(.horizontal, 12)
+        .offset(pixelOffset)
     }
     .task { await pixelShiftLoop() }
     #if os(iOS)
-      .fullScreenCover(isPresented: $showConfig) {
+      .navigationBarHidden(true)
+      .fullScreenCover(isPresented: $showConfig, onDismiss: restartIfNeeded) {
         RunningConfigView(viewModel: viewModel)
       }
     #else
-      .sheet(isPresented: $showConfig) {
+      .sheet(isPresented: $showConfig, onDismiss: restartIfNeeded) {
         RunningConfigView(viewModel: viewModel)
       }
     #endif
-  }
-
-  // MARK: - Status Indicator
-
-  private var statusIndicator: some View {
-    Image(systemName: "checkmark")
-      .font(.title2)
-      .foregroundStyle(.green)
-      .padding(20)
   }
 
   // MARK: - Button
@@ -57,21 +45,17 @@ struct RunningView: View {
       #endif
       buttonCooldown = true
       Task { @MainActor in
-        try? await Task.sleep(nanoseconds: 2_000_000_000)
+        try? await Task.sleep(nanoseconds: 1_000_000_000)
         buttonCooldown = false
       }
     } label: {
-      Image(systemName: "hand.tap")
-        .font(.system(size: 48))
+      Image(systemName: buttonCooldown ? "checkmark" : "hand.tap")
+        .font(.system(size: 56))
         .foregroundStyle(buttonCooldown ? .gray : .white)
-        .frame(width: 150, height: 150)
-        .background(
-          ZStack {
-            Circle()
-              .fill(buttonCooldown ? Color.gray.opacity(0.3) : Color.white.opacity(0.15))
-            Circle()
-              .strokeBorder(Color.white.opacity(0.3), lineWidth: 1)
-          }
+        .frame(width: 170, height: 170)
+        .overlay(
+          Circle()
+            .strokeBorder(Color.white.opacity(0.3), lineWidth: 1)
         )
     }
     .disabled(buttonCooldown)
@@ -86,12 +70,18 @@ struct RunningView: View {
     Button {
       showConfig = true
     } label: {
-      Image(systemName: "gearshape.fill")
+      Image(systemName: "gear")
         .font(.title2)
         .foregroundStyle(.white.opacity(0.5))
         .padding(20)
     }
     .accessibilityLabel("Settings")
+  }
+
+  private func restartIfNeeded() {
+    if viewModel.needsRestart {
+      viewModel.restart()
+    }
   }
 
   // MARK: - Pixel Shift
@@ -118,39 +108,37 @@ struct RunningView: View {
 struct RunningConfigView: View {
   @ObservedObject var viewModel: HAPViewModel
   @Environment(\.dismiss) private var dismiss
-  @State private var savedConfig: AccessoryConfig?
 
   var body: some View {
     NavigationView {
       ContentView(viewModel: viewModel, forceConfig: true)
         .navigationTitle("Settings")
         .toolbar {
-          ToolbarItem(placement: .cancellationAction) {
-            Button(viewModel.needsRestart ? "Cancel" : "Close") {
-              if let savedConfig {
-                viewModel.restoreConfig(savedConfig)
-              }
-              dismiss()
-            }
-          }
           ToolbarItem(placement: .confirmationAction) {
-            Button("Save") {
-              viewModel.restart()
+            Button("Done") {
               dismiss()
             }
             .font(.body.weight(.semibold))
-            .disabled(!viewModel.needsRestart)
           }
         }
+        .safeAreaInset(edge: .bottom) {
+          if viewModel.needsRestart {
+            Text("Server will restart on close")
+              .font(.subheadline.weight(.medium))
+              .frame(maxWidth: .infinity)
+              .padding(12)
+              .background(.thinMaterial, in: .rect(cornerRadius: 12))
+              .padding(.horizontal)
+              .padding(.bottom, 4)
+              .transition(.move(edge: .bottom).combined(with: .opacity))
+          }
+        }
+        .animation(.default, value: viewModel.needsRestart)
     }
     #if os(iOS)
       .navigationViewStyle(.stack)
     #else
       .frame(minWidth: 480, minHeight: 500)
     #endif
-    .interactiveDismissDisabled(viewModel.needsRestart)
-    .onAppear {
-      savedConfig = AccessoryConfig(from: viewModel)
-    }
   }
 }

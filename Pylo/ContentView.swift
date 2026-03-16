@@ -68,7 +68,7 @@ struct ContentView: View {
       } else if viewModel.isNetworkDenied {
         networkDeniedBody
       } else if viewModel.hasPairings {
-        if viewModel.isRunning {
+        if viewModel.isRunning || viewModel.isStarting {
           RunningView(viewModel: viewModel)
         } else {
           pairedBody
@@ -77,24 +77,9 @@ struct ContentView: View {
         PairingView(viewModel: viewModel)
       }
     }
-    .navigationTitle(viewModel.isRunning ? "" : "Pylo")
-    .safeAreaInset(edge: .bottom) {
-      if viewModel.needsRestart {
-        Text("Restart to Apply")
-          .font(.subheadline.weight(.medium))
-          .frame(maxWidth: .infinity)
-          .padding(12)
-          .background(.orange, in: .rect(cornerRadius: 12))
-          .foregroundStyle(.white)
-          .contentShape(Rectangle())
-          .onTapGesture {
-            viewModel.restart()
-          }
-          .accessibilityAddTraits(.isButton)
-          .padding(.horizontal)
-          .padding(.bottom, 4)
-          .transition(.move(edge: .bottom).combined(with: .opacity))
-      } else if viewModel.isWaitingForHomeApp {
+    .navigationTitle(viewModel.isRunning || viewModel.isStarting ? "" : "Pylo")
+    .overlay(alignment: .bottom) {
+      if viewModel.isWaitingForHomeApp {
         HStack(spacing: 8) {
           ProgressView()
           Text("Updating Home…")
@@ -102,13 +87,12 @@ struct ContentView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(12)
-        .background(.secondary.opacity(0.2), in: .rect(cornerRadius: 12))
+        .background(.thinMaterial, in: .rect(cornerRadius: 12))
         .padding(.horizontal)
         .padding(.bottom, 4)
         .transition(.move(edge: .bottom).combined(with: .opacity))
       }
     }
-    .animation(.default, value: viewModel.needsRestart)
     .animation(.default, value: viewModel.isWaitingForHomeApp)
   }
 
@@ -162,7 +146,7 @@ struct ContentView: View {
       // Camera picker
       if !viewModel.availableCameras.isEmpty {
         HStack {
-          Label("Camera", systemImage: "camera.fill")
+          Label("Camera", systemImage: "camera")
           Spacer()
           Picker("Camera", selection: globalCameraBinding) {
             ForEach(viewModel.availableCameras) { camera in
@@ -211,7 +195,7 @@ struct ContentView: View {
   private var accessoriesSection: some View {
     // Camera
     AccessoryCard(
-      icon: "camera.fill",
+      icon: "camera",
       title: "Camera",
       isOn: cameraEnabled,
       blocked: !viewModel.hasCamera || viewModel.cameraPermissionDenied,
@@ -225,7 +209,7 @@ struct ContentView: View {
 
     // Light Sensor
     AccessoryCard(
-      icon: "light.beacon.max",
+      icon: "rays",
       title: "Light Sensor",
       isOn: lightSensorEnabled,
       blocked: !viewModel.hasCamera || !viewModel.hasAmbientLight
@@ -240,7 +224,7 @@ struct ContentView: View {
 
     // Occupancy Sensor
     AccessoryCard(
-      icon: "person.fill.viewfinder",
+      icon: "figure",
       title: "Occupancy Sensor",
       isOn: occupancyEnabled,
       blocked: !viewModel.hasCamera || viewModel.cameraPermissionDenied,
@@ -254,7 +238,7 @@ struct ContentView: View {
 
     // Flashlight
     AccessoryCard(
-      icon: "flashlight.off.fill",
+      icon: "flashlight.on.fill",
       title: "Flashlight",
       isOn: flashlightEnabled,
       blocked: !viewModel.hasTorch || viewModel.cameraPermissionDenied,
@@ -269,7 +253,7 @@ struct ContentView: View {
 
     // Motion Sensor
     AccessoryCard(
-      icon: "figure.walk.motion",
+      icon: "iphone.motion",
       title: "Motion Sensor",
       isOn: motionEnabled,
       blocked: !viewModel.hasAccelerometer,
@@ -282,7 +266,7 @@ struct ContentView: View {
 
     // Contact Sensor
     AccessoryCard(
-      icon: "sensor.tag.radiowaves.forward.fill",
+      icon: "contact.sensor",
       title: "Contact Sensor",
       isOn: contactEnabled,
       blocked: !viewModel.hasProximity,
@@ -295,7 +279,7 @@ struct ContentView: View {
 
     // Siren
     AccessoryCard(
-      icon: "speaker.wave.3.fill",
+      icon: "speaker.wave.3",
       title: "Siren",
       isOn: $viewModel.sirenEnabled,
       description: "Plays an alarm sound through the device speaker when triggered."
@@ -701,8 +685,4 @@ extension View {
 
 #Preview("Paired") {
   ContentView(viewModel: .preview(running: true, paired: true, lightOn: true))
-}
-
-#Preview("Needs Restart") {
-  ContentView(viewModel: .preview(running: true, paired: true, needsRestart: true))
 }

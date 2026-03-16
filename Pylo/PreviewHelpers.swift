@@ -14,7 +14,6 @@ extension HAPViewModel {
     contactDetected: Bool = false,
     occupancyEnabled: Bool = false,
     occupancyDetected: Bool = false,
-    needsRestart: Bool = false,
     keepScreenAwake: Bool = true,
     sirenEnabled: Bool = false,
     sirenActive: Bool = false
@@ -51,22 +50,7 @@ extension HAPViewModel {
       ]
     }
     if running {
-      if needsRestart {
-        vm.startedConfig = AccessoryConfig(
-          cameraEnabled: vm.cameraEnabled,
-          flashlightEnabled: !flashlightEnabled,
-          selectedCameraID: vm.selectedStreamCamera?.id,
-          motionEnabled: motionEnabled,
-          microphoneEnabled: vm.microphoneEnabled,
-          contactEnabled: contactEnabled,
-          lightSensorEnabled: vm.lightSensorEnabled,
-          occupancyEnabled: occupancyEnabled,
-          sirenEnabled: sirenEnabled,
-          buttonEnabled: vm.buttonEnabled
-        )
-      } else {
-        vm.startedConfig = AccessoryConfig(from: vm)
-      }
+      vm.startedConfig = AccessoryConfig(from: vm)
     }
     return vm
   }
