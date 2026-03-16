@@ -3,6 +3,7 @@ import CoreImage
 import CryptoKit
 import Foundation
 import HAP
+import Locked
 import Sensors
 import Streaming
 import TLV8
@@ -110,18 +111,16 @@ struct HAPAccessoryTests {
   @Test("State change callback fires on write")
   func stateChangeCallback() {
     let accessory = HAPAccessory(aid: 2)
-    nonisolated(unsafe) var callbackCalled = false
-    nonisolated(unsafe) var receivedAid = 0
-    nonisolated(unsafe) var receivedIid = 0
+    struct CallbackState { var called = false; var aid = 0; var iid = 0 }
+    let state = Locked(initialState: CallbackState())
     accessory.onStateChange = { aid, iid, _ in
-      callbackCalled = true
-      receivedAid = aid
-      receivedIid = iid
+      state.withLock { $0 = CallbackState(called: true, aid: aid, iid: iid) }
     }
     accessory.writeCharacteristic(iid: HAPAccessory.iidOn, value: .bool(true))
-    #expect(callbackCalled)
-    #expect(receivedAid == 2)
-    #expect(receivedIid == HAPAccessory.iidOn)
+    let captured = state.withLock { $0 }
+    #expect(captured.called)
+    #expect(captured.aid == 2)
+    #expect(captured.iid == HAPAccessory.iidOn)
   }
 
   @Test("toJSON has correct structure")
@@ -610,12 +609,12 @@ struct CameraWriteCharacteristicTests {
   @Test("Recording active triggers monitoring when no stream session exists")
   func recordingActiveStartsMonitoring() {
     let camera = HAPCameraAccessory(aid: 3)
-    nonisolated(unsafe) var monitoringNeeded: Bool?
+    let monitoringNeeded = Locked<Bool?>(initialState: nil)
     camera.onMonitoringCaptureNeeded = { needed, _ in
-      monitoringNeeded = needed
+      monitoringNeeded.withLock { $0 = needed }
     }
     camera.writeCharacteristic(iid: HAPCameraAccessory.iidRecordingActive, value: .int(1))
-    #expect(monitoringNeeded == true)
+    #expect(monitoringNeeded.withLock { $0 } == true)
   }
 
   @Test("Recording active does not trigger monitoring when stream session exists")
@@ -632,12 +631,12 @@ struct CameraWriteCharacteristicTests {
       ciContext: CIContext()
     )
     camera.streamSession = dummySession
-    nonisolated(unsafe) var monitoringCalled = false
+    let monitoringCalled = Locked(initialState: false)
     camera.onMonitoringCaptureNeeded = { _, _ in
-      monitoringCalled = true
+      monitoringCalled.withLock { $0 = true }
     }
     camera.writeCharacteristic(iid: HAPCameraAccessory.iidRecordingActive, value: .int(1))
-    #expect(monitoringCalled == false)
+    #expect(monitoringCalled.withLock { $0 } == false)
   }
 
   @Test("Recording deactivate triggers monitoring stop")
@@ -645,38 +644,40 @@ struct CameraWriteCharacteristicTests {
     let camera = HAPCameraAccessory(aid: 3)
     // First activate
     camera.writeCharacteristic(iid: HAPCameraAccessory.iidRecordingActive, value: .int(1))
-    nonisolated(unsafe) var monitoringNeeded: Bool?
+    let monitoringNeeded = Locked<Bool?>(initialState: nil)
     camera.onMonitoringCaptureNeeded = { needed, _ in
-      monitoringNeeded = needed
+      monitoringNeeded.withLock { $0 = needed }
     }
     camera.writeCharacteristic(iid: HAPCameraAccessory.iidRecordingActive, value: .int(0))
-    #expect(monitoringNeeded == false)
+    #expect(monitoringNeeded.withLock { $0 } == false)
   }
 
   @Test("Recording active fires onStateChange")
   func recordingActiveFiresStateChange() {
     let camera = HAPCameraAccessory(aid: 3)
-    nonisolated(unsafe) var receivedValue: HAPValue?
+    let receivedValue = Locked<HAPValue?>(initialState: nil)
     camera.onStateChange = { _, _, value in
-      receivedValue = value
+      receivedValue.withLock { $0 = value }
     }
     camera.writeCharacteristic(iid: HAPCameraAccessory.iidRecordingActive, value: .int(1))
-    #expect(receivedValue == .int(1))
+    #expect(receivedValue.withLock { $0 } == .int(1))
   }
 
   @Test("HomeKitCameraActive write updates state and fires callback")
   func homeKitCameraActiveWrite() {
     let camera = HAPCameraAccessory(aid: 3)
-    nonisolated(unsafe) var stateChanges: [(Int, HAPValue)] = []
+    struct Change: Sendable { let iid: Int; let value: HAPValue }
+    let stateChanges = Locked<[Change]>(initialState: [])
     camera.onStateChange = { _, iid, value in
-      stateChanges.append((iid, value))
+      stateChanges.withLock { $0.append(Change(iid: iid, value: value)) }
     }
     camera.writeCharacteristic(iid: HAPCameraAccessory.iidHomeKitCameraActive, value: .bool(false))
     #expect(camera.homeKitCameraActive == false)
     // Should also mirror to motion sensor StatusActive
-    #expect(stateChanges.count == 2)
-    #expect(stateChanges[0].0 == HAPCameraAccessory.iidHomeKitCameraActive)
-    #expect(stateChanges[1].0 == HAPCameraAccessory.iidMotionSensorStatusActive)
+    let changes = stateChanges.withLock { $0 }
+    #expect(changes.count == 2)
+    #expect(changes[0].iid == HAPCameraAccessory.iidHomeKitCameraActive)
+    #expect(changes[1].iid == HAPCameraAccessory.iidMotionSensorStatusActive)
   }
 
   @Test("Microphone mute write updates audio settings")
@@ -731,18 +732,16 @@ struct ButtonTests {
   @Test("trigger fires onStateChange with single press event")
   func triggerFiresEvent() {
     let btn = makeButton()
-    nonisolated(unsafe) var receivedAID: Int?
-    nonisolated(unsafe) var receivedIID: Int?
-    nonisolated(unsafe) var receivedValue: HAPValue?
+    struct Event: Sendable { let aid: Int; let iid: Int; let value: HAPValue }
+    let received = Locked<Event?>(initialState: nil)
     btn.onStateChange = { aid, iid, value in
-      receivedAID = aid
-      receivedIID = iid
-      receivedValue = value
+      received.withLock { $0 = Event(aid: aid, iid: iid, value: value) }
     }
     btn.trigger()
-    #expect(receivedAID == AccessoryID.button)
-    #expect(receivedIID == HAPButtonAccessory.iidProgrammableSwitchEvent)
-    #expect(receivedValue == .int(0))
+    let event = received.withLock { $0 }
+    #expect(event?.aid == AccessoryID.button)
+    #expect(event?.iid == HAPButtonAccessory.iidProgrammableSwitchEvent)
+    #expect(event?.value == .int(0))
   }
 
   @Test("toJSON includes programmable switch service with service label")
