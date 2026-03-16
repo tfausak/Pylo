@@ -606,8 +606,9 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
         onRecordingConfigChange?(isActive)
         onStateChange?(aid, iid, .int(v))
         // Signal monitoring capture: needed when recording armed + no live stream.
-        // Check streamSession atomically to avoid a TOCTOU race where a concurrent
-        // handleSetupEndpoints could install a session between the nil-check and callback.
+        // Read streamSession through the lock to avoid tearing; this is still a
+        // point-in-time check (a session could be installed right after), but the
+        // monitoring layer handles that overlap gracefully.
         if isActive {
           let hasStream = hasActiveStreamSession
           if !hasStream {

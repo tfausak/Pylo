@@ -886,8 +886,18 @@ final class HAPViewModel: ObservableObject {
     // didSet side effects were suppressed by isRestoring, so sync monitors
     // to match the restored state. Without this, a monitor stopped during
     // settings editing stays stopped even though the property is re-enabled.
-    if motionEnabled { motionMonitor?.start() } else { motionMonitor?.stop() }
-    if contactEnabled { proximitySensor?.start() } else { proximitySensor?.stop() }
+    if motionEnabled {
+      motionMonitor?.start()
+    } else {
+      motionMonitor?.stop()
+      isMotionDetected = false
+    }
+    if contactEnabled {
+      proximitySensor?.start()
+    } else {
+      proximitySensor?.stop()
+      isContactDetected = false
+    }
   }
 
   @MainActor
@@ -1234,8 +1244,11 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
         label: "\(Bundle.main.bundleIdentifier!).snapshot-encode", qos: .utility)
       monitoring.snapshotCallback = { [weak camera] pixelBuffer in
         // Render the CVPixelBuffer to a CGImage synchronously while the buffer
-        // is still valid. AVFoundation may recycle the pixel buffer's backing
-        // memory after this callback returns, so async access is unsafe.
+        // is still valid. AVFoundation recycles pixel buffer backing memory
+        // after this callback returns, so deferring access is unsafe.
+        // createCGImage copies the pixel data, freeing the buffer quickly to
+        // avoid starving the capture session's buffer pool. Only the cheaper
+        // JPEG encode step is dispatched to snapshotQueue.
         let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
         guard let cgImage = ciContext.createCGImage(ciImage, from: ciImage.extent) else { return }
         snapshotQueue.async { [weak camera] in
