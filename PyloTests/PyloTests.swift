@@ -984,3 +984,77 @@ struct AudioResamplingTests {
     }
   }
 }
+
+// MARK: - AccessoryConfig Tests
+
+@Suite("AccessoryConfig")
+@MainActor
+struct AccessoryConfigTests {
+
+  private func makeConfig(
+    flashlight: Bool = false, camera: String? = nil,
+    motion: Bool = false, microphone: Bool = false,
+    contact: Bool = false, lightSensor: Bool = false,
+    occupancy: Bool = false, sensorCamera: String? = nil,
+    siren: Bool = false, button: Bool = false
+  ) -> AccessoryConfig {
+    AccessoryConfig(
+      flashlightEnabled: flashlight, selectedCameraID: camera,
+      motionEnabled: motion, microphoneEnabled: microphone,
+      contactEnabled: contact, lightSensorEnabled: lightSensor,
+      occupancyEnabled: occupancy, sensorCameraID: sensorCamera,
+      sirenEnabled: siren, buttonEnabled: button
+    )
+  }
+
+  @Test("Identical configs are equal")
+  func identicalEqual() {
+    let a = makeConfig(flashlight: true, motion: true, siren: true)
+    let b = makeConfig(flashlight: true, motion: true, siren: true)
+    #expect(a == b)
+  }
+
+  @Test("Different flashlight setting is not equal")
+  func flashlightDiffers() {
+    let a = makeConfig(flashlight: true)
+    let b = makeConfig(flashlight: false)
+    #expect(a != b)
+  }
+
+  @Test("Different camera ID is not equal")
+  func cameraDiffers() {
+    let a = makeConfig(camera: "cam-1")
+    let b = makeConfig(camera: "cam-2")
+    #expect(a != b)
+  }
+
+  @Test("Nil vs non-nil camera is not equal")
+  func cameraNilVsNonNil() {
+    let a = makeConfig(camera: nil)
+    let b = makeConfig(camera: "cam-1")
+    #expect(a != b)
+  }
+
+  @Test("Toggle and toggle back produces equal config")
+  func toggleRoundTrip() {
+    let original = makeConfig(motion: true, contact: true)
+    var modified = original
+    modified.motionEnabled = false
+    modified.motionEnabled = true
+    #expect(original == modified)
+  }
+
+  @Test("Each field independently affects equality")
+  func eachFieldMatters() {
+    let base = makeConfig()
+    #expect(base != makeConfig(flashlight: true))
+    #expect(base != makeConfig(motion: true))
+    #expect(base != makeConfig(microphone: true))
+    #expect(base != makeConfig(contact: true))
+    #expect(base != makeConfig(lightSensor: true))
+    #expect(base != makeConfig(occupancy: true))
+    #expect(base != makeConfig(siren: true))
+    #expect(base != makeConfig(button: true))
+    #expect(base != makeConfig(sensorCamera: "s1"))
+  }
+}
