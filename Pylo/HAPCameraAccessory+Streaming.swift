@@ -342,18 +342,17 @@ extension HAPCameraAccessory {
   // MARK: - Utility
 
   /// Returns the local IPv4 address on the same subnet as `peerAddress`.
-  /// Falls back to any private address on en0 (WiFi) if no subnet match found.
+  /// Uses the interface's actual netmask for proper subnet comparison (works
+  /// with any CIDR prefix, not just /24). Falls back to any private address
+  /// on en0 (WiFi) if no subnet match found.
   static func localIPAddress(matching peerAddress: String = "") -> String? {
     var ifaddr: UnsafeMutablePointer<ifaddrs>?
     guard getifaddrs(&ifaddr) == 0, let firstAddr = ifaddr else { return nil }
     defer { freeifaddrs(ifaddr) }
 
-    // Extract the peer's /24 prefix (e.g. "192.168.4.") for subnet matching
-    let peerPrefix: String? = {
-      let parts = peerAddress.split(separator: ".")
-      guard parts.count == 4 else { return nil }
-      return parts[0..<3].joined(separator: ".") + "."
-    }()
+    // Parse the peer address to a binary IPv4 address for subnet comparison
+    var peerAddr = in_addr()
+    let hasPeer = inet_pton(AF_INET, peerAddress, &peerAddr) == 1
 
     var subnetMatch: String?
     var wifiAddress: String?
@@ -389,9 +388,19 @@ extension HAPCameraAccessory {
 
       let ifName = String(cString: ptr.pointee.ifa_name)
 
-      // Best: same /24 subnet as the controller
-      if let prefix = peerPrefix, ip.hasPrefix(prefix), subnetMatch == nil {
-        subnetMatch = ip
+      // Best: same subnet as the controller (using actual netmask)
+      if hasPeer, subnetMatch == nil,
+        let maskPtr = ptr.pointee.ifa_netmask
+      {
+        let localAddr = withUnsafePointer(to: ptr.pointee.ifa_addr.pointee) { rawAddr in
+          rawAddr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee.sin_addr }
+        }
+        let mask = maskPtr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) {
+          $0.pointee.sin_addr
+        }
+        if (localAddr.s_addr & mask.s_addr) == (peerAddr.s_addr & mask.s_addr) {
+          subnetMatch = ip
+        }
       }
       // Good: WiFi interface
       if ifName == "en0", wifiAddress == nil {
