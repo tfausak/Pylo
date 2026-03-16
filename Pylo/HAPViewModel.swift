@@ -16,6 +16,32 @@ import SwiftUI
   import IOKit.pwr_mgt
 #endif
 
+// MARK: - Preference Keys
+
+/// Centralizes UserDefaults key strings to prevent typos. Each key is used in both
+/// the `@Published` property's `didSet` and in `restorePreferences()` — a mismatch
+/// between the two would silently break persistence.
+private nonisolated enum PrefKey {
+  static let flashlightEnabled = "flashlightEnabled"
+  static let motionEnabled = "motionEnabled"
+  static let motionSensitivity = "motionSensitivity"
+  static let videoQuality = "videoQuality"
+  static let microphoneEnabled = "microphoneEnabled"
+  static let contactEnabled = "contactEnabled"
+  static let lightSensorEnabled = "lightSensorEnabled"
+  static let occupancyEnabled = "occupancyEnabled"
+  static let occupancyCooldown = "occupancyCooldown"
+  static let sirenEnabled = "sirenEnabled"
+  static let buttonEnabled = "buttonEnabled"
+  static let keepScreenAwake = "keepScreenAwake"
+  static let selectedStreamCameraID = "selectedStreamCameraID"
+  static let hasPairings = "hasPairings"
+  static let hasSeenWelcome = "hasSeenWelcome"
+  static let recordingActive = "recordingActive"
+  static let recordingAudioActive = "recordingAudioActive"
+  static let selectedRecordingConfig = "selectedRecordingConfig"
+}
+
 // MARK: - Accessory Config Snapshot
 
 /// Captures the accessory-enable state at server start so we can detect
@@ -98,10 +124,10 @@ final class HAPViewModel: ObservableObject {
     didSet {
       guard !isRestoring, oldValue?.id != selectedStreamCamera?.id else { return }
       if let selectedStreamCamera {
-        UserDefaults.standard.set(selectedStreamCamera.id, forKey: "selectedStreamCameraID")
+        UserDefaults.standard.set(selectedStreamCamera.id, forKey: PrefKey.selectedStreamCameraID)
         cameraAccessory?.selectedCameraID = selectedStreamCamera.id
       } else {
-        UserDefaults.standard.set("none", forKey: "selectedStreamCameraID")
+        UserDefaults.standard.set("none", forKey: PrefKey.selectedStreamCameraID)
         cameraAccessory?.selectedCameraID = nil
       }
     }
@@ -109,13 +135,13 @@ final class HAPViewModel: ObservableObject {
   @Published var flashlightEnabled: Bool = false {
     didSet {
       guard !isRestoring, flashlightEnabled != oldValue else { return }
-      UserDefaults.standard.set(flashlightEnabled, forKey: "flashlightEnabled")
+      UserDefaults.standard.set(flashlightEnabled, forKey: PrefKey.flashlightEnabled)
     }
   }
   @Published var motionEnabled: Bool = false {
     didSet {
       guard !isRestoring, motionEnabled != oldValue else { return }
-      UserDefaults.standard.set(motionEnabled, forKey: "motionEnabled")
+      UserDefaults.standard.set(motionEnabled, forKey: PrefKey.motionEnabled)
       if motionEnabled {
         motionMonitor?.start()
       } else {
@@ -127,14 +153,14 @@ final class HAPViewModel: ObservableObject {
   @Published var motionSensitivity: MotionSensitivity = .medium {
     didSet {
       guard !isRestoring, motionSensitivity != oldValue else { return }
-      UserDefaults.standard.set(motionSensitivity.rawValue, forKey: "motionSensitivity")
+      UserDefaults.standard.set(motionSensitivity.rawValue, forKey: PrefKey.motionSensitivity)
       motionMonitor?.threshold = motionSensitivity.threshold
     }
   }
   @Published var contactEnabled: Bool = false {
     didSet {
       guard !isRestoring, contactEnabled != oldValue else { return }
-      UserDefaults.standard.set(contactEnabled, forKey: "contactEnabled")
+      UserDefaults.standard.set(contactEnabled, forKey: PrefKey.contactEnabled)
       if contactEnabled {
         proximitySensor?.start()
       } else {
@@ -148,26 +174,26 @@ final class HAPViewModel: ObservableObject {
   @Published var microphoneEnabled: Bool = false {
     didSet {
       guard !isRestoring, microphoneEnabled != oldValue else { return }
-      UserDefaults.standard.set(microphoneEnabled, forKey: "microphoneEnabled")
+      UserDefaults.standard.set(microphoneEnabled, forKey: PrefKey.microphoneEnabled)
       cameraAccessory?.microphoneEnabled = microphoneEnabled
     }
   }
   @Published var lightSensorEnabled: Bool = false {
     didSet {
       guard !isRestoring, lightSensorEnabled != oldValue else { return }
-      UserDefaults.standard.set(lightSensorEnabled, forKey: "lightSensorEnabled")
+      UserDefaults.standard.set(lightSensorEnabled, forKey: PrefKey.lightSensorEnabled)
     }
   }
   @Published var occupancyEnabled: Bool = false {
     didSet {
       guard !isRestoring, occupancyEnabled != oldValue else { return }
-      UserDefaults.standard.set(occupancyEnabled, forKey: "occupancyEnabled")
+      UserDefaults.standard.set(occupancyEnabled, forKey: PrefKey.occupancyEnabled)
     }
   }
   @Published var occupancyCooldown: OccupancyCooldown = .fiveMinutes {
     didSet {
       guard !isRestoring, occupancyCooldown != oldValue else { return }
-      UserDefaults.standard.set(occupancyCooldown.rawValue, forKey: "occupancyCooldown")
+      UserDefaults.standard.set(occupancyCooldown.rawValue, forKey: PrefKey.occupancyCooldown)
       occupancySensor?.cooldown = occupancyCooldown.duration
     }
   }
@@ -175,20 +201,20 @@ final class HAPViewModel: ObservableObject {
   @Published var videoQuality: VideoQuality = .medium {
     didSet {
       guard !isRestoring, videoQuality != oldValue else { return }
-      UserDefaults.standard.set(videoQuality.rawValue, forKey: "videoQuality")
+      UserDefaults.standard.set(videoQuality.rawValue, forKey: PrefKey.videoQuality)
       cameraAccessory?.minimumBitrate = videoQuality.minimumBitrate
     }
   }
   @Published var sirenEnabled: Bool = false {
     didSet {
       guard !isRestoring, sirenEnabled != oldValue else { return }
-      UserDefaults.standard.set(sirenEnabled, forKey: "sirenEnabled")
+      UserDefaults.standard.set(sirenEnabled, forKey: PrefKey.sirenEnabled)
     }
   }
   @Published var buttonEnabled: Bool = false {
     didSet {
       guard !isRestoring, buttonEnabled != oldValue else { return }
-      UserDefaults.standard.set(buttonEnabled, forKey: "buttonEnabled")
+      UserDefaults.standard.set(buttonEnabled, forKey: PrefKey.buttonEnabled)
     }
   }
   @Published var isSirenActive = false
@@ -199,7 +225,7 @@ final class HAPViewModel: ObservableObject {
   @Published var keepScreenAwake: Bool = true {
     didSet {
       guard !isRestoring, keepScreenAwake != oldValue else { return }
-      UserDefaults.standard.set(keepScreenAwake, forKey: "keepScreenAwake")
+      UserDefaults.standard.set(keepScreenAwake, forKey: PrefKey.keepScreenAwake)
       updateIdleTimer()
     }
   }
@@ -371,8 +397,8 @@ final class HAPViewModel: ObservableObject {
     @MainActor
     func syncFromSettingsBundle() {
       let defaults = UserDefaults.standard
-      if defaults.object(forKey: "keepScreenAwake") != nil {
-        let value = defaults.bool(forKey: "keepScreenAwake")
+      if defaults.object(forKey: PrefKey.keepScreenAwake) != nil {
+        let value = defaults.bool(forKey: PrefKey.keepScreenAwake)
         if value != keepScreenAwake { keepScreenAwake = value }
       }
     }
@@ -396,47 +422,47 @@ final class HAPViewModel: ObservableObject {
   func restorePreferences() {
     isRestoring = true
     defer { isRestoring = false }
-    if UserDefaults.standard.object(forKey: "flashlightEnabled") != nil {
-      flashlightEnabled = UserDefaults.standard.bool(forKey: "flashlightEnabled")
+    if UserDefaults.standard.object(forKey: PrefKey.flashlightEnabled) != nil {
+      flashlightEnabled = UserDefaults.standard.bool(forKey: PrefKey.flashlightEnabled)
     }
-    if UserDefaults.standard.object(forKey: "motionEnabled") != nil {
-      motionEnabled = UserDefaults.standard.bool(forKey: "motionEnabled")
+    if UserDefaults.standard.object(forKey: PrefKey.motionEnabled) != nil {
+      motionEnabled = UserDefaults.standard.bool(forKey: PrefKey.motionEnabled)
     }
-    if let savedSensitivity = UserDefaults.standard.string(forKey: "motionSensitivity"),
+    if let savedSensitivity = UserDefaults.standard.string(forKey: PrefKey.motionSensitivity),
       let sensitivity = MotionSensitivity(rawValue: savedSensitivity)
     {
       motionSensitivity = sensitivity
     }
-    if let savedQuality = UserDefaults.standard.string(forKey: "videoQuality"),
+    if let savedQuality = UserDefaults.standard.string(forKey: PrefKey.videoQuality),
       let quality = VideoQuality(rawValue: savedQuality)
     {
       videoQuality = quality
     }
-    if UserDefaults.standard.object(forKey: "microphoneEnabled") != nil {
-      microphoneEnabled = UserDefaults.standard.bool(forKey: "microphoneEnabled")
+    if UserDefaults.standard.object(forKey: PrefKey.microphoneEnabled) != nil {
+      microphoneEnabled = UserDefaults.standard.bool(forKey: PrefKey.microphoneEnabled)
     }
-    if UserDefaults.standard.object(forKey: "contactEnabled") != nil {
-      contactEnabled = UserDefaults.standard.bool(forKey: "contactEnabled")
+    if UserDefaults.standard.object(forKey: PrefKey.contactEnabled) != nil {
+      contactEnabled = UserDefaults.standard.bool(forKey: PrefKey.contactEnabled)
     }
-    if UserDefaults.standard.object(forKey: "lightSensorEnabled") != nil {
-      lightSensorEnabled = UserDefaults.standard.bool(forKey: "lightSensorEnabled")
+    if UserDefaults.standard.object(forKey: PrefKey.lightSensorEnabled) != nil {
+      lightSensorEnabled = UserDefaults.standard.bool(forKey: PrefKey.lightSensorEnabled)
     }
-    if UserDefaults.standard.object(forKey: "occupancyEnabled") != nil {
-      occupancyEnabled = UserDefaults.standard.bool(forKey: "occupancyEnabled")
+    if UserDefaults.standard.object(forKey: PrefKey.occupancyEnabled) != nil {
+      occupancyEnabled = UserDefaults.standard.bool(forKey: PrefKey.occupancyEnabled)
     }
-    if let savedCooldown = UserDefaults.standard.string(forKey: "occupancyCooldown"),
+    if let savedCooldown = UserDefaults.standard.string(forKey: PrefKey.occupancyCooldown),
       let cooldown = OccupancyCooldown(rawValue: savedCooldown)
     {
       occupancyCooldown = cooldown
     }
-    if UserDefaults.standard.object(forKey: "sirenEnabled") != nil {
-      sirenEnabled = UserDefaults.standard.bool(forKey: "sirenEnabled")
+    if UserDefaults.standard.object(forKey: PrefKey.sirenEnabled) != nil {
+      sirenEnabled = UserDefaults.standard.bool(forKey: PrefKey.sirenEnabled)
     }
-    if UserDefaults.standard.object(forKey: "buttonEnabled") != nil {
-      buttonEnabled = UserDefaults.standard.bool(forKey: "buttonEnabled")
+    if UserDefaults.standard.object(forKey: PrefKey.buttonEnabled) != nil {
+      buttonEnabled = UserDefaults.standard.bool(forKey: PrefKey.buttonEnabled)
     }
-    if UserDefaults.standard.object(forKey: "keepScreenAwake") != nil {
-      keepScreenAwake = UserDefaults.standard.bool(forKey: "keepScreenAwake")
+    if UserDefaults.standard.object(forKey: PrefKey.keepScreenAwake) != nil {
+      keepScreenAwake = UserDefaults.standard.bool(forKey: PrefKey.keepScreenAwake)
     }
     // Discover available cameras and restore stream camera selection
     let cameras = CameraOption.availableCameras()
@@ -459,7 +485,7 @@ final class HAPViewModel: ObservableObject {
       position: .unspecified
     )
     hasTorch = discovery.devices.contains { $0.hasTorch }
-    let savedStreamID = UserDefaults.standard.string(forKey: "selectedStreamCameraID")
+    let savedStreamID = UserDefaults.standard.string(forKey: PrefKey.selectedStreamCameraID)
     if savedStreamID == "none" {
       selectedStreamCamera = nil
     } else if let savedStreamID {
@@ -469,12 +495,12 @@ final class HAPViewModel: ObservableObject {
       // explicitly enables via the toggle (which requests camera permission).
       selectedStreamCamera = nil
     }
-    hasPairings = UserDefaults.standard.bool(forKey: "hasPairings")
+    hasPairings = UserDefaults.standard.bool(forKey: PrefKey.hasPairings)
 
     recheckPermissions()
     // Defer start() when the welcome screen hasn't been seen yet so the
     // local network permission prompt is triggered by "Get Started" on iOS.
-    if UserDefaults.standard.bool(forKey: "hasSeenWelcome") {
+    if UserDefaults.standard.bool(forKey: PrefKey.hasSeenWelcome) {
       start()
     }
   }
@@ -699,7 +725,7 @@ final class HAPViewModel: ObservableObject {
 
       setup.server.pairingStore.onChange = { [weak server = setup.server] in
         let isPaired = server?.pairingStore.isPaired ?? false
-        UserDefaults.standard.set(isPaired, forKey: "hasPairings")
+        UserDefaults.standard.set(isPaired, forKey: PrefKey.hasPairings)
         Task { @MainActor in
           withAnimation {
             vm.hasPairings = isPaired
@@ -747,7 +773,7 @@ final class HAPViewModel: ObservableObject {
       // Start everything
       setup.server.start()
       let paired = setup.server.pairingStore.isPaired
-      UserDefaults.standard.set(paired, forKey: "hasPairings")
+      UserDefaults.standard.set(paired, forKey: PrefKey.hasPairings)
       self.hasPairings = paired
       withAnimation { self.isRunning = true }
       self.isStarting = false
@@ -901,7 +927,7 @@ final class HAPViewModel: ObservableObject {
     } else {
       PairingStore().removeAll()
     }
-    UserDefaults.standard.set(false, forKey: "hasPairings")
+    UserDefaults.standard.set(false, forKey: PrefKey.hasPairings)
     withAnimation { hasPairings = false }
   }
 
@@ -1035,14 +1061,14 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     // Restore recordingActive from previous session so the hub doesn't
     // need to re-send the write after an app restart.
     let savedRecordingActive = UInt8(
-      clamping: UserDefaults.standard.integer(forKey: "recordingActive"))
+      clamping: UserDefaults.standard.integer(forKey: PrefKey.recordingActive))
     if savedRecordingActive != 0 {
       camera.restoreRecordingActive(savedRecordingActive)
     }
 
     // Restore recordingAudioActive from previous session.
     let savedAudioActive = UInt8(
-      clamping: UserDefaults.standard.integer(forKey: "recordingAudioActive"))
+      clamping: UserDefaults.standard.integer(forKey: PrefKey.recordingAudioActive))
     if savedAudioActive != 0 {
       camera.restoreRecordingAudioActive(savedAudioActive)
     }
@@ -1051,7 +1077,7 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     // The hub writes this once during initial HKSV setup and expects it to persist.
     // If it's not persisted, readCharacteristic returns nil (error status) which
     // should prompt the hub to re-write the configuration.
-    if let savedConfig = UserDefaults.standard.data(forKey: "selectedRecordingConfig"),
+    if let savedConfig = UserDefaults.standard.data(forKey: PrefKey.selectedRecordingConfig),
       !savedConfig.isEmpty
     {
       camera.restoreSelectedRecordingConfig(savedConfig)
@@ -1059,10 +1085,10 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
 
     camera.onRecordingConfigChange = { [weak camera] active in
       if active { camera?.videoMotionEnabled = true }
-      UserDefaults.standard.set(active ? 1 : 0, forKey: "recordingActive")
+      UserDefaults.standard.set(active ? 1 : 0, forKey: PrefKey.recordingActive)
     }
     camera.onSelectedRecordingConfigChange = { config in
-      UserDefaults.standard.set(config, forKey: "selectedRecordingConfig")
+      UserDefaults.standard.set(config, forKey: PrefKey.selectedRecordingConfig)
     }
     enabledAccessories.append(camera)
 
@@ -1293,7 +1319,7 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
 
       // Restart monitoring when recordingAudioActive changes so audio state takes effect
       camera.onRecordingAudioActiveChange = { [weak monitoring, weak camera] active in
-        UserDefaults.standard.set(active ? 1 : 0, forKey: "recordingAudioActive")
+        UserDefaults.standard.set(active ? 1 : 0, forKey: PrefKey.recordingAudioActive)
         if let camera, camera.recordingActive != 0, camera.streamSession == nil {
           monitoring?.stop()
           monitoring?.audioRecordingEnabled = active && camera.microphoneEnabled
