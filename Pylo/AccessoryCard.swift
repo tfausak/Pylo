@@ -1,11 +1,5 @@
 import SwiftUI
 
-#if os(iOS)
-  import UIKit
-#elseif os(macOS)
-  import AppKit
-#endif
-
 struct AccessoryCard<Content: View>: View {
   let icon: String
   let title: String
@@ -48,15 +42,7 @@ struct AccessoryCard<Content: View>: View {
           .padding()
       }
     }
-    .background(cardBackground, in: RoundedRectangle(cornerRadius: 12))
+    .background(Color.cardBackground, in: RoundedRectangle(cornerRadius: 12))
     .animation(.default, value: isOn)
-  }
-
-  private var cardBackground: Color {
-    #if os(iOS)
-      Color(UIColor.secondarySystemGroupedBackground)
-    #elseif os(macOS)
-      Color(NSColor.controlBackgroundColor)
-    #endif
   }
 }

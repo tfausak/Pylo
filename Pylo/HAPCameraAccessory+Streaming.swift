@@ -95,6 +95,8 @@ extension HAPCameraAccessory {
     // audio uses N+2 (RTP) and N+3 (RTCP). Reserve room for all four ports.
     // Collision probability is ~1/10000; bind failure is handled in startStreaming()
     // (returns false → session cleared → controller retries setup).
+    // A pre-bind check could eliminate this, but would require creating and closing
+    // UDP sockets here just to probe — not worth the complexity for this failure rate.
     let videoPort: UInt16 = UInt16.random(in: 50000...59994)
     let audioPort: UInt16 = videoPort + 2
 
@@ -408,7 +410,12 @@ extension HAPCameraAccessory {
   func handleSetupDataStream(_ value: HAPValue, sharedSecret: SharedSecret?) -> Bool {
     guard case .string(let b64) = value, let data = Data(base64Encoded: b64) else { return false }
     logger.info("SetupDataStreamTransport: \(data.count) bytes")
-    // Full implementation in Phase 5 (HAPDataStream.swift)
+    // NOTE: onSetupDataStream writes setupDataStreamResponse via a callback, but
+    // writeCharacteristic returns true synchronously. If the callback is nil or
+    // never fires, the next read of setupDataStreamResponse will serve stale data.
+    // This is acceptable because the HAP server reads the response immediately
+    // after writeCharacteristic returns (same call stack), and HAPDataStream's
+    // setupTransport is synchronous — the callback fires inline before we return.
     onSetupDataStream?(
       data,
       sharedSecret,

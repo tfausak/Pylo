@@ -21,8 +21,9 @@ extension HAPCameraAccessory {
     dispatchPrecondition(condition: .notOnQueue(.main))
 
     // If streaming is active, return the cached frame (can't run two sessions
-    // on the same camera simultaneously).
-    if streamSession != nil {
+    // on the same camera simultaneously). Use the lock-based accessor to avoid
+    // a TOCTOU race with concurrent streamSession mutations.
+    if hasActiveStreamSession {
       logger.info("Stream active -- returning cached snapshot")
       return cachedSnapshot
     }

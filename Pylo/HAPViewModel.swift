@@ -30,25 +30,9 @@ struct AccessoryConfig: Equatable {
   var occupancyEnabled: Bool
   var sirenEnabled: Bool
   var buttonEnabled: Bool
+}
 
-  init(
-    flashlightEnabled: Bool, selectedCameraID: String?,
-    motionEnabled: Bool, microphoneEnabled: Bool,
-    contactEnabled: Bool, lightSensorEnabled: Bool,
-    occupancyEnabled: Bool,
-    sirenEnabled: Bool, buttonEnabled: Bool
-  ) {
-    self.flashlightEnabled = flashlightEnabled
-    self.selectedCameraID = selectedCameraID
-    self.motionEnabled = motionEnabled
-    self.microphoneEnabled = microphoneEnabled
-    self.contactEnabled = contactEnabled
-    self.lightSensorEnabled = lightSensorEnabled
-    self.occupancyEnabled = occupancyEnabled
-    self.sirenEnabled = sirenEnabled
-    self.buttonEnabled = buttonEnabled
-  }
-
+extension AccessoryConfig {
   @MainActor
   init(from vm: HAPViewModel) {
     flashlightEnabled = vm.flashlightEnabled
@@ -64,6 +48,12 @@ struct AccessoryConfig: Equatable {
 }
 
 // MARK: - View Model
+//
+// NOTE: This class handles preferences, permissions, server lifecycle, accessory
+// wiring, and QR code generation (~1400 lines). A future refactor could split it
+// into a preferences manager, a server lifecycle coordinator, and a thin view model
+// shell. Not done now because the coupling between server setup callbacks and
+// @Published properties makes incremental extraction non-trivial.
 
 @MainActor
 final class HAPViewModel: ObservableObject {
@@ -241,6 +231,7 @@ final class HAPViewModel: ObservableObject {
 
   /// Configuration snapshot taken when the server starts. Compared against
   /// current values to determine whether a restart is needed.
+  /// Internal (not private) because PreviewHelpers needs write access.
   var startedConfig: AccessoryConfig?
 
   /// Whether the accessory configuration has diverged from what the server launched with.
@@ -251,7 +242,14 @@ final class HAPViewModel: ObservableObject {
 
   /// Suppresses didSet side effects (UserDefaults writes, monitor restarts)
   /// while restoring persisted preferences during start().
-  var isRestoring = false
+  private(set) var isRestoring = false
+
+  /// Executes `body` with `isRestoring` set to `true`, restoring it on exit.
+  func withRestoring(_ body: () -> Void) {
+    isRestoring = true
+    defer { isRestoring = false }
+    body()
+  }
 
   private var startTask: Task<Void, Never>?
   private var recheckTask: Task<Void, Never>?
@@ -391,6 +389,9 @@ final class HAPViewModel: ObservableObject {
 
   /// Restores persisted preferences so the configure screen shows saved state.
   /// Called once when the app launches, before the user presses Start.
+  // NOTE: This could be simplified with a single Codable preferences struct
+  // or @AppStorage, but the per-key approach avoids migration complexity and
+  // matches the iOS Settings bundle keys one-to-one.
   @MainActor
   func restorePreferences() {
     isRestoring = true

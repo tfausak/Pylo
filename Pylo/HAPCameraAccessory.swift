@@ -67,6 +67,11 @@ struct CameraOption: Identifiable, Hashable, Sendable {
 
 /// HAP camera sub-accessory exposing CameraRTPStreamManagement.
 /// Handles the full pipeline: TLV8 negotiation -> video capture -> H.264 -> RTP -> SRTP -> UDP.
+///
+/// Uses `@unchecked Sendable` with fine-grained `Locked` wrappers rather than an actor because:
+/// - HAP callbacks fire on the server's NIO-style queue and must return synchronously
+/// - AVFoundation delegates fire on dedicated capture queues
+/// - An actor would require `await` at every call site, incompatible with these sync protocols
 nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotProvider,
   @unchecked Sendable
 {
@@ -601,7 +606,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     // Camera Event Recording Management
     case Self.iidRecordingActive:
       if let v = intFromValue(value) {
-        hksvState.withLock { $0.recordingActive = UInt8(v) }
+        hksvState.withLock { $0.recordingActive = UInt8(clamping: v) }
         let isActive = v != 0
         onRecordingConfigChange?(isActive)
         onStateChange?(aid, iid, .int(v))
@@ -631,7 +636,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
       return false
     case Self.iidRecordingAudioActive:
       if let v = intFromValue(value) {
-        hksvState.withLock { $0.recordingAudioActive = UInt8(v) }
+        hksvState.withLock { $0.recordingAudioActive = UInt8(clamping: v) }
         onStateChange?(aid, iid, .int(v))
         onRecordingAudioActiveChange?(v != 0)
         return true
@@ -639,7 +644,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
       return false
     case Self.iidRTPStreamActive:
       if let v = intFromValue(value) {
-        hksvState.withLock { $0.rtpStreamActive = UInt8(v) }
+        hksvState.withLock { $0.rtpStreamActive = UInt8(clamping: v) }
         onStateChange?(aid, iid, .int(v))
         return true
       }

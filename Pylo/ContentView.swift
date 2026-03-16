@@ -1,11 +1,5 @@
 import SwiftUI
 
-#if os(iOS)
-  import UIKit
-#elseif os(macOS)
-  import AppKit
-#endif
-
 struct ContentView: View {
   @ObservedObject var viewModel: HAPViewModel
   var forceConfig = false
@@ -193,7 +187,7 @@ struct ContentView: View {
         .padding()
       }
     }
-    .background(cardBackground, in: RoundedRectangle(cornerRadius: 12))
+    .background(Color.cardBackground, in: RoundedRectangle(cornerRadius: 12))
   }
 
   // MARK: - Accessories Section
@@ -611,19 +605,12 @@ struct ContentView: View {
       ?? viewModel.availableCameras.first
   }
 
-  private var cardBackground: Color {
-    #if os(iOS)
-      Color(UIColor.secondarySystemGroupedBackground)
-    #elseif os(macOS)
-      Color(NSColor.controlBackgroundColor)
-    #endif
-  }
-
 }
 
 // MARK: - Compatibility Helpers
 
 /// Wraps content in NavigationStack (iOS 16+/macOS 13+) or NavigationView+stack (older).
+/// TODO: Remove when deployment target is raised to iOS 16+ / macOS 13+.
 private struct NavigationContainer<Content: View>: View {
   @ViewBuilder let content: () -> Content
 
@@ -653,6 +640,7 @@ private func navigationContainer<Content: View>(
 
 extension View {
   /// onChange that compiles on both iOS 15 and iOS 17+/macOS 14+.
+  /// TODO: Remove when deployment target is raised to iOS 17+ / macOS 14+.
   @ViewBuilder
   func onChangeCompat<V: Equatable>(of value: V, perform action: @escaping (V) -> Void) -> some View
   {
