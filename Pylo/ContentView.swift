@@ -67,13 +67,6 @@ struct ContentView: View {
       }
     }
     .navigationTitle(viewModel.isRunning ? "" : "Pylo")
-    .toolbar {
-      ToolbarItem(placement: .primaryAction) {
-        if !viewModel.isRunning {
-          statusIndicator
-        }
-      }
-    }
     .safeAreaInset(edge: .bottom) {
       if viewModel.needsRestart {
         Text("Restart to Apply")
@@ -124,36 +117,6 @@ struct ContentView: View {
         .padding(.top, 8)
       }
       .padding()
-    }
-  }
-
-  // MARK: - Status Indicator
-
-  @ViewBuilder
-  private var statusIndicator: some View {
-    let isRunning = viewModel.isRunning
-
-    if viewModel.hasPairings {
-      Menu {
-        Button("Unpair", role: .destructive) {
-          showUnpairConfirmation = true
-        }
-      } label: {
-        statusLabel(running: isRunning)
-      }
-    } else {
-      statusLabel(running: isRunning)
-    }
-  }
-
-  private func statusLabel(running: Bool) -> some View {
-    HStack(spacing: 6) {
-      Image(systemName: running ? "checkmark.circle.fill" : "bolt.fill")
-        .foregroundStyle(running ? .green : .orange)
-        .accessibilityHidden(true)
-      Text(running ? "Running" : viewModel.isStarting ? "Starting" : "Stopped")
-        .font(.subheadline)
-        .foregroundStyle(.secondary)
     }
   }
 
