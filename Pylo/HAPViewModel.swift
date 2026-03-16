@@ -1282,19 +1282,31 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
       let ciContext = camera.snapshotCIContext
       let snapshotQueue = DispatchQueue(
         label: "\(Bundle.main.bundleIdentifier!).snapshot-encode", qos: .utility)
+      // HomeKit snapshots are small previews — encode at a reduced size
+      // and 80% quality to cut JPEG encoding cost significantly.
+      let snapshotMaxDimension: CGFloat = 1280
       monitoring.snapshotCallback = { [weak camera] pixelBuffer in
         // Copy pixel data off the AVFoundation-owned buffer synchronously
         // using VTCreateCGImageFromCVPixelBuffer — a direct memcpy that
         // avoids CIContext.createCGImage's GPU render + readback overhead.
         var cgImage: CGImage?
-        guard VTCreateCGImageFromCVPixelBuffer(pixelBuffer, options: nil, imageOut: &cgImage) == noErr,
+        guard
+          VTCreateCGImageFromCVPixelBuffer(pixelBuffer, options: nil, imageOut: &cgImage) == noErr,
           let cgImage
         else { return }
         snapshotQueue.async { [weak camera] in
-          let ciImage = CIImage(cgImage: cgImage)
+          var ciImage = CIImage(cgImage: cgImage)
+          let extent = ciImage.extent
+          if max(extent.width, extent.height) > snapshotMaxDimension {
+            let scale = snapshotMaxDimension / max(extent.width, extent.height)
+            ciImage = ciImage.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+          }
           guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
             let jpeg = ciContext.jpegRepresentation(
-              of: ciImage, colorSpace: colorSpace, options: [:])
+              of: ciImage, colorSpace: colorSpace,
+              options: [
+                kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 0.8
+              ])
           else { return }
           camera?.cachedSnapshot = jpeg
         }
