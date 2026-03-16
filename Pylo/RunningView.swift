@@ -22,8 +22,8 @@ struct RunningView: View {
         .offset(pixelOffset)
     }
     .task { await pixelShiftLoop() }
-    .navigationBarHidden(true)
     #if os(iOS)
+      .navigationBarHidden(true)
       .fullScreenCover(isPresented: $showConfig, onDismiss: restartIfNeeded) {
         RunningConfigView(viewModel: viewModel)
       }
