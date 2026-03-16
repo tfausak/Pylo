@@ -1,16 +1,24 @@
 # Pylo
 
-Turn an old iPhone into a HomeKit bridge exposing its hardware as native
+Turn an old iPhone or Mac into a HomeKit bridge exposing its hardware as native
 accessories:
 
 - **Flashlight**:
-  controllable lightbulb with brightness
+  controllable lightbulb with brightness (iOS only)
 - **Camera**:
   live H.264 video streaming with HomeKit Secure Video (HKSV) recording
 - **Light Sensor**:
   ambient light level estimation from camera auto-exposure
 - **Motion Sensor**:
   accelerometer-based and camera-based motion detection
+- **Contact Sensor**:
+  proximity sensor mapped to open/close state (iOS only)
+- **Occupancy Sensor**:
+  Vision framework person detection from camera frames
+- **Siren**:
+  two-tone alarm generated via AVAudioEngine
+- **Button**:
+  stateless programmable switch
 - **Battery**:
   battery level and charging state as a HAP service on each accessory
 
@@ -23,13 +31,13 @@ natively using Apple frameworks.
 
 ## Requirements
 
-- Physical iPhone (torch and sensors need real hardware)
+- iPhone or Mac with a camera (torch and some sensors need real hardware)
 - Xcode 16+
 
 ## Setup
 
 1. Open `Pylo.xcodeproj` in Xcode
-2. Build and run on a physical device
+2. Build and run on a physical device (or Mac)
 3. In Home.app on another device: Add Accessory → "More options ..."
 4. Scan the QR code shown in the app, or enter the setup code
 
