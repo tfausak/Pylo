@@ -1458,3 +1458,36 @@ struct CameraThreadSafetyTests {
     }
   }
 }
+
+// MARK: - SirenPlayer Tests
+
+@Suite("SirenPlayer")
+struct SirenPlayerTests {
+
+  @Test("Initial state is not playing")
+  func initialState() {
+    let player = SirenPlayer()
+    #expect(player.isPlaying == false)
+  }
+
+  @Test("Stop on non-playing player is a no-op")
+  func stopWhenNotPlaying() {
+    let player = SirenPlayer()
+    // Should not crash or call onActiveChange
+    let callbackFired = Locked(initialState: false)
+    player.onActiveChange = { _ in
+      callbackFired.withLock { $0 = true }
+    }
+    player.stop()
+    // Give the async stop a moment to execute
+    Thread.sleep(forTimeInterval: 0.1)
+    #expect(callbackFired.withLock { $0 } == false)
+  }
+
+  // NOTE: start() requires AVAudioEngine which needs audio hardware. On the
+  // simulator the engine may fail to start (sample rate 0), so we cannot
+  // reliably test the full start→isPlaying→stop→!isPlaying lifecycle in CI.
+  // The production code handles this gracefully (logs error, fires
+  // onActiveChange(false)). Hardware-dependent audio tests should be run
+  // on a real device.
+}
