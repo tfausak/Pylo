@@ -24,11 +24,11 @@ struct RunningView: View {
     .task { await pixelShiftLoop() }
     .navigationBarHidden(true)
     #if os(iOS)
-      .fullScreenCover(isPresented: $showConfig) {
+      .fullScreenCover(isPresented: $showConfig, onDismiss: restartIfNeeded) {
         RunningConfigView(viewModel: viewModel)
       }
     #else
-      .sheet(isPresented: $showConfig) {
+      .sheet(isPresented: $showConfig, onDismiss: restartIfNeeded) {
         RunningConfigView(viewModel: viewModel)
       }
     #endif
@@ -78,6 +78,12 @@ struct RunningView: View {
     .accessibilityLabel("Settings")
   }
 
+  private func restartIfNeeded() {
+    if viewModel.needsRestart {
+      viewModel.restart()
+    }
+  }
+
   // MARK: - Pixel Shift
 
   @MainActor
@@ -110,9 +116,6 @@ struct RunningConfigView: View {
         .toolbar {
           ToolbarItem(placement: .confirmationAction) {
             Button("Done") {
-              if viewModel.needsRestart {
-                viewModel.restart()
-              }
               dismiss()
             }
             .font(.body.weight(.semibold))
