@@ -666,12 +666,14 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       VTCreateCGImageFromCVPixelBuffer(pixelBuffer, options: nil, imageOut: &vtImage) == noErr,
       let vtImage
     else { return nil }
-    let w = vtImage.width, h = vtImage.height
-    guard let ctx = CGContext(
-      data: nil, width: w, height: h,
-      bitsPerComponent: 8, bytesPerRow: 0,
-      space: vtImage.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!,
-      bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue)
+    let w = vtImage.width
+    let h = vtImage.height
+    guard
+      let ctx = CGContext(
+        data: nil, width: w, height: h,
+        bitsPerComponent: 8, bytesPerRow: 0,
+        space: vtImage.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!,
+        bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue)
     else { return nil }
     ctx.draw(vtImage, in: CGRect(x: 0, y: 0, width: w, height: h))
     return ctx.makeImage()
