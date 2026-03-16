@@ -328,10 +328,9 @@ extension HAPCameraAccessory {
     }
     onStateChange?(
       aid, Self.iidStreamingStatus, .string(streamingStatusTLV().base64EncodedString()))
-    // Resume monitoring capture if recording is still armed
-    if recordingArmed {
-      onMonitoringCaptureNeeded?(true, handBackSession)
-    }
+    // Resume monitoring capture — with HKSV features if recording is armed,
+    // or in sensor-only mode for light/occupancy/snapshot caching.
+    onMonitoringCaptureNeeded?(recordingArmed, handBackSession)
   }
 
   // MARK: - Resolve Camera
