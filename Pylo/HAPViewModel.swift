@@ -1225,12 +1225,16 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
       let snapshotQueue = DispatchQueue(
         label: "\(Bundle.main.bundleIdentifier!).snapshot-encode", qos: .utility)
       monitoring.snapshotCallback = { [weak camera] pixelBuffer in
-        nonisolated(unsafe) let pixelBuffer = pixelBuffer
+        // Render the CVPixelBuffer to a CGImage synchronously while the buffer
+        // is still valid. AVFoundation may recycle the pixel buffer's backing
+        // memory after this callback returns, so async access is unsafe.
+        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+        guard let cgImage = ciContext.createCGImage(ciImage, from: ciImage.extent) else { return }
         snapshotQueue.async { [weak camera] in
-          let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+          let ciImageFromCG = CIImage(cgImage: cgImage)
           guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
             let jpeg = ciContext.jpegRepresentation(
-              of: ciImage, colorSpace: colorSpace, options: [:])
+              of: ciImageFromCG, colorSpace: colorSpace, options: [:])
           else { return }
           camera?.cachedSnapshot = jpeg
         }
