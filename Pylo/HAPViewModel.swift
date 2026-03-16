@@ -7,7 +7,6 @@ import Locked
 import Sensors
 import Streaming
 import SwiftUI
-import VideoToolbox
 
 #if os(iOS)
   import UIKit
@@ -1278,16 +1277,7 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
       // requests from Home.app can be answered quickly instead of cold-starting
       // a new AVCaptureSession (which takes 1-3s and causes "No Response").
       // JPEG encoding is deferred to when a snapshot is actually requested.
-      monitoring.snapshotCallback = { [weak camera] pixelBuffer in
-        // Copy pixel data off the AVFoundation-owned buffer synchronously
-        // using VTCreateCGImageFromCVPixelBuffer — a direct memcpy that
-        // lets AVFoundation recycle the pixel buffer immediately.
-        // JPEG encoding is deferred to when HomeKit actually requests a snapshot.
-        var cgImage: CGImage?
-        guard
-          VTCreateCGImageFromCVPixelBuffer(pixelBuffer, options: nil, imageOut: &cgImage) == noErr,
-          let cgImage
-        else { return }
+      monitoring.snapshotCallback = { [weak camera] cgImage in
         camera?.cachedFrame = cgImage
       }
 

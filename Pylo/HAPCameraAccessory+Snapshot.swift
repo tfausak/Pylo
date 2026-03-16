@@ -29,8 +29,11 @@ extension HAPCameraAccessory {
 
     // If the monitoring session has a recent frame, JPEG-encode it on demand.
     // This avoids the 1-3 second cold-start delay of creating a new
-    // AVCaptureSession, which causes HomeKit to show "No Response".
-    if let frame = cachedFrame(maxAgeSeconds: 2) {
+    // AVCaptureSession (which causes "No Response") AND avoids the monitoring
+    // session stop/restart cycle that produces black frames while auto-exposure
+    // converges. Use a generous age limit — a slightly stale preview is far
+    // better than a black one or a "No Response" error.
+    if let frame = cachedFrame(maxAgeSeconds: 10) {
       logger.debug("Encoding cached monitoring frame on demand")
       return jpegEncode(frame)
     }

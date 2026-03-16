@@ -102,11 +102,13 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
 
   /// Callback to periodically provide a pixel buffer for snapshot caching.
   /// Called every ~1 second on the captureQueue. The receiver should JPEG-encode
-  /// the buffer and cache it for fast snapshot responses.
+  /// the frame and cache it for fast snapshot responses. The CGImage is
+  /// produced via VTCreateCGImageFromCVPixelBuffer (a fast memcpy) so the
+  /// caller receives a self-contained image with no ties to the pixel buffer pool.
   /// Protected: written from server queue, read from captureQueue.
-  private let _snapshotCallback = Locked<((CVPixelBuffer) -> Void)?>(
+  private let _snapshotCallback = Locked<(@Sendable (CGImage) -> Void)?>(
     initialState: nil)
-  public var snapshotCallback: ((CVPixelBuffer) -> Void)? {
+  public var snapshotCallback: (@Sendable (CGImage) -> Void)? {
     get { _snapshotCallback.withLockUnchecked { $0 } }
     set { _snapshotCallback.withLockUnchecked { $0 = newValue } }
   }
@@ -214,8 +216,15 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       if self.captureFrameCount % self.luxFrameInterval == 0 {
         self.ambientLightDetector?.sample()
       }
-      if self.captureFrameCount % self.snapshotFrameInterval == 0 {
-        self.snapshotCallback?(pixelBuffer)
+      if self.captureFrameCount % self.snapshotFrameInterval == 0,
+        let callback = self.snapshotCallback
+      {
+        var cgImage: CGImage?
+        if VTCreateCGImageFromCVPixelBuffer(pixelBuffer, options: nil, imageOut: &cgImage) == noErr,
+          let cgImage
+        {
+          callback(cgImage)
+        }
       }
       if self.captureFrameCount % self.occupancyFrameInterval == 0 {
         self.occupancySensor?.processPixelBuffer(pixelBuffer)
