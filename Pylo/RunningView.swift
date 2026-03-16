@@ -40,7 +40,7 @@ struct RunningView: View {
   // MARK: - Status Indicator
 
   private var statusIndicator: some View {
-    Image(systemName: "checkmark.circle")
+    Image(systemName: "checkmark")
       .font(.title2)
       .foregroundStyle(.green)
       .padding(20)
