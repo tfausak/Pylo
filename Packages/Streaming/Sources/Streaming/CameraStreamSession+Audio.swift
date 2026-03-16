@@ -18,7 +18,7 @@ extension CameraStreamSession {
       return
     }
     self.audioConverter = converter
-    logger.info("AAC-ELD encoder created (16kHz mono → AAC-ELD)")
+    logger.debug("AAC-ELD encoder created (16kHz mono → AAC-ELD)")
   }
 
   // MARK: - Audio Sample Buffer Processing
@@ -255,7 +255,7 @@ extension CameraStreamSession {
     }
 
     self.audioDecoder = decoder
-    logger.info("AAC-ELD decoder created")
+    logger.debug("AAC-ELD decoder created")
   }
 
   // MARK: - Audio Playback (AVAudioEngine)
@@ -280,7 +280,7 @@ extension CameraStreamSession {
     self.audioEngine = engine
     self.audioPlayerNode = playerNode
     self.audioPlayerStarted = false
-    logger.info("Audio playback engine prepared (will start on first audio)")
+    logger.debug("Audio playback engine prepared (will start on first audio)")
   }
 
   /// Ensure the AVAudioEngine is running. Call before scheduling buffers.
@@ -290,7 +290,7 @@ extension CameraStreamSession {
     if engine.isRunning { return true }
     do {
       try engine.start()
-      logger.info("AVAudioEngine started")
+      logger.debug("AVAudioEngine started")
       return true
     } catch {
       logger.error("AVAudioEngine start error: \(error)")

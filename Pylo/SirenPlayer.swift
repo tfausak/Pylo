@@ -234,7 +234,7 @@ nonisolated final class SirenPlayer: @unchecked Sendable {
 
         do {
           try engine.start()
-          logger.info("Audio engine restarted after config change")
+          logger.debug("Audio engine restarted after config change")
         } catch {
           logger.error("Failed to restart audio engine after config change: \(error)")
           tearDown()

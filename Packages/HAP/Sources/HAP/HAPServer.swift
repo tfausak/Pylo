@@ -369,7 +369,7 @@ public final class HAPServer: @unchecked Sendable {
     )
     connections[id] = connection
     connection.start()
-    logger.info("New connection: \(id)")
+    logger.debug("New connection: \(id)")
   }
 
   /// Remove a connection from the active set. Safe to call from any thread.
@@ -389,7 +389,7 @@ public final class HAPServer: @unchecked Sendable {
       if conn?.pairSetupState != nil {
         PairSetupHandler.isPairSetupInProgress = false
       }
-      self.logger.info("Connection removed: \(id)")
+      self.logger.debug("Connection removed: \(id)")
     }
   }
 

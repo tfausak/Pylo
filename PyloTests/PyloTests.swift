@@ -584,27 +584,26 @@ struct VideoMotionDetectorThreadSafetyTests {
     }
   }
 
-  // MARK: - Cached Snapshot Freshness Tests
+  // MARK: - Cached Frame Tests
 
-  @Test("cachedSnapshot(maxAgeSeconds:) returns snapshot within age limit")
-  func cachedSnapshotFresh() {
+  @Test("cachedFrame stores and returns the assigned CGImage")
+  func cachedFrameStoresImage() {
     let camera = HAPCameraAccessory(aid: 3)
-    let data = Data([0xFF, 0xD8, 0xFF, 0xD9])
-    camera.cachedSnapshot = data
-    #expect(camera.cachedSnapshot(maxAgeSeconds: 10) == data)
+    let ctx = CGContext(
+      data: nil, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+      space: CGColorSpace(name: CGColorSpace.sRGB)!,
+      bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue)!
+    let image = ctx.makeImage()!
+    camera.cachedFrame = image
+    let stored = camera.cachedFrame
+    #expect(stored?.width == image.width)
+    #expect(stored?.height == image.height)
   }
 
-  @Test("cachedSnapshot(maxAgeSeconds:) returns nil for zero maxAge")
-  func cachedSnapshotExpired() {
+  @Test("cachedFrame is nil by default")
+  func cachedFrameNil() {
     let camera = HAPCameraAccessory(aid: 3)
-    camera.cachedSnapshot = Data([0xFF, 0xD8, 0xFF, 0xD9])
-    #expect(camera.cachedSnapshot(maxAgeSeconds: 0) == nil)
-  }
-
-  @Test("cachedSnapshot(maxAgeSeconds:) returns nil when no snapshot is cached")
-  func cachedSnapshotNil() {
-    let camera = HAPCameraAccessory(aid: 3)
-    #expect(camera.cachedSnapshot(maxAgeSeconds: 10) == nil)
+    #expect(camera.cachedFrame == nil)
   }
 }
 
@@ -634,8 +633,7 @@ struct CameraWriteCharacteristicTests {
       videoSRTPKey: Data(repeating: 0, count: 16), videoSRTPSalt: Data(repeating: 0, count: 14),
       audioSRTPKey: Data(repeating: 0, count: 16), audioSRTPSalt: Data(repeating: 0, count: 14),
       localAddress: "127.0.0.1", localVideoPort: 6000, localAudioPort: 6001,
-      videoSSRC: 1, audioSSRC: 2,
-      ciContext: CIContext()
+      videoSSRC: 1, audioSSRC: 2
     )
     camera.streamSession = dummySession
     let monitoringCalled = Locked(initialState: false)
@@ -1432,8 +1430,7 @@ struct CameraThreadSafetyTests {
       videoSRTPKey: Data(repeating: 0, count: 16), videoSRTPSalt: Data(repeating: 0, count: 14),
       audioSRTPKey: Data(repeating: 0, count: 16), audioSRTPSalt: Data(repeating: 0, count: 14),
       localAddress: "127.0.0.1", localVideoPort: 6000, localAudioPort: 6001,
-      videoSSRC: 1, audioSSRC: 2,
-      ciContext: CIContext()
+      videoSSRC: 1, audioSSRC: 2
     )
     camera.streamSession = session
 

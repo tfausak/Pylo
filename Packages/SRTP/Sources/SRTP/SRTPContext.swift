@@ -106,7 +106,7 @@ public final class SRTPContext: @unchecked Sendable {
           + "cipher=\(ck == expectedCipherKey) salt=\(cs == expectedSalt) auth=\(ak == expectedAuthKey)"
       )
     }
-    logger.info("SRTP self-test: PASS")
+    logger.debug("SRTP self-test: PASS")
   }
 
   /// Encrypt and authenticate an RTP packet in place, returning the SRTP packet.

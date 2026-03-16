@@ -1,6 +1,5 @@
 @preconcurrency import AVFoundation
 import AudioToolbox
-import CoreImage
 @preconcurrency import CoreMedia
 import Foundation
 import Locked
@@ -167,17 +166,17 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
   private var videoCaptureDelegate: VideoCaptureDelegate?
   private var audioCaptureDelegate: AudioCaptureDelegate?
 
-  // Snapshot caching — periodically grab a JPEG from the video stream.
+  // Snapshot caching — periodically grab a CGImage from the video stream.
+  // JPEG encoding is deferred to when HomeKit actually requests a snapshot.
   // The callback is set from the server queue and read from captureQueue,
   // so it must be synchronized.
-  private let _onSnapshotFrame = Locked<(@Sendable (Data) -> Void)?>(initialState: nil)
-  public var onSnapshotFrame: (@Sendable (Data) -> Void)? {
+  private let _onSnapshotFrame = Locked<(@Sendable (CGImage) -> Void)?>(initialState: nil)
+  public var onSnapshotFrame: (@Sendable (CGImage) -> Void)? {
     get { _onSnapshotFrame.withLock { $0 } }
     set { _onSnapshotFrame.withLock { $0 = newValue } }
   }
   private var snapshotFrameCounter = 0
   private var snapshotInterval = 30  // every ~1s, derived from negotiated fps
-  private let snapshotCIContext: CIContext
 
   // Audio encoder state — accumulates PCM until we have a full AAC-ELD frame
   var pcmAccumulator = Data()
@@ -192,8 +191,7 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
     videoSRTPKey: Data, videoSRTPSalt: Data,
     audioSRTPKey: Data, audioSRTPSalt: Data,
     localAddress: String, localVideoPort: UInt16, localAudioPort: UInt16,
-    videoSSRC: UInt32, audioSSRC: UInt32,
-    ciContext: CIContext
+    videoSSRC: UInt32, audioSSRC: UInt32
   ) {
     self.sessionID = sessionID
     self.controllerAddress = controllerAddress
@@ -208,7 +206,6 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
     self.localAudioPort = localAudioPort
     self.videoSSRC = videoSSRC
     self.audioSSRC = audioSSRC
-    self.snapshotCIContext = ciContext
   }
 
   deinit {
@@ -235,7 +232,7 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
     logger.info(
       "Starting stream: \(width)x\(height)@\(fps)fps, \(bitrate)kbps, PT=\(payloadType) → \(self.controllerAddress):\(self.controllerVideoPort)"
     )
-    logger.info(
+    logger.debug(
       "SRTP key=\(self.videoSRTPKey.count)B salt=\(self.videoSRTPSalt.count)B SSRC=\(self.videoSSRC)"
     )
 
@@ -300,7 +297,7 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
     _ = fcntl(videoFD, F_SETFL, videoFlags | O_NONBLOCK)
 
     self.videoSocketFD = videoFD
-    logger.info("Video BSD socket bound to port \(self.localVideoPort)")
+    logger.debug("Video BSD socket bound to port \(self.localVideoPort)")
 
     var vidAddr = sockaddr_in()
     vidAddr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
@@ -365,7 +362,7 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
     _ = fcntl(fd, F_SETFL, flags | O_NONBLOCK)
 
     self.audioSocketFD = fd
-    logger.info("Audio BSD socket bound to port \(self.localAudioPort)")
+    logger.debug("Audio BSD socket bound to port \(self.localAudioPort)")
 
     // Store controller audio address for sendto()
     var ctrlAddr = sockaddr_in()
@@ -581,7 +578,7 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
       // Reuse the monitoring session's running AVCaptureSession — reconfigure
       // in-place to avoid the ~500ms cold-start of creating a new one.
       session = existing
-      logger.info("Reusing handed-off capture session (already running)")
+      logger.debug("Reusing handed-off capture session (already running)")
 
       session.beginConfiguration()
 
@@ -668,7 +665,7 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
           session.addOutput(audioOut)
           self.audioOutput = audioOut
           self.audioCaptureDelegate = audioDelegate
-          logger.info("Microphone audio capture added to session")
+          logger.debug("Microphone audio capture added to session")
         }
       } else if !microphoneEnabled {
         logger.info("Microphone disabled by user — streaming without audio")
@@ -678,7 +675,7 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
 
       captureQueue.async { [weak self] in
         session.startRunning()
-        self?.logger.info("Capture session running: \(session.isRunning)")
+        self?.logger.debug("Capture session running: \(session.isRunning)")
       }
     }
 
@@ -821,27 +818,13 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
 
     encodeFrameCount += 1
 
-    // Periodically cache a JPEG for snapshot requests while streaming.
-    // Dispatch all rendering and JPEG encoding off captureQueue to avoid
-    // blocking frame delivery. The closure capture retains the pixel buffer.
+    // Periodically cache a CGImage for snapshot requests while streaming.
+    // JPEG encoding is deferred to when HomeKit actually requests a snapshot.
     snapshotFrameCounter += 1
     if snapshotFrameCounter >= snapshotInterval, let callback = onSnapshotFrame {
       snapshotFrameCounter = 0
-      // Eagerly render the pixel buffer to a CGImage while it's still pinned
-      // to captureQueue. CIImage(cvPixelBuffer:) defers access, so handing it
-      // to a global queue risks reading the buffer after VTCompressionSession
-      // has recycled it. createCGImage forces an immediate copy.
-      let ctx = snapshotCIContext
-      let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-      if let cgImage = ctx.createCGImage(ciImage, from: ciImage.extent) {
-        DispatchQueue.global(qos: .utility).async {
-          if let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-            let jpeg = ctx.jpegRepresentation(
-              of: CIImage(cgImage: cgImage), colorSpace: colorSpace, options: [:])
-          {
-            callback(jpeg)
-          }
-        }
+      if let owned = MonitoringCaptureSession.copyFrameFromPixelBuffer(pixelBuffer) {
+        callback(owned)
       }
     }
 

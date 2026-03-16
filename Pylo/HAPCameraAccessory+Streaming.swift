@@ -123,8 +123,7 @@ extension HAPCameraAccessory {
       localVideoPort: videoPort,
       localAudioPort: audioPort,
       videoSSRC: videoSSRC,
-      audioSSRC: audioSSRC,
-      ciContext: snapshotCIContext
+      audioSSRC: audioSSRC
     )
     self.streamSession = session
 
@@ -278,8 +277,8 @@ extension HAPCameraAccessory {
     session.speakerVolume = settings.speakerVolume
     session.videoMotionDetector = videoMotionDetector
     session.ambientLightDetector = ambientLightDetector
-    session.onSnapshotFrame = { [weak self] jpeg in
-      self?.cachedSnapshot = jpeg
+    session.onSnapshotFrame = { [weak self] cgImage in
+      self?.cachedFrame = cgImage
     }
 
     // Hand off the monitoring session's AVCaptureSession for reuse if available.
@@ -329,10 +328,9 @@ extension HAPCameraAccessory {
     }
     onStateChange?(
       aid, Self.iidStreamingStatus, .string(streamingStatusTLV().base64EncodedString()))
-    // Resume monitoring capture if recording is still armed
-    if recordingArmed {
-      onMonitoringCaptureNeeded?(true, handBackSession)
-    }
+    // Resume monitoring capture — with HKSV features if recording is armed,
+    // or in sensor-only mode for light/occupancy/snapshot caching.
+    onMonitoringCaptureNeeded?(recordingArmed, handBackSession)
   }
 
   // MARK: - Resolve Camera
@@ -428,7 +426,7 @@ extension HAPCameraAccessory {
 
   func handleSetupDataStream(_ value: HAPValue, sharedSecret: SharedSecret?) -> Bool {
     guard case .string(let b64) = value, let data = Data(base64Encoded: b64) else { return false }
-    logger.info("SetupDataStreamTransport: \(data.count) bytes")
+    logger.debug("SetupDataStreamTransport: \(data.count) bytes")
     // NOTE: onSetupDataStream writes setupDataStreamResponse via a callback, but
     // writeCharacteristic returns true synchronously. If the callback is nil or
     // never fires, the next read of setupDataStreamResponse will serve stale data.

@@ -1273,30 +1273,12 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
       // Full mode: HKSV, fMP4, snapshots, all camera callbacks
       monitoring.fragmentWriter = fmp4Writer
 
-      // Cache a JPEG snapshot from the monitoring session every ~1s so snapshot
-      // requests from Home.app can be answered instantly instead of cold-starting
+      // Cache a CGImage from the monitoring session every ~1s so snapshot
+      // requests from Home.app can be answered quickly instead of cold-starting
       // a new AVCaptureSession (which takes 1-3s and causes "No Response").
-      // JPEG encoding is dispatched off captureQueue to avoid blocking frame
-      // delivery (which would cause dropped frames and affect motion/lux detection).
-      let ciContext = camera.snapshotCIContext
-      let snapshotQueue = DispatchQueue(
-        label: "\(Bundle.main.bundleIdentifier!).snapshot-encode", qos: .utility)
-      monitoring.snapshotCallback = { [weak camera] pixelBuffer in
-        // createCGImage must happen synchronously: AVFoundation recycles the
-        // pixel buffer's backing memory after this callback returns.
-        // createCGImage copies the pixel data, freeing the buffer quickly.
-        // This blocks captureQueue briefly; the heavier JPEG encode is
-        // dispatched to snapshotQueue to minimize that impact.
-        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-        guard let cgImage = ciContext.createCGImage(ciImage, from: ciImage.extent) else { return }
-        snapshotQueue.async { [weak camera] in
-          let ciImageFromCG = CIImage(cgImage: cgImage)
-          guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-            let jpeg = ciContext.jpegRepresentation(
-              of: ciImageFromCG, colorSpace: colorSpace, options: [:])
-          else { return }
-          camera?.cachedSnapshot = jpeg
-        }
+      // JPEG encoding is deferred to when a snapshot is actually requested.
+      monitoring.snapshotCallback = { [weak camera] cgImage in
+        camera?.cachedFrame = cgImage
       }
 
       let monitoringBusy = Locked(initialState: false)

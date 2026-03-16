@@ -100,13 +100,14 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   private var luxFrameInterval: Int { sensorOnly ? 20 : 60 }  // ~2s
   private var occupancyFrameInterval: Int { sensorOnly ? 25 : 75 }  // ~2.5s
 
-  /// Callback to periodically provide a pixel buffer for snapshot caching.
-  /// Called every ~1 second on the captureQueue. The receiver should JPEG-encode
-  /// the buffer and cache it for fast snapshot responses.
+  /// Callback to periodically provide a CGImage for snapshot caching.
+  /// Called every ~1 second on the captureQueue. The CGImage is an owned copy
+  /// with no ties to the pixel buffer pool, so the receiver can cache it
+  /// indefinitely. JPEG encoding is deferred until a snapshot is requested.
   /// Protected: written from server queue, read from captureQueue.
-  private let _snapshotCallback = Locked<((CVPixelBuffer) -> Void)?>(
+  private let _snapshotCallback = Locked<(@Sendable (CGImage) -> Void)?>(
     initialState: nil)
-  public var snapshotCallback: ((CVPixelBuffer) -> Void)? {
+  public var snapshotCallback: (@Sendable (CGImage) -> Void)? {
     get { _snapshotCallback.withLockUnchecked { $0 } }
     set { _snapshotCallback.withLockUnchecked { $0 = newValue } }
   }
@@ -214,8 +215,12 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       if self.captureFrameCount % self.luxFrameInterval == 0 {
         self.ambientLightDetector?.sample()
       }
-      if self.captureFrameCount % self.snapshotFrameInterval == 0 {
-        self.snapshotCallback?(pixelBuffer)
+      if self.captureFrameCount % self.snapshotFrameInterval == 0,
+        let callback = self.snapshotCallback
+      {
+        if let owned = Self.copyFrameFromPixelBuffer(pixelBuffer) {
+          callback(owned)
+        }
       }
       if self.captureFrameCount % self.occupancyFrameInterval == 0 {
         self.occupancySensor?.processPixelBuffer(pixelBuffer)
@@ -344,16 +349,16 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
               $0.pcmAccumulator = Data()
             }
             audioReady = true
-            logger.info("Monitoring audio capture + AAC-ELD encoder ready")
+            logger.debug("Monitoring audio capture + AAC-ELD encoder ready")
           }
         }
       }
     }
     if !audioReady {
       if !audioRecordingEnabled {
-        logger.info("Monitoring capture: recording audio disabled by hub, video-only mode")
+        logger.debug("Monitoring capture: recording audio disabled by hub, video-only mode")
       } else {
-        logger.info("Monitoring capture: microphone unavailable, video-only mode")
+        logger.debug("Monitoring capture: microphone unavailable, video-only mode")
       }
     }
 
@@ -553,7 +558,6 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       $0.videoCaptureDelegate = nil
       $0.audioCaptureDelegate = nil
     }
-    snapshotCallback = nil
     logger.info("Monitoring capture handed off (session still running)")
     return session
   }
@@ -647,6 +651,32 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       guard let sampleBuffer else { return }
       session.fragmentWriter?.appendVideoSample(sampleBuffer)
     }
+  }
+
+  // MARK: - Snapshot Helpers
+
+  /// Create a CGImage that owns its pixel data, independent of the pixel buffer pool.
+  /// VTCreateCGImageFromCVPixelBuffer may back the CGImage with the pixel buffer's
+  /// IOSurface; drawing into a CGContext forces a true copy so the image stays valid
+  /// after the buffer is recycled by AVFoundation.
+  static func copyFrameFromPixelBuffer(_ pixelBuffer: CVPixelBuffer) -> CGImage? {
+    var vtImage: CGImage?
+    guard
+      VTCreateCGImageFromCVPixelBuffer(pixelBuffer, options: nil, imageOut: &vtImage) == noErr,
+      let vtImage
+    else { return nil }
+    let w = vtImage.width
+    let h = vtImage.height
+    guard
+      let ctx = CGContext(
+        data: nil, width: w, height: h,
+        bitsPerComponent: 8, bytesPerRow: 0,
+        space: vtImage.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)
+          ?? CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue)
+    else { return nil }
+    ctx.draw(vtImage, in: CGRect(x: 0, y: 0, width: w, height: h))
+    return ctx.makeImage()
   }
 
   // MARK: - Helpers

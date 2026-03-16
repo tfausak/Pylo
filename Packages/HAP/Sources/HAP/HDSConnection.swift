@@ -43,9 +43,6 @@ public final class HDSConnection: @unchecked Sendable {
   /// Whether the init segment has been sent for the current recording session.
   private var initSegmentSent = false
 
-  /// Whether we've logged the first data event for diagnostics.
-  private var hasLoggedFirstDataEvent = false
-
   /// Data sequence counter for dataSend chunks.
   private var dataSequenceNumber = 0
 
@@ -67,12 +64,12 @@ public final class HDSConnection: @unchecked Sendable {
     connection.stateUpdateHandler = { [weak self] state in
       switch state {
       case .ready:
-        self?.logger.info("HDS connection ready")
+        self?.logger.debug("HDS connection ready")
         self?.receiveFrame()
       case .failed(let error):
         self?.logger.error("HDS connection failed: \(error)")
       case .cancelled:
-        self?.logger.info("HDS connection cancelled")
+        self?.logger.debug("HDS connection cancelled")
       default:
         break
       }
@@ -246,7 +243,7 @@ public final class HDSConnection: @unchecked Sendable {
       return
     }
 
-    logger.info(
+    logger.debug(
       "HDS message: type=\(message.type.rawValue) protocol=\(message.protocol) topic=\(message.topic) id=\(message.identifier)"
     )
 
@@ -287,12 +284,12 @@ public final class HDSConnection: @unchecked Sendable {
       // Hub acknowledges received data -- log and continue
       let ackStreamID = message.body["streamId"] as? Int
       let ackEndOfStream = message.body["endOfStream"] as? Bool
-      logger.info(
+      logger.debug(
         "HDS dataSend/ack (streamId=\(ackStreamID.map(String.init) ?? "nil"), endOfStream=\(ackEndOfStream.map(String.init) ?? "nil"))"
       )
 
     default:
-      logger.info("HDS unhandled: \(message.protocol)/\(message.topic)")
+      logger.debug("HDS unhandled: \(message.protocol)/\(message.topic)")
       // Send error response for requests
       if message.type == .request {
         let response = HDSMessage(
@@ -333,8 +330,6 @@ public final class HDSConnection: @unchecked Sendable {
     activeStreamID = streamID
     dataSequenceNumber = 1
     initSegmentSent = false
-    hasLoggedFirstDataEvent = false
-
     logger.info(
       "HDS dataSend/open: type=\(type) target=\(target) reason=\(reason) streamId=\(streamID)")
 
@@ -397,8 +392,7 @@ public final class HDSConnection: @unchecked Sendable {
 
     // Send the init segment first (ftyp + moov)
     if let initSeg = writer.initSegment {
-      let hex = initSeg.prefix(128).map { String(format: "%02x", $0) }.joined(separator: " ")
-      logger.info("HDS sending init segment: \(initSeg.count) bytes, hex: \(hex)")
+      logger.debug("HDS sending init segment: \(initSeg.count) bytes")
       sendDataChunks(initSeg, dataType: "mediaInitialization", isLast: false)
       initSegmentSent = true
     } else {
@@ -407,7 +401,7 @@ public final class HDSConnection: @unchecked Sendable {
 
     // Send prebuffered fragments, yielding between each to avoid blocking the queue.
     let fragments = writer.ringBuffer.snapshot()
-    logger.info("HDS sending \(fragments.count) prebuffered fragment(s)")
+    logger.debug("HDS sending \(fragments.count) prebuffered fragment(s)")
     sendPrebufferedBatch(fragments: fragments, index: 0, writer: writer)
   }
 
@@ -439,7 +433,7 @@ public final class HDSConnection: @unchecked Sendable {
 
         // Send init segment before first fragment if it wasn't available at open time
         if !self.initSegmentSent, let initSeg = writer.initSegment {
-          self.logger.info("HDS sending deferred init segment: \(initSeg.count) bytes")
+          self.logger.debug("HDS sending deferred init segment: \(initSeg.count) bytes")
           self.sendDataChunks(initSeg, dataType: "mediaInitialization", isLast: false)
           self.initSegmentSent = true
         }
@@ -450,7 +444,7 @@ public final class HDSConnection: @unchecked Sendable {
 
         if isLast {
           self.pendingEndOfStream = false
-          self.logger.info("HDS endOfStream sent with final fragment")
+          self.logger.debug("HDS endOfStream sent with final fragment")
           self.activeStreamID = nil
           let completion = self.endOfStreamCompletion
           self.endOfStreamCompletion = nil
@@ -467,7 +461,7 @@ public final class HDSConnection: @unchecked Sendable {
     queue.async { [weak self] in
       guard let self else { return }
       if self.activeStreamID != nil {
-        self.logger.info("HDS: finishing recording (will send endOfStream after next fragment)")
+        self.logger.debug("HDS: finishing recording (will send endOfStream after next fragment)")
         self.pendingEndOfStream = true
         self.endOfStreamCompletion = completion
       } else {
@@ -510,15 +504,6 @@ public final class HDSConnection: @unchecked Sendable {
         endOfStream: isLast && isLastChunk,
         chunk: chunk
       )
-
-      // Log first data event for diagnostics (header + metadata only, not the bulk data)
-      if !hasLoggedFirstDataEvent {
-        hasLoggedFirstDataEvent = true
-        let headerEnd = min(message.count, 200)
-        let hex = message.prefix(headerEnd).map { String(format: "%02x", $0) }.joined(
-          separator: " ")
-        logger.info("HDS first data event (\(message.count) bytes): \(hex)")
-      }
 
       sendFrame(message)
 

@@ -160,7 +160,7 @@ public final class HAPDataStream: @unchecked Sendable {
       }
     }
 
-    logger.info(
+    logger.debug(
       "SetupDataStreamTransport: cmd=\(sessionCommand) transport=\(transportType) salt=\(controllerKeySalt.count)B"
     )
 
@@ -199,7 +199,7 @@ public final class HAPDataStream: @unchecked Sendable {
       outputByteCount: 32
     )
 
-    logger.info(
+    logger.debug(
       "HDS keys derived: controllerSalt=\(controllerKeySalt.count)B, accessorySalt=\(accessoryKeySalt.count)B"
     )
 

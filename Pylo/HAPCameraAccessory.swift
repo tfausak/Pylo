@@ -241,26 +241,24 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     }
   }
 
-  /// Most recent JPEG snapshot captured during streaming (used as fallback for snapshot requests).
-  /// Protected by a lock because it is written from captureQueue (via onSnapshotFrame) and from
-  /// a global queue (captureSnapshot), and read from the server queue.
-  private let _cachedSnapshot = Locked<
-    (data: Data, timestamp: TimeInterval)?
-  >(initialState: nil)
-  var cachedSnapshot: Data? {
-    get { _cachedSnapshot.withLock { $0?.data } }
-    set {
-      let now = ProcessInfo.processInfo.systemUptime
-      _cachedSnapshot.withLock { $0 = newValue.map { (data: $0, timestamp: now) } }
-    }
+  /// Most recent CGImage from the monitoring/streaming session (used for on-demand JPEG
+  /// encoding). Storing the raw CGImage avoids continuous JPEG encoding — the expensive
+  /// encode only happens when HomeKit actually requests a snapshot.
+  /// Protected by a lock because it is written from captureQueue and read from the
+  /// server queue (snapshot request handler).
+  private let _cachedFrame = Locked<CGImage?>(initialState: nil)
+  var cachedFrame: CGImage? {
+    get { _cachedFrame.withLock { $0 } }
+    set { _cachedFrame.withLock { $0 = newValue } }
   }
-  /// Returns the cached snapshot only if it was captured within the given max age in seconds.
-  func cachedSnapshot(maxAgeSeconds: TimeInterval) -> Data? {
-    let now = ProcessInfo.processInfo.systemUptime
-    return _cachedSnapshot.withLock { cached in
-      guard let cached, (now - cached.timestamp) < maxAgeSeconds else { return nil }
-      return cached.data
-    }
+
+  /// JPEG-encode a CGImage on demand using the reusable CIContext.
+  func jpegEncode(_ cgImage: CGImage) -> Data? {
+    let ciImage = CIImage(cgImage: cgImage)
+    guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+    return snapshotCIContext.jpegRepresentation(
+      of: ciImage, colorSpace: colorSpace,
+      options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 0.8])
   }
 
   /// Audio settings accessed from the server queue (read/write characteristics)
@@ -509,9 +507,9 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     case Self.iidSelectedCameraRecordingConfig:
       let config = hksvState.withLock { $0.selectedRecordingConfig }
       if config.isEmpty {
-        logger.info("SelectedCameraRecordingConfig read: empty (not yet configured)")
+        logger.debug("SelectedCameraRecordingConfig read: empty (not yet configured)")
       } else {
-        logger.info("SelectedCameraRecordingConfig read: \(config.count) bytes")
+        logger.debug("SelectedCameraRecordingConfig read: \(config.count) bytes")
       }
       return .string(config.base64EncodedString())
     case Self.iidRecordingAudioActive:

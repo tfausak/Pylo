@@ -203,7 +203,7 @@ public final class HAPConnection: @unchecked Sendable {
     while true {
       switch HTTPRequest.parseAndConsume(&receiveBuffer) {
       case .request(let request):
-        logger.info("\(request.method) \(request.path)")
+        logger.debug("\(request.method) \(request.path)")
         if let response = routeRequest(request) {
           sendResponse(response)
         } else {
@@ -306,7 +306,7 @@ public final class HAPConnection: @unchecked Sendable {
         loop: while true {
           switch HTTPRequest.parseAndConsume(&self.decryptedBuffer) {
           case .request(let request):
-            self.logger.info("\(request.method) \(request.path)")
+            self.logger.debug("\(request.method) \(request.path)")
             if let response = self.routeRequest(request) {
               self.sendResponse(response)
             } else {
