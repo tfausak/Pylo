@@ -1274,11 +1274,10 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
       // Full mode: HKSV, fMP4, snapshots, all camera callbacks
       monitoring.fragmentWriter = fmp4Writer
 
-      // Cache a JPEG snapshot from the monitoring session every ~1s so snapshot
-      // requests from Home.app can be answered instantly instead of cold-starting
+      // Cache a CGImage from the monitoring session every ~1s so snapshot
+      // requests from Home.app can be answered quickly instead of cold-starting
       // a new AVCaptureSession (which takes 1-3s and causes "No Response").
-      // JPEG encoding is dispatched off captureQueue to avoid blocking frame
-      // delivery (which would cause dropped frames and affect motion/lux detection).
+      // JPEG encoding is deferred to when a snapshot is actually requested.
       monitoring.snapshotCallback = { [weak camera] pixelBuffer in
         // Copy pixel data off the AVFoundation-owned buffer synchronously
         // using VTCreateCGImageFromCVPixelBuffer — a direct memcpy that
