@@ -20,26 +20,25 @@ extension HAPCameraAccessory {
     // (or any context the main thread is blocked on) would deadlock.
     dispatchPrecondition(condition: .notOnQueue(.main))
 
-    // If streaming is active, return the cached frame (can't run two sessions
-    // on the same camera simultaneously). Use the lock-based accessor to avoid
-    // a TOCTOU race with concurrent streamSession mutations.
+    // If streaming is active, encode the cached frame on demand.
     if hasActiveStreamSession {
-      logger.debug("Stream active -- returning cached snapshot")
-      return cachedSnapshot
+      logger.debug("Stream active -- encoding cached frame")
+      if let frame = cachedFrame { return jpegEncode(frame) }
+      return nil
     }
 
-    // If the monitoring session is caching snapshots, return the latest one
-    // immediately. This avoids the 1-3 second cold-start delay of creating a
-    // new AVCaptureSession, which causes HomeKit to show "No Response".
-    // Only use cache if fresh (within 2s) to avoid serving stale images.
-    if let cached = cachedSnapshot(maxAgeSeconds: 2) {
-      logger.debug("Returning cached monitoring snapshot")
-      return cached
+    // If the monitoring session has a recent frame, JPEG-encode it on demand.
+    // This avoids the 1-3 second cold-start delay of creating a new
+    // AVCaptureSession, which causes HomeKit to show "No Response".
+    if let frame = cachedFrame(maxAgeSeconds: 2) {
+      logger.debug("Encoding cached monitoring frame on demand")
+      return jpegEncode(frame)
     }
 
     guard let camera = resolveCamera() else {
       logger.error("No camera available for snapshot")
-      return cachedSnapshot
+      if let frame = cachedFrame { return jpegEncode(frame) }
+      return nil
     }
 
     // Pause other capture sessions (e.g. monitoring session) -- iOS only
@@ -54,14 +53,20 @@ extension HAPCameraAccessory {
 
     guard let input = try? AVCaptureDeviceInput(device: camera),
       session.canAddInput(input)
-    else { return cachedSnapshot }
+    else {
+      if let frame = cachedFrame { return jpegEncode(frame) }
+      return nil
+    }
     session.addInput(input)
 
     let videoOutput = AVCaptureVideoDataOutput()
     videoOutput.videoSettings = [
       kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
     ]
-    guard session.canAddOutput(videoOutput) else { return cachedSnapshot }
+    guard session.canAddOutput(videoOutput) else {
+      if let frame = cachedFrame { return jpegEncode(frame) }
+      return nil
+    }
     session.addOutput(videoOutput)
 
     // Rotate to match current device orientation
@@ -93,18 +98,13 @@ extension HAPCameraAccessory {
     _ = grabber.waitForCapture(timeout: .now() + 3)
 
     guard let cgImage = grabber.capturedImage else {
-      logger.warning("Frame grab timed out -- returning cached snapshot")
-      return cachedSnapshot
+      logger.warning("Frame grab timed out -- encoding cached frame")
+      if let frame = cachedFrame { return jpegEncode(frame) }
+      return nil
     }
 
-    let ciImage = CIImage(cgImage: cgImage)
-    guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-      let jpeg = snapshotCIContext.jpegRepresentation(
-        of: ciImage, colorSpace: colorSpace, options: [:])
-    else { return cachedSnapshot }
-
-    cachedSnapshot = jpeg
-    return jpeg
+    cachedFrame = cgImage
+    return jpegEncode(cgImage)
   }
 }
 

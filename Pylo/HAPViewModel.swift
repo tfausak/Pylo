@@ -1279,27 +1279,17 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
       // a new AVCaptureSession (which takes 1-3s and causes "No Response").
       // JPEG encoding is dispatched off captureQueue to avoid blocking frame
       // delivery (which would cause dropped frames and affect motion/lux detection).
-      let snapshotQueue = DispatchQueue(
-        label: "\(Bundle.main.bundleIdentifier!).snapshot-encode", qos: .utility)
-      let ciContext = camera.snapshotCIContext
       monitoring.snapshotCallback = { [weak camera] pixelBuffer in
         // Copy pixel data off the AVFoundation-owned buffer synchronously
         // using VTCreateCGImageFromCVPixelBuffer — a direct memcpy that
-        // avoids CIContext.createCGImage's GPU render + readback overhead.
+        // lets AVFoundation recycle the pixel buffer immediately.
+        // JPEG encoding is deferred to when HomeKit actually requests a snapshot.
         var cgImage: CGImage?
         guard
           VTCreateCGImageFromCVPixelBuffer(pixelBuffer, options: nil, imageOut: &cgImage) == noErr,
           let cgImage
         else { return }
-        snapshotQueue.async { [weak camera] in
-          let ciImage = CIImage(cgImage: cgImage)
-          guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-            let jpeg = ciContext.jpegRepresentation(
-              of: ciImage, colorSpace: colorSpace,
-              options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 0.8])
-          else { return }
-          camera?.cachedSnapshot = jpeg
-        }
+        camera?.cachedFrame = cgImage
       }
 
       let monitoringBusy = Locked(initialState: false)

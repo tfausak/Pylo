@@ -241,26 +241,37 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     }
   }
 
-  /// Most recent JPEG snapshot captured during streaming (used as fallback for snapshot requests).
-  /// Protected by a lock because it is written from captureQueue (via onSnapshotFrame) and from
-  /// a global queue (captureSnapshot), and read from the server queue.
-  private let _cachedSnapshot = Locked<
-    (data: Data, timestamp: TimeInterval)?
+  /// Most recent CGImage from the monitoring session (used for on-demand JPEG encoding).
+  /// Storing the raw CGImage avoids continuous JPEG encoding — the expensive encode
+  /// only happens when HomeKit actually requests a snapshot.
+  /// Protected by a lock because it is written from captureQueue and read from the
+  /// server queue (snapshot request handler).
+  private let _cachedFrame = Locked<
+    (image: CGImage, timestamp: TimeInterval)?
   >(initialState: nil)
-  var cachedSnapshot: Data? {
-    get { _cachedSnapshot.withLock { $0?.data } }
+  var cachedFrame: CGImage? {
+    get { _cachedFrame.withLock { $0?.image } }
     set {
       let now = ProcessInfo.processInfo.systemUptime
-      _cachedSnapshot.withLock { $0 = newValue.map { (data: $0, timestamp: now) } }
+      _cachedFrame.withLock { $0 = newValue.map { (image: $0, timestamp: now) } }
     }
   }
-  /// Returns the cached snapshot only if it was captured within the given max age in seconds.
-  func cachedSnapshot(maxAgeSeconds: TimeInterval) -> Data? {
+  /// Returns the cached frame only if it was captured within the given max age in seconds.
+  func cachedFrame(maxAgeSeconds: TimeInterval) -> CGImage? {
     let now = ProcessInfo.processInfo.systemUptime
-    return _cachedSnapshot.withLock { cached in
+    return _cachedFrame.withLock { cached in
       guard let cached, (now - cached.timestamp) < maxAgeSeconds else { return nil }
-      return cached.data
+      return cached.image
     }
+  }
+
+  /// JPEG-encode a CGImage on demand using the reusable CIContext.
+  func jpegEncode(_ cgImage: CGImage) -> Data? {
+    let ciImage = CIImage(cgImage: cgImage)
+    guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+    return snapshotCIContext.jpegRepresentation(
+      of: ciImage, colorSpace: colorSpace,
+      options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 0.8])
   }
 
   /// Audio settings accessed from the server queue (read/write characteristics)

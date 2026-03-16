@@ -123,8 +123,7 @@ extension HAPCameraAccessory {
       localVideoPort: videoPort,
       localAudioPort: audioPort,
       videoSSRC: videoSSRC,
-      audioSSRC: audioSSRC,
-      ciContext: snapshotCIContext
+      audioSSRC: audioSSRC
     )
     self.streamSession = session
 
@@ -278,8 +277,8 @@ extension HAPCameraAccessory {
     session.speakerVolume = settings.speakerVolume
     session.videoMotionDetector = videoMotionDetector
     session.ambientLightDetector = ambientLightDetector
-    session.onSnapshotFrame = { [weak self] jpeg in
-      self?.cachedSnapshot = jpeg
+    session.onSnapshotFrame = { [weak self] cgImage in
+      self?.cachedFrame = cgImage
     }
 
     // Hand off the monitoring session's AVCaptureSession for reuse if available.

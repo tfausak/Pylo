@@ -584,27 +584,36 @@ struct VideoMotionDetectorThreadSafetyTests {
     }
   }
 
-  // MARK: - Cached Snapshot Freshness Tests
+  // MARK: - Cached Frame Freshness Tests
 
-  @Test("cachedSnapshot(maxAgeSeconds:) returns snapshot within age limit")
-  func cachedSnapshotFresh() {
+  @Test("cachedFrame(maxAgeSeconds:) returns frame within age limit")
+  func cachedFrameFresh() {
     let camera = HAPCameraAccessory(aid: 3)
-    let data = Data([0xFF, 0xD8, 0xFF, 0xD9])
-    camera.cachedSnapshot = data
-    #expect(camera.cachedSnapshot(maxAgeSeconds: 10) == data)
+    // Create a minimal 1x1 CGImage for testing
+    let ctx = CGContext(
+      data: nil, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+      space: CGColorSpace(name: CGColorSpace.sRGB)!,
+      bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue)!
+    let image = ctx.makeImage()!
+    camera.cachedFrame = image
+    #expect(camera.cachedFrame(maxAgeSeconds: 10) != nil)
   }
 
-  @Test("cachedSnapshot(maxAgeSeconds:) returns nil for zero maxAge")
-  func cachedSnapshotExpired() {
+  @Test("cachedFrame(maxAgeSeconds:) returns nil for zero maxAge")
+  func cachedFrameExpired() {
     let camera = HAPCameraAccessory(aid: 3)
-    camera.cachedSnapshot = Data([0xFF, 0xD8, 0xFF, 0xD9])
-    #expect(camera.cachedSnapshot(maxAgeSeconds: 0) == nil)
+    let ctx = CGContext(
+      data: nil, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+      space: CGColorSpace(name: CGColorSpace.sRGB)!,
+      bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue)!
+    camera.cachedFrame = ctx.makeImage()!
+    #expect(camera.cachedFrame(maxAgeSeconds: 0) == nil)
   }
 
-  @Test("cachedSnapshot(maxAgeSeconds:) returns nil when no snapshot is cached")
-  func cachedSnapshotNil() {
+  @Test("cachedFrame(maxAgeSeconds:) returns nil when no frame is cached")
+  func cachedFrameNil() {
     let camera = HAPCameraAccessory(aid: 3)
-    #expect(camera.cachedSnapshot(maxAgeSeconds: 10) == nil)
+    #expect(camera.cachedFrame(maxAgeSeconds: 10) == nil)
   }
 }
 
@@ -634,8 +643,7 @@ struct CameraWriteCharacteristicTests {
       videoSRTPKey: Data(repeating: 0, count: 16), videoSRTPSalt: Data(repeating: 0, count: 14),
       audioSRTPKey: Data(repeating: 0, count: 16), audioSRTPSalt: Data(repeating: 0, count: 14),
       localAddress: "127.0.0.1", localVideoPort: 6000, localAudioPort: 6001,
-      videoSSRC: 1, audioSSRC: 2,
-      ciContext: CIContext()
+      videoSSRC: 1, audioSSRC: 2
     )
     camera.streamSession = dummySession
     let monitoringCalled = Locked(initialState: false)
@@ -1432,8 +1440,7 @@ struct CameraThreadSafetyTests {
       videoSRTPKey: Data(repeating: 0, count: 16), videoSRTPSalt: Data(repeating: 0, count: 14),
       audioSRTPKey: Data(repeating: 0, count: 16), audioSRTPSalt: Data(repeating: 0, count: 14),
       localAddress: "127.0.0.1", localVideoPort: 6000, localAudioPort: 6001,
-      videoSSRC: 1, audioSSRC: 2,
-      ciContext: CIContext()
+      videoSSRC: 1, audioSSRC: 2
     )
     camera.streamSession = session
 
