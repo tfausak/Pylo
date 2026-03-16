@@ -79,6 +79,19 @@ nonisolated func configureAudioSessionForVoiceChat(logger: Logger) {
   #endif
 }
 
+// MARK: - Card Background
+
+extension Color {
+  /// Grouped card background matching system conventions on each platform.
+  static var cardBackground: Color {
+    #if os(iOS)
+      Color(UIColor.secondarySystemGroupedBackground)
+    #elseif os(macOS)
+      Color(NSColor.controlBackgroundColor)
+    #endif
+  }
+}
+
 // MARK: - Settings
 
 /// Open the system settings/preferences for this app.

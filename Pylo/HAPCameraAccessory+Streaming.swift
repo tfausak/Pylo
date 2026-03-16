@@ -82,8 +82,15 @@ extension HAPCameraAccessory {
       "SetupEndpoints: controller=\(controllerAddress):\(controllerVideoPort)/\(controllerAudioPort)"
     )
 
-    // Atomically detach any existing session to avoid racing with another device
-    detachStreamSession()?.stopStreaming()
+    // Atomically detach any existing session to avoid racing with another device.
+    // The old session is stopped without notifying HomeKit — the controller holding
+    // that stream will see it go stale and time out. A proper HAP implementation
+    // would send a StreamingStatus=0 event for the old session, but single-stream
+    // devices typically just replace the session silently.
+    if let oldSession = detachStreamSession() {
+      logger.info("Replacing existing stream session for new SetupEndpoints request")
+      oldSession.stopStreaming()
+    }
 
     let videoSSRC = UInt32.random(in: 1...UInt32.max)
     let audioSSRC = UInt32.random(in: 1...UInt32.max)
@@ -95,6 +102,8 @@ extension HAPCameraAccessory {
     // audio uses N+2 (RTP) and N+3 (RTCP). Reserve room for all four ports.
     // Collision probability is ~1/10000; bind failure is handled in startStreaming()
     // (returns false → session cleared → controller retries setup).
+    // A pre-bind check could eliminate this, but would require creating and closing
+    // UDP sockets here just to probe — not worth the complexity for this failure rate.
     let videoPort: UInt16 = UInt16.random(in: 50000...59994)
     let audioPort: UInt16 = videoPort + 2
 
@@ -298,6 +307,9 @@ extension HAPCameraAccessory {
       clearStreamSession(ifIdenticalTo: session)
       onMonitoringCaptureNeeded?(true, nil)
     }
+    // Notify subscribers of the updated streaming status. This is correct even after
+    // a failure: clearStreamSession sets streamSession=nil, so streamingStatusTLV()
+    // returns status=0 (Available), which is the right thing to report.
     onStateChange?(
       aid, Self.iidStreamingStatus, .string(streamingStatusTLV().base64EncodedString()))
   }
@@ -340,18 +352,17 @@ extension HAPCameraAccessory {
   // MARK: - Utility
 
   /// Returns the local IPv4 address on the same subnet as `peerAddress`.
-  /// Falls back to any private address on en0 (WiFi) if no subnet match found.
+  /// Uses the interface's actual netmask for proper subnet comparison (works
+  /// with any CIDR prefix, not just /24). Falls back to any private address
+  /// on en0 (WiFi) if no subnet match found.
   static func localIPAddress(matching peerAddress: String = "") -> String? {
     var ifaddr: UnsafeMutablePointer<ifaddrs>?
     guard getifaddrs(&ifaddr) == 0, let firstAddr = ifaddr else { return nil }
     defer { freeifaddrs(ifaddr) }
 
-    // Extract the peer's /24 prefix (e.g. "192.168.4.") for subnet matching
-    let peerPrefix: String? = {
-      let parts = peerAddress.split(separator: ".")
-      guard parts.count == 4 else { return nil }
-      return parts[0..<3].joined(separator: ".") + "."
-    }()
+    // Parse the peer address to a binary IPv4 address for subnet comparison
+    var peerAddr = in_addr()
+    let hasPeer = inet_pton(AF_INET, peerAddress, &peerAddr) == 1
 
     var subnetMatch: String?
     var wifiAddress: String?
@@ -387,9 +398,19 @@ extension HAPCameraAccessory {
 
       let ifName = String(cString: ptr.pointee.ifa_name)
 
-      // Best: same /24 subnet as the controller
-      if let prefix = peerPrefix, ip.hasPrefix(prefix), subnetMatch == nil {
-        subnetMatch = ip
+      // Best: same subnet as the controller (using actual netmask)
+      if hasPeer, subnetMatch == nil,
+        let maskPtr = ptr.pointee.ifa_netmask
+      {
+        let localAddr = withUnsafePointer(to: ptr.pointee.ifa_addr.pointee) { rawAddr in
+          rawAddr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee.sin_addr }
+        }
+        let mask = maskPtr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) {
+          $0.pointee.sin_addr
+        }
+        if (localAddr.s_addr & mask.s_addr) == (peerAddr.s_addr & mask.s_addr) {
+          subnetMatch = ip
+        }
       }
       // Good: WiFi interface
       if ifName == "en0", wifiAddress == nil {
@@ -408,7 +429,12 @@ extension HAPCameraAccessory {
   func handleSetupDataStream(_ value: HAPValue, sharedSecret: SharedSecret?) -> Bool {
     guard case .string(let b64) = value, let data = Data(base64Encoded: b64) else { return false }
     logger.info("SetupDataStreamTransport: \(data.count) bytes")
-    // Full implementation in Phase 5 (HAPDataStream.swift)
+    // NOTE: onSetupDataStream writes setupDataStreamResponse via a callback, but
+    // writeCharacteristic returns true synchronously. If the callback is nil or
+    // never fires, the next read of setupDataStreamResponse will serve stale data.
+    // This is acceptable because the HAP server reads the response immediately
+    // after writeCharacteristic returns (same call stack), and HAPDataStream's
+    // setupTransport is synchronous — the callback fires inline before we return.
     onSetupDataStream?(
       data,
       sharedSecret,

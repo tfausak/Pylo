@@ -26,6 +26,12 @@ nonisolated final class HAPAccessory: HAPAccessoryProtocol, @unchecked Sendable 
   }
   private let lightState = Locked(initialState: LightState())
 
+  // NOTE: The setter acquires the lock twice — once to set isOn, then again inside
+  // applyTorchState() to snapshot both isOn and brightness atomically. Between the
+  // two acquisitions another thread could change brightness, but applyTorchState
+  // always reads both values under a single lock, so the torch state is self-consistent.
+  // Combining the set+snapshot into one lock acquisition would require restructuring
+  // applyTorchState (also called from the brightness setter), not worth the coupling.
   private(set) var isOn: Bool {
     get { lightState.withLock { $0.isOn } }
     set {

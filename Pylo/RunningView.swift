@@ -4,7 +4,6 @@ struct RunningView: View {
   @ObservedObject var viewModel: HAPViewModel
   @State private var showConfig = false
   @State private var pixelOffset = CGSize.zero
-  @State private var shiftTimer: Timer?
   @State private var buttonCooldown = false
 
   var body: some View {
@@ -26,8 +25,7 @@ struct RunningView: View {
       .padding(.horizontal, 12)
       .offset(pixelOffset)
     }
-    .onAppear { startPixelShift() }
-    .onDisappear { stopPixelShift() }
+    .task { await pixelShiftLoop() }
     #if os(iOS)
       .fullScreenCover(isPresented: $showConfig) {
         RunningConfigView(viewModel: viewModel)
@@ -42,7 +40,7 @@ struct RunningView: View {
   // MARK: - Status Indicator
 
   private var statusIndicator: some View {
-    Image(systemName: "checkmark.circle")
+    Image(systemName: "checkmark")
       .font(.title2)
       .foregroundStyle(.green)
       .padding(20)
@@ -98,23 +96,22 @@ struct RunningView: View {
 
   // MARK: - Pixel Shift
 
-  private func startPixelShift() {
-    guard shiftTimer == nil else { return }
-    shiftTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
-      Task { @MainActor in
-        withAnimation(.easeInOut(duration: 1.0)) {
-          pixelOffset = CGSize(
-            width: CGFloat.random(in: -3...3),
-            height: CGFloat.random(in: -3...3)
-          )
-        }
+  @MainActor
+  private func pixelShiftLoop() async {
+    while !Task.isCancelled {
+      do {
+        try await Task.sleep(nanoseconds: 60_000_000_000)
+      } catch {
+        return
+      }
+      guard !Task.isCancelled else { return }
+      withAnimation(.easeInOut(duration: 1.0)) {
+        pixelOffset = CGSize(
+          width: CGFloat.random(in: -3...3),
+          height: CGFloat.random(in: -3...3)
+        )
       }
     }
-  }
-
-  private func stopPixelShift() {
-    shiftTimer?.invalidate()
-    shiftTimer = nil
   }
 }
 

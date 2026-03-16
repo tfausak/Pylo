@@ -67,6 +67,11 @@ struct CameraOption: Identifiable, Hashable, Sendable {
 
 /// HAP camera sub-accessory exposing CameraRTPStreamManagement.
 /// Handles the full pipeline: TLV8 negotiation -> video capture -> H.264 -> RTP -> SRTP -> UDP.
+///
+/// Uses `@unchecked Sendable` with fine-grained `Locked` wrappers rather than an actor because:
+/// - HAP callbacks fire on the server's NIO-style queue and must return synchronously
+/// - AVFoundation delegates fire on dedicated capture queues
+/// - An actor would require `await` at every call site, incompatible with these sync protocols
 nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotProvider,
   @unchecked Sendable
 {
@@ -96,6 +101,10 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   /// Callback closures set once during setup and called from the server queue.
   /// Protected by a lock since they are written from createServerSetup (off-main)
   /// and read from the server queue.
+  ///
+  /// Uses `withLockUnchecked` (not `withLock`) because the closures capture
+  /// non-Sendable types (AVCaptureSession, Data callbacks). This is safe because
+  /// the lock serializes access — no two threads read/write simultaneously.
   private struct Callbacks {
     var onSnapshotWillCapture: (() -> Void)?
     var onSnapshotDidCapture: (() -> Void)?
@@ -601,13 +610,18 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     // Camera Event Recording Management
     case Self.iidRecordingActive:
       if let v = intFromValue(value) {
-        hksvState.withLock { $0.recordingActive = UInt8(v) }
-        let isActive = v != 0
+        let clamped = Int(UInt8(clamping: v))
+        hksvState.withLock { $0.recordingActive = UInt8(clamping: v) }
+        let isActive = clamped != 0
         onRecordingConfigChange?(isActive)
-        onStateChange?(aid, iid, .int(v))
-        // Signal monitoring capture: needed when recording armed + no live stream
+        onStateChange?(aid, iid, .int(clamped))
+        // Signal monitoring capture: needed when recording armed + no live stream.
+        // Reading streamSession through the lock avoids tearing but this is still
+        // a point-in-time check — a session can be installed immediately after.
+        // The monitoring layer handles that overlap gracefully.
         if isActive {
-          if streamSession == nil {
+          let hasStream = hasActiveStreamSession
+          if !hasStream {
             onMonitoringCaptureNeeded?(true, nil)
           }
         } else {
@@ -627,16 +641,18 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
       return false
     case Self.iidRecordingAudioActive:
       if let v = intFromValue(value) {
-        hksvState.withLock { $0.recordingAudioActive = UInt8(v) }
-        onStateChange?(aid, iid, .int(v))
-        onRecordingAudioActiveChange?(v != 0)
+        let clamped = Int(UInt8(clamping: v))
+        hksvState.withLock { $0.recordingAudioActive = UInt8(clamping: v) }
+        onStateChange?(aid, iid, .int(clamped))
+        onRecordingAudioActiveChange?(clamped != 0)
         return true
       }
       return false
     case Self.iidRTPStreamActive:
       if let v = intFromValue(value) {
-        hksvState.withLock { $0.rtpStreamActive = UInt8(v) }
-        onStateChange?(aid, iid, .int(v))
+        let clamped = Int(UInt8(clamping: v))
+        hksvState.withLock { $0.rtpStreamActive = UInt8(clamping: v) }
+        onStateChange?(aid, iid, .int(clamped))
         return true
       }
       return false

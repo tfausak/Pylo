@@ -161,7 +161,10 @@ nonisolated final class SirenPlayer: @unchecked Sendable {
   }
 
   /// Tears down the audio engine and notifies that the siren stopped.
-  /// Must be called on `audioQueue`.
+  /// Must be called on `audioQueue`. The `onActiveChange` callback fires on
+  /// `audioQueue`, which is safe because the downstream path
+  /// (HAPSirenAccessory.updateOn → notifySubscribers) dispatches to the
+  /// server's own queue internally.
   private func tearDown() {
     guard _state.withLockUnchecked({ $0.isPlaying }) else { return }
 
