@@ -14,40 +14,6 @@
 			<key>DefaultValue</key>
 			<true/>
 		</dict>
-		<dict>
-			<key>Type</key>
-			<string>PSToggleSwitchSpecifier</string>
-			<key>Title</key>
-			<string>Screen Saver</string>
-			<key>Key</key>
-			<string>screenSaverEnabled</string>
-			<key>DefaultValue</key>
-			<false/>
-		</dict>
-		<dict>
-			<key>Type</key>
-			<string>PSMultiValueSpecifier</string>
-			<key>Title</key>
-			<string>Screen Saver Delay</string>
-			<key>Key</key>
-			<string>screenSaverDelay</string>
-			<key>DefaultValue</key>
-			<string>5 min</string>
-			<key>Titles</key>
-			<array>
-				<string>1 min</string>
-				<string>2 min</string>
-				<string>5 min</string>
-				<string>10 min</string>
-			</array>
-			<key>Values</key>
-			<array>
-				<string>1 min</string>
-				<string>2 min</string>
-				<string>5 min</string>
-				<string>10 min</string>
-			</array>
-		</dict>
 	</array>
 	<key>StringsTable</key>
 	<string>Root</string>
