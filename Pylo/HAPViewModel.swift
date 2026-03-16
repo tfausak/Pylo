@@ -829,6 +829,10 @@ final class HAPViewModel: ObservableObject {
     batteryMonitor = nil
     motionMonitor?.stop()
     motionMonitor = nil
+    // stopStreaming() may hand the AVCaptureSession back to monitoringSession
+    // when recording is armed, so it must run before monitoringSession is torn down.
+    cameraAccessory?.stopStreaming()
+    cameraAccessory = nil
     fragmentWriter?.stop()
     fragmentWriter = nil
     monitoringSession?.stop()
@@ -842,8 +846,6 @@ final class HAPViewModel: ObservableObject {
     sirenPlayer = nil
     lightbulbAccessory?.cancelIdentify()
     lightbulbAccessory = nil
-    cameraAccessory?.stopStreaming()
-    cameraAccessory = nil
     buttonAccessory = nil
     server?.stop()
     server = nil
