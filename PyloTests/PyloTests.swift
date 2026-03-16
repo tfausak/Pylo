@@ -33,11 +33,13 @@ struct HAPAccessoryTests {
       serialNumber: "SN-123",
       firmwareRevision: "2.0.0"
     )
-    #expect(accessory.readCharacteristic(iid: AccessoryInfoIID.manufacturer) == .string("Test Maker"))
+    #expect(
+      accessory.readCharacteristic(iid: AccessoryInfoIID.manufacturer) == .string("Test Maker"))
     #expect(accessory.readCharacteristic(iid: AccessoryInfoIID.model) == .string("Test Model"))
     #expect(accessory.readCharacteristic(iid: AccessoryInfoIID.name) == .string("Test Light"))
     #expect(accessory.readCharacteristic(iid: AccessoryInfoIID.serialNumber) == .string("SN-123"))
-    #expect(accessory.readCharacteristic(iid: AccessoryInfoIID.firmwareRevision) == .string("2.0.0"))
+    #expect(
+      accessory.readCharacteristic(iid: AccessoryInfoIID.firmwareRevision) == .string("2.0.0"))
   }
 
   @Test("Read lightbulb state characteristics")
@@ -93,7 +95,8 @@ struct HAPAccessoryTests {
   @Test("Write brightness rejects non-int")
   func writeBrightnessInvalidType() {
     let accessory = HAPAccessory(aid: 2)
-    #expect(accessory.writeCharacteristic(iid: HAPAccessory.iidBrightness, value: .string("50")) == false)
+    #expect(
+      accessory.writeCharacteristic(iid: HAPAccessory.iidBrightness, value: .string("50")) == false)
   }
 
   @Test("Write to unknown iid returns false")
@@ -111,7 +114,11 @@ struct HAPAccessoryTests {
   @Test("State change callback fires on write")
   func stateChangeCallback() {
     let accessory = HAPAccessory(aid: 2)
-    struct CallbackState { var called = false; var aid = 0; var iid = 0 }
+    struct CallbackState {
+      var called = false
+      var aid = 0
+      var iid = 0
+    }
     let state = Locked(initialState: CallbackState())
     accessory.onStateChange = { aid, iid, _ in
       state.withLock { $0 = CallbackState(called: true, aid: aid, iid: iid) }
@@ -666,7 +673,10 @@ struct CameraWriteCharacteristicTests {
   @Test("HomeKitCameraActive write updates state and fires callback")
   func homeKitCameraActiveWrite() {
     let camera = HAPCameraAccessory(aid: 3)
-    struct Change: Sendable { let iid: Int; let value: HAPValue }
+    struct Change: Sendable {
+      let iid: Int
+      let value: HAPValue
+    }
     let stateChanges = Locked<[Change]>(initialState: [])
     camera.onStateChange = { _, iid, value in
       stateChanges.withLock { $0.append(Change(iid: iid, value: value)) }
@@ -732,7 +742,11 @@ struct ButtonTests {
   @Test("trigger fires onStateChange with single press event")
   func triggerFiresEvent() {
     let btn = makeButton()
-    struct Event: Sendable { let aid: Int; let iid: Int; let value: HAPValue }
+    struct Event: Sendable {
+      let aid: Int
+      let iid: Int
+      let value: HAPValue
+    }
     let received = Locked<Event?>(initialState: nil)
     btn.onStateChange = { aid, iid, value in
       received.withLock { $0 = Event(aid: aid, iid: iid, value: value) }
