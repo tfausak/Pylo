@@ -33,7 +33,7 @@ extension HAPCameraAccessory {
     // session stop/restart cycle that produces black frames while auto-exposure
     // converges. Use a generous age limit — a slightly stale preview is far
     // better than a black one or a "No Response" error.
-    if let frame = cachedFrame(maxAgeSeconds: 10) {
+    if let frame = cachedFrame(maxAgeSeconds: 5) {
       logger.debug("Encoding cached monitoring frame on demand")
       return jpegEncode(frame)
     }
