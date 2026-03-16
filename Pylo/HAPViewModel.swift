@@ -882,6 +882,12 @@ final class HAPViewModel: ObservableObject {
     sensorCamera = availableCameras.first { $0.id == config.sensorCameraID }
     sirenEnabled = config.sirenEnabled
     buttonEnabled = config.buttonEnabled
+
+    // didSet side effects were suppressed by isRestoring, so sync monitors
+    // to match the restored state. Without this, a monitor stopped during
+    // settings editing stays stopped even though the property is re-enabled.
+    if motionEnabled { motionMonitor?.start() } else { motionMonitor?.stop() }
+    if contactEnabled { proximitySensor?.start() } else { proximitySensor?.stop() }
   }
 
   @MainActor
