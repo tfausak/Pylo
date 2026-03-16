@@ -586,8 +586,8 @@ struct VideoMotionDetectorThreadSafetyTests {
 
   // MARK: - Cached Frame Tests
 
-  @Test("cachedFrame round-trips a CGImage")
-  func cachedFrameRoundTrip() {
+  @Test("cachedFrame stores and returns the assigned CGImage")
+  func cachedFrameStoresImage() {
     let camera = HAPCameraAccessory(aid: 3)
     let ctx = CGContext(
       data: nil, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
@@ -595,7 +595,9 @@ struct VideoMotionDetectorThreadSafetyTests {
       bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue)!
     let image = ctx.makeImage()!
     camera.cachedFrame = image
-    #expect(camera.cachedFrame != nil)
+    let stored = camera.cachedFrame
+    #expect(stored?.width == image.width)
+    #expect(stored?.height == image.height)
   }
 
   @Test("cachedFrame is nil by default")

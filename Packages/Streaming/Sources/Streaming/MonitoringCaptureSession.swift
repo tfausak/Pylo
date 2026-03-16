@@ -100,11 +100,10 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   private var luxFrameInterval: Int { sensorOnly ? 20 : 60 }  // ~2s
   private var occupancyFrameInterval: Int { sensorOnly ? 25 : 75 }  // ~2.5s
 
-  /// Callback to periodically provide a pixel buffer for snapshot caching.
-  /// Called every ~1 second on the captureQueue. The receiver should JPEG-encode
-  /// the frame and cache it for fast snapshot responses. The CGImage is
-  /// produced via VTCreateCGImageFromCVPixelBuffer (a fast memcpy) so the
-  /// caller receives a self-contained image with no ties to the pixel buffer pool.
+  /// Callback to periodically provide a CGImage for snapshot caching.
+  /// Called every ~1 second on the captureQueue. The CGImage is an owned copy
+  /// with no ties to the pixel buffer pool, so the receiver can cache it
+  /// indefinitely. JPEG encoding is deferred until a snapshot is requested.
   /// Protected: written from server queue, read from captureQueue.
   private let _snapshotCallback = Locked<(@Sendable (CGImage) -> Void)?>(
     initialState: nil)
@@ -672,7 +671,8 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       let ctx = CGContext(
         data: nil, width: w, height: h,
         bitsPerComponent: 8, bytesPerRow: 0,
-        space: vtImage.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!,
+        space: vtImage.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)
+          ?? CGColorSpaceCreateDeviceRGB(),
         bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue)
     else { return nil }
     ctx.draw(vtImage, in: CGRect(x: 0, y: 0, width: w, height: h))
