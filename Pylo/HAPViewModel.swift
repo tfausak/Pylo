@@ -7,6 +7,7 @@ import Locked
 import Sensors
 import Streaming
 import SwiftUI
+import VideoToolbox
 
 #if os(iOS)
   import UIKit
@@ -1282,18 +1283,18 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
       let snapshotQueue = DispatchQueue(
         label: "\(Bundle.main.bundleIdentifier!).snapshot-encode", qos: .utility)
       monitoring.snapshotCallback = { [weak camera] pixelBuffer in
-        // createCGImage must happen synchronously: AVFoundation recycles the
-        // pixel buffer's backing memory after this callback returns.
-        // createCGImage copies the pixel data, freeing the buffer quickly.
-        // This blocks captureQueue briefly; the heavier JPEG encode is
-        // dispatched to snapshotQueue to minimize that impact.
-        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-        guard let cgImage = ciContext.createCGImage(ciImage, from: ciImage.extent) else { return }
+        // Copy pixel data off the AVFoundation-owned buffer synchronously
+        // using VTCreateCGImageFromCVPixelBuffer — a direct memcpy that
+        // avoids CIContext.createCGImage's GPU render + readback overhead.
+        var cgImage: CGImage?
+        guard VTCreateCGImageFromCVPixelBuffer(pixelBuffer, options: nil, imageOut: &cgImage) == noErr,
+          let cgImage
+        else { return }
         snapshotQueue.async { [weak camera] in
-          let ciImageFromCG = CIImage(cgImage: cgImage)
+          let ciImage = CIImage(cgImage: cgImage)
           guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
             let jpeg = ciContext.jpegRepresentation(
-              of: ciImageFromCG, colorSpace: colorSpace, options: [:])
+              of: ciImage, colorSpace: colorSpace, options: [:])
           else { return }
           camera?.cachedSnapshot = jpeg
         }
