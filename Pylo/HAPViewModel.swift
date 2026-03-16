@@ -340,18 +340,18 @@ final class HAPViewModel: ObservableObject {
     cameraPermissionDenied = cameraStatus == .denied || cameraStatus == .restricted
     if cameraPermissionDenied {
       isRestoring = true
+      defer { isRestoring = false }
       if flashlightEnabled { flashlightEnabled = false }
       if selectedStreamCamera != nil { selectedStreamCamera = nil }
       if lightSensorEnabled { lightSensorEnabled = false }
       if occupancyEnabled { occupancyEnabled = false }
-      isRestoring = false
     }
     let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
     microphonePermissionDenied = micStatus == .denied || micStatus == .restricted
     if microphonePermissionDenied {
       isRestoring = true
+      defer { isRestoring = false }
       if microphoneEnabled { microphoneEnabled = false }
-      isRestoring = false
     }
 
     updateIdleTimer()
@@ -399,6 +399,7 @@ final class HAPViewModel: ObservableObject {
   @MainActor
   func restorePreferences() {
     isRestoring = true
+    defer { isRestoring = false }
     if UserDefaults.standard.object(forKey: "flashlightEnabled") != nil {
       flashlightEnabled = UserDefaults.standard.bool(forKey: "flashlightEnabled")
     }
@@ -488,7 +489,6 @@ final class HAPViewModel: ObservableObject {
       UserDefaults.standard.set(fallback.id, forKey: "sensorCameraID")
     }
     hasPairings = UserDefaults.standard.bool(forKey: "hasPairings")
-    isRestoring = false
 
     recheckPermissions()
     start()
@@ -869,6 +869,7 @@ final class HAPViewModel: ObservableObject {
   @MainActor
   func restoreConfig(_ config: AccessoryConfig) {
     isRestoring = true
+    defer { isRestoring = false }
     flashlightEnabled = config.flashlightEnabled
     selectedStreamCamera = availableCameras.first { $0.id == config.selectedCameraID }
     motionEnabled = config.motionEnabled
@@ -879,7 +880,6 @@ final class HAPViewModel: ObservableObject {
     sensorCamera = availableCameras.first { $0.id == config.sensorCameraID }
     sirenEnabled = config.sirenEnabled
     buttonEnabled = config.buttonEnabled
-    isRestoring = false
   }
 
   @MainActor
