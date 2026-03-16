@@ -1057,3 +1057,405 @@ struct AccessoryConfigTests {
     #expect(base != makeConfig(button: true))
   }
 }
+
+// MARK: - HAPViewModel Tests
+
+@Suite("HAPViewModel")
+@MainActor
+struct HAPViewModelTests {
+
+  @Test("needsRestart is false when startedConfig is nil")
+  func needsRestartNilConfig() {
+    let vm = HAPViewModel(skipRestore: true)
+    #expect(vm.needsRestart == false)
+  }
+
+  @Test("needsRestart is false when config matches")
+  func needsRestartMatches() {
+    let vm = HAPViewModel(skipRestore: true)
+    vm.withRestoring {
+      vm.flashlightEnabled = true
+      vm.motionEnabled = false
+    }
+    vm.startedConfig = AccessoryConfig(from: vm)
+    #expect(vm.needsRestart == false)
+  }
+
+  @Test("needsRestart is true when flashlight changes")
+  func needsRestartFlashlightChanged() {
+    let vm = HAPViewModel(skipRestore: true)
+    vm.withRestoring {
+      vm.flashlightEnabled = false
+    }
+    vm.startedConfig = AccessoryConfig(from: vm)
+    vm.withRestoring { vm.flashlightEnabled = true }
+    #expect(vm.needsRestart == true)
+  }
+
+  @Test("needsRestart is true when camera selection changes")
+  func needsRestartCameraChanged() {
+    let vm = HAPViewModel(skipRestore: true)
+    vm.withRestoring {
+      vm.selectedStreamCamera = nil
+      vm.availableCameras = [
+        CameraOption(id: "cam-1", name: "Back", fNumber: 1.8)
+      ]
+    }
+    vm.startedConfig = AccessoryConfig(from: vm)
+    vm.withRestoring {
+      vm.selectedStreamCamera = CameraOption(id: "cam-1", name: "Back", fNumber: 1.8)
+    }
+    #expect(vm.needsRestart == true)
+  }
+
+  @Test("restoreConfig reverts to saved state")
+  func restoreConfigReverts() {
+    let vm = HAPViewModel(skipRestore: true)
+    vm.withRestoring {
+      vm.flashlightEnabled = true
+      vm.motionEnabled = false
+      vm.sirenEnabled = true
+    }
+    let saved = AccessoryConfig(from: vm)
+    // Change settings
+    vm.withRestoring {
+      vm.flashlightEnabled = false
+      vm.motionEnabled = true
+      vm.sirenEnabled = false
+    }
+    // Restore
+    vm.restoreConfig(saved)
+    #expect(vm.flashlightEnabled == true)
+    #expect(vm.motionEnabled == false)
+    #expect(vm.sirenEnabled == true)
+  }
+
+  @Test("withRestoring suppresses didSet side effects")
+  func withRestoringSuppress() {
+    let vm = HAPViewModel(skipRestore: true)
+    // Set a known value first
+    vm.flashlightEnabled = false
+    let defaults = UserDefaults.standard
+    defaults.removeObject(forKey: "flashlightEnabled")
+    // withRestoring should NOT write to UserDefaults
+    vm.withRestoring {
+      vm.flashlightEnabled = true
+    }
+    // The key should not have been written (isRestoring suppressed didSet)
+    #expect(defaults.object(forKey: "flashlightEnabled") == nil)
+  }
+
+  @Test("resetPairings clears hasPairings state")
+  func resetPairingsClears() {
+    let vm = HAPViewModel(skipRestore: true)
+    vm.withRestoring { vm.hasPairings = true }
+    vm.resetPairings()
+    #expect(vm.hasPairings == false)
+  }
+}
+
+// MARK: - Setup URI Edge Case Tests
+
+@Suite("HAP Setup URI Edge Cases")
+struct SetupURIEdgeCaseTests {
+
+  @Test("Setup code with leading zeros")
+  func leadingZeros() {
+    let uri = hapSetupURI(setupCode: "000-00-001", setupID: "T3ST")
+    #expect(!uri.isEmpty)
+
+    let body = String(uri.dropFirst(7))
+    let encoded = String(body.prefix(9))
+    let payload = UInt64(encoded, radix: 36)!
+    let code = payload & 0x7FF_FFFF
+    #expect(code == 1)
+  }
+
+  @Test("Maximum valid setup code")
+  func maxCode() {
+    let uri = hapSetupURI(setupCode: "999-99-999", setupID: "T3ST")
+    #expect(!uri.isEmpty)
+
+    let body = String(uri.dropFirst(7))
+    let encoded = String(body.prefix(9))
+    let payload = UInt64(encoded, radix: 36)!
+    let code = payload & 0x7FF_FFFF
+    #expect(code == 99_999_999)
+  }
+
+  @Test("Non-bridge category encodes correctly")
+  func nonBridgeCategory() {
+    // Category 17 = IP Camera
+    let uri = hapSetupURI(setupCode: "111-22-333", category: 17, setupID: "T3ST")
+    #expect(!uri.isEmpty)
+
+    let body = String(uri.dropFirst(7))
+    let encoded = String(body.prefix(9))
+    let payload = UInt64(encoded, radix: 36)!
+    let category = (payload >> 27) & 0xF
+    #expect(category == 17 & 0xF)
+  }
+
+  @Test("Setup ID is appended as suffix")
+  func setupIDSuffix() {
+    let uri = hapSetupURI(setupCode: "111-22-333", setupID: "ABCD")
+    #expect(uri.hasSuffix("ABCD"))
+  }
+}
+
+// MARK: - TLV8 Config Builder Tests
+
+@Suite("TLV8 Config Builders")
+struct TLV8ConfigBuilderTests {
+
+  @Test("Supported video config produces valid TLV8")
+  func supportedVideoConfig() {
+    let builder = HAPCameraAccessory.supportedVideoConfig()
+    let data = builder.build()
+    #expect(!data.isEmpty)
+    let tlvs = TLV8.decode(data) as [(UInt8, Data)]
+    // Should have a video codec configuration (tag 0x01)
+    let codecConfig = tlvs.first { $0.0 == 0x01 }
+    #expect(codecConfig != nil)
+    // Decode the codec config
+    let sub = TLV8.decode(codecConfig!.1) as [(UInt8, Data)]
+    // Tag 0x01 = codec type (H.264 = 0x00)
+    let codecType = sub.first { $0.0 == 0x01 }
+    #expect(codecType != nil)
+    #expect(codecType!.1 == Data([0x00]))
+    // Should have resolution attributes (tag 0x03) — TLV8 coalesces consecutive
+    // same-tag entries, so multiple resolutions may appear as one coalesced blob
+    let resolutions = sub.filter { $0.0 == 0x03 }
+    #expect(!resolutions.isEmpty)
+  }
+
+  @Test("Supported audio config produces valid TLV8")
+  func supportedAudioConfig() {
+    let builder = HAPCameraAccessory.supportedAudioConfig()
+    let data = builder.build()
+    #expect(!data.isEmpty)
+    let tlvs = TLV8.decode(data) as [(UInt8, Data)]
+    // Tag 0x01 = audio codec config
+    let codecConfig = tlvs.first { $0.0 == 0x01 }
+    #expect(codecConfig != nil)
+    let sub = TLV8.decode(codecConfig!.1) as [(UInt8, Data)]
+    // Tag 0x01 = codec type (AAC-ELD = 2)
+    let codecType = sub.first { $0.0 == 0x01 }
+    #expect(codecType != nil)
+    #expect(codecType!.1 == Data([2]))
+    // Tag 0x02 = comfort noise support (No = 0)
+    let comfortNoise = tlvs.first { $0.0 == 0x02 }
+    #expect(comfortNoise != nil)
+    #expect(comfortNoise!.1 == Data([0x00]))
+  }
+
+  @Test("Supported RTP config specifies SRTP AES_CM_128")
+  func supportedRTPConfig() {
+    let builder = HAPCameraAccessory.supportedRTPConfig()
+    let data = builder.build()
+    #expect(!data.isEmpty)
+    let tlvs = TLV8.decode(data) as [(UInt8, Data)]
+    // Tag 0x02 = SRTP crypto suite (AES_CM_128_HMAC_SHA1_80 = 0x00)
+    let crypto = tlvs.first { $0.0 == 0x02 }
+    #expect(crypto != nil)
+    #expect(crypto!.1 == Data([0x00]))
+  }
+
+  @Test("Supported data stream config specifies TCP")
+  func supportedDataStreamConfig() {
+    let camera = HAPCameraAccessory(aid: 3)
+    let builder = camera.supportedDataStreamConfig()
+    let data = builder.build()
+    let tlvs = TLV8.decode(data) as [(UInt8, Data)]
+    // Tag 0x01 = transfer transport config
+    let transport = tlvs.first { $0.0 == 0x01 }
+    #expect(transport != nil)
+    let sub = TLV8.decode(transport!.1) as [(UInt8, Data)]
+    // Tag 0x01 = transport type (TCP = 0x00)
+    let transportType = sub.first { $0.0 == 0x01 }
+    #expect(transportType != nil)
+    #expect(transportType!.1 == Data([0x00]))
+  }
+}
+
+// MARK: - Camera Bool/Int Coercion Tests
+
+@Suite("Camera Bool/Int Coercion")
+struct CameraCoercionTests {
+
+  @Test("HomeKitCameraActive accepts int 0 and 1")
+  func homeKitCameraActiveInt() {
+    let camera = HAPCameraAccessory(aid: 3)
+    camera.writeCharacteristic(iid: HAPCameraAccessory.iidHomeKitCameraActive, value: .int(0))
+    #expect(camera.homeKitCameraActive == false)
+    camera.writeCharacteristic(iid: HAPCameraAccessory.iidHomeKitCameraActive, value: .int(1))
+    #expect(camera.homeKitCameraActive == true)
+  }
+
+  @Test("EventSnapshotsActive accepts both bool and int")
+  func eventSnapshotsActiveCoercion() {
+    let camera = HAPCameraAccessory(aid: 3)
+    camera.writeCharacteristic(iid: HAPCameraAccessory.iidEventSnapshotsActive, value: .bool(false))
+    #expect(camera.eventSnapshotsActive == false)
+    camera.writeCharacteristic(iid: HAPCameraAccessory.iidEventSnapshotsActive, value: .int(1))
+    #expect(camera.eventSnapshotsActive == true)
+  }
+
+  @Test("PeriodicSnapshotsActive accepts both bool and int")
+  func periodicSnapshotsActiveCoercion() {
+    let camera = HAPCameraAccessory(aid: 3)
+    camera.writeCharacteristic(
+      iid: HAPCameraAccessory.iidPeriodicSnapshotsActive, value: .int(0))
+    #expect(camera.periodicSnapshotsActive == false)
+    camera.writeCharacteristic(
+      iid: HAPCameraAccessory.iidPeriodicSnapshotsActive, value: .bool(true))
+    #expect(camera.periodicSnapshotsActive == true)
+  }
+
+  @Test("RecordingActive clamps out-of-range int values")
+  func recordingActiveClamping() {
+    let camera = HAPCameraAccessory(aid: 3)
+    camera.writeCharacteristic(iid: HAPCameraAccessory.iidRecordingActive, value: .int(999))
+    #expect(camera.recordingActive == 255)  // UInt8(clamping: 999)
+    camera.writeCharacteristic(iid: HAPCameraAccessory.iidRecordingActive, value: .int(-1))
+    #expect(camera.recordingActive == 0)  // UInt8(clamping: -1)
+  }
+
+  @Test("RecordingAudioActive clamps out-of-range values")
+  func recordingAudioActiveClamping() {
+    let camera = HAPCameraAccessory(aid: 3)
+    camera.writeCharacteristic(iid: HAPCameraAccessory.iidRecordingAudioActive, value: .int(500))
+    #expect(camera.recordingAudioActive == 255)
+  }
+
+  @Test("RTPStreamActive clamps out-of-range values")
+  func rtpStreamActiveClamping() {
+    let camera = HAPCameraAccessory(aid: 3)
+    camera.writeCharacteristic(iid: HAPCameraAccessory.iidRTPStreamActive, value: .int(300))
+    #expect(camera.rtpStreamActive == 255)
+  }
+
+  @Test("MicrophoneMute accepts int coercion")
+  func microphoneMuteIntCoercion() {
+    let camera = HAPCameraAccessory(aid: 3)
+    camera.writeCharacteristic(iid: HAPCameraAccessory.iidMicrophoneMute, value: .int(1))
+    #expect(camera.readCharacteristic(iid: HAPCameraAccessory.iidMicrophoneMute) == .bool(true))
+    camera.writeCharacteristic(iid: HAPCameraAccessory.iidMicrophoneMute, value: .int(0))
+    #expect(camera.readCharacteristic(iid: HAPCameraAccessory.iidMicrophoneMute) == .bool(false))
+  }
+
+  @Test("SpeakerMute accepts int coercion")
+  func speakerMuteIntCoercion() {
+    let camera = HAPCameraAccessory(aid: 3)
+    camera.writeCharacteristic(iid: HAPCameraAccessory.iidSpeakerMute, value: .int(1))
+    #expect(camera.readCharacteristic(iid: HAPCameraAccessory.iidSpeakerMute) == .bool(true))
+  }
+
+  @Test("Write with invalid type returns false")
+  func invalidTypeRejected() {
+    let camera = HAPCameraAccessory(aid: 3)
+    #expect(
+      camera.writeCharacteristic(
+        iid: HAPCameraAccessory.iidHomeKitCameraActive, value: .string("yes")) == false)
+    #expect(
+      camera.writeCharacteristic(
+        iid: HAPCameraAccessory.iidRecordingActive, value: .string("1")) == false)
+    #expect(
+      camera.writeCharacteristic(
+        iid: HAPCameraAccessory.iidMicrophoneMute, value: .string("mute")) == false)
+    #expect(
+      camera.writeCharacteristic(
+        iid: HAPCameraAccessory.iidSpeakerVolume, value: .string("50")) == false)
+  }
+
+  @Test("RecordingActive accepts bool coercion from HomeKit hub")
+  func recordingActiveBoolCoercion() {
+    let camera = HAPCameraAccessory(aid: 3)
+    camera.writeCharacteristic(iid: HAPCameraAccessory.iidRecordingActive, value: .bool(true))
+    #expect(camera.recordingActive == 1)
+    camera.writeCharacteristic(iid: HAPCameraAccessory.iidRecordingActive, value: .bool(false))
+    #expect(camera.recordingActive == 0)
+  }
+}
+
+// MARK: - Camera Thread Safety Tests
+
+@Suite("Camera Thread Safety")
+struct CameraThreadSafetyTests {
+
+  @Test("Concurrent read/write characteristics does not crash")
+  func concurrentReadWrite() async {
+    let camera = HAPCameraAccessory(aid: 3)
+
+    await withTaskGroup(of: Void.self) { group in
+      // Concurrent writers
+      for i in 0..<50 {
+        group.addTask {
+          camera.writeCharacteristic(
+            iid: HAPCameraAccessory.iidSpeakerVolume, value: .int(i % 100))
+        }
+      }
+      // Concurrent readers
+      for _ in 0..<50 {
+        group.addTask {
+          _ = camera.readCharacteristic(iid: HAPCameraAccessory.iidSpeakerVolume)
+          _ = camera.readCharacteristic(iid: HAPCameraAccessory.iidMicrophoneMute)
+          _ = camera.readCharacteristic(iid: HAPCameraAccessory.iidStreamingStatus)
+        }
+      }
+    }
+  }
+
+  @Test("Concurrent detachStreamSession is safe")
+  func concurrentDetach() async {
+    let camera = HAPCameraAccessory(aid: 3)
+
+    // Only one caller should get a non-nil session
+    let session = CameraStreamSession(
+      sessionID: Data(repeating: 0, count: 16),
+      controllerAddress: "127.0.0.1", controllerVideoPort: 5000, controllerAudioPort: 5001,
+      videoSRTPKey: Data(repeating: 0, count: 16), videoSRTPSalt: Data(repeating: 0, count: 14),
+      audioSRTPKey: Data(repeating: 0, count: 16), audioSRTPSalt: Data(repeating: 0, count: 14),
+      localAddress: "127.0.0.1", localVideoPort: 6000, localAudioPort: 6001,
+      videoSSRC: 1, audioSSRC: 2,
+      ciContext: CIContext()
+    )
+    camera.streamSession = session
+
+    let results = await withTaskGroup(of: Bool.self, returning: [Bool].self) { group in
+      for _ in 0..<10 {
+        group.addTask {
+          camera.detachStreamSession() != nil
+        }
+      }
+      var collected: [Bool] = []
+      for await result in group {
+        collected.append(result)
+      }
+      return collected
+    }
+
+    // Exactly one caller should have gotten the session
+    let gotSession = results.filter { $0 }.count
+    #expect(gotSession == 1)
+  }
+
+  @Test("Concurrent HKSV state access does not crash")
+  func concurrentHKSVState() async {
+    let camera = HAPCameraAccessory(aid: 3)
+
+    await withTaskGroup(of: Void.self) { group in
+      for _ in 0..<50 {
+        group.addTask {
+          camera.writeCharacteristic(
+            iid: HAPCameraAccessory.iidRecordingActive, value: .int(1))
+        }
+        group.addTask {
+          _ = camera.recordingActive
+          _ = camera.homeKitCameraActive
+          _ = camera.eventSnapshotsActive
+        }
+      }
+    }
+  }
+}
