@@ -823,11 +823,8 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
     snapshotFrameCounter += 1
     if snapshotFrameCounter >= snapshotInterval, let callback = onSnapshotFrame {
       snapshotFrameCounter = 0
-      var cgImage: CGImage?
-      if VTCreateCGImageFromCVPixelBuffer(pixelBuffer, options: nil, imageOut: &cgImage) == noErr,
-        let cgImage
-      {
-        callback(cgImage)
+      if let owned = MonitoringCaptureSession.copyFrameFromPixelBuffer(pixelBuffer) {
+        callback(owned)
       }
     }
 

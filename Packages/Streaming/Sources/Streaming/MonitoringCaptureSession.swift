@@ -219,11 +219,8 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       if self.captureFrameCount % self.snapshotFrameInterval == 0,
         let callback = self.snapshotCallback
       {
-        var cgImage: CGImage?
-        if VTCreateCGImageFromCVPixelBuffer(pixelBuffer, options: nil, imageOut: &cgImage) == noErr,
-          let cgImage
-        {
-          callback(cgImage)
+        if let owned = Self.copyFrameFromPixelBuffer(pixelBuffer) {
+          callback(owned)
         }
       }
       if self.captureFrameCount % self.occupancyFrameInterval == 0 {
@@ -655,6 +652,29 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       guard let sampleBuffer else { return }
       session.fragmentWriter?.appendVideoSample(sampleBuffer)
     }
+  }
+
+  // MARK: - Snapshot Helpers
+
+  /// Create a CGImage that owns its pixel data, independent of the pixel buffer pool.
+  /// VTCreateCGImageFromCVPixelBuffer may back the CGImage with the pixel buffer's
+  /// IOSurface; drawing into a CGContext forces a true copy so the image stays valid
+  /// after the buffer is recycled by AVFoundation.
+  static func copyFrameFromPixelBuffer(_ pixelBuffer: CVPixelBuffer) -> CGImage? {
+    var vtImage: CGImage?
+    guard
+      VTCreateCGImageFromCVPixelBuffer(pixelBuffer, options: nil, imageOut: &vtImage) == noErr,
+      let vtImage
+    else { return nil }
+    let w = vtImage.width, h = vtImage.height
+    guard let ctx = CGContext(
+      data: nil, width: w, height: h,
+      bitsPerComponent: 8, bytesPerRow: 0,
+      space: vtImage.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!,
+      bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue)
+    else { return nil }
+    ctx.draw(vtImage, in: CGRect(x: 0, y: 0, width: w, height: h))
+    return ctx.makeImage()
   }
 
   // MARK: - Helpers
