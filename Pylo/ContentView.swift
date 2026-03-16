@@ -285,18 +285,6 @@ struct ContentView: View {
         Text(viewModel.isCameraStreaming ? "Streaming" : "Idle")
       }
       HStack {
-        Text("Camera")
-          .foregroundStyle(.secondary)
-        Spacer()
-        Picker("Camera", selection: streamCameraBinding) {
-          ForEach(viewModel.availableCameras) { camera in
-            Text(camera.name).tag(camera)
-          }
-        }
-        .labelsHidden()
-        .pickerStyle(.menu)
-      }
-      HStack {
         Text("Quality")
           .foregroundStyle(.secondary)
         Spacer()
@@ -330,16 +318,12 @@ struct ContentView: View {
 
   @ViewBuilder
   private var lightSensorContent: some View {
-    VStack(spacing: 12) {
-      if viewModel.selectedStreamCamera != nil {
-        HStack {
-          Text("Camera")
-            .foregroundStyle(.secondary)
-          Spacer()
-          Text(viewModel.selectedStreamCamera?.name ?? "")
-        }
-      } else {
-        sensorCameraPicker
+    if let camera = viewModel.selectedStreamCamera {
+      HStack {
+        Text("Using")
+          .foregroundStyle(.secondary)
+        Spacer()
+        Text(camera.name)
       }
     }
   }
@@ -365,32 +349,14 @@ struct ContentView: View {
         .labelsHidden()
         .pickerStyle(.menu)
       }
-      if viewModel.selectedStreamCamera != nil {
+      if let camera = viewModel.selectedStreamCamera {
         HStack {
-          Text("Camera")
+          Text("Using")
             .foregroundStyle(.secondary)
           Spacer()
-          Text(viewModel.selectedStreamCamera?.name ?? "")
-        }
-      } else {
-        sensorCameraPicker
-      }
-    }
-  }
-
-  @ViewBuilder
-  private var sensorCameraPicker: some View {
-    HStack {
-      Text("Camera")
-        .foregroundStyle(.secondary)
-      Spacer()
-      Picker("Camera", selection: sensorCameraBinding) {
-        ForEach(viewModel.availableCameras) { camera in
-          Text(camera.name).tag(camera)
+          Text(camera.name)
         }
       }
-      .labelsHidden()
-      .pickerStyle(.menu)
     }
   }
 
@@ -517,16 +483,6 @@ struct ContentView: View {
     )
   }
 
-  private var streamCameraBinding: Binding<CameraOption> {
-    Binding(
-      get: {
-        viewModel.selectedStreamCamera ?? viewModel.availableCameras.first
-          ?? CameraOption(id: "", name: "None", fNumber: 0)
-      },
-      set: { viewModel.selectedStreamCamera = $0 }
-    )
-  }
-
   private var lightSensorEnabled: Binding<Bool> {
     Binding(
       get: { viewModel.lightSensorEnabled && viewModel.hasAmbientLight },
@@ -538,7 +494,7 @@ struct ContentView: View {
               return
             }
             viewModel.lightSensorEnabled = true
-            ensureSensorCamera()
+            ensureCamera()
           }
         } else {
           viewModel.lightSensorEnabled = false
@@ -558,7 +514,7 @@ struct ContentView: View {
               return
             }
             viewModel.occupancyEnabled = true
-            ensureSensorCamera()
+            ensureCamera()
           }
         } else {
           viewModel.occupancyEnabled = false
@@ -581,20 +537,10 @@ struct ContentView: View {
     )
   }
 
-  private var sensorCameraBinding: Binding<CameraOption> {
-    Binding(
-      get: {
-        viewModel.sensorCamera ?? viewModel.availableCameras.first
-          ?? CameraOption(id: "", name: "None", fNumber: 0)
-      },
-      set: { viewModel.sensorCamera = $0 }
-    )
-  }
-
-  /// Ensures a sensor camera is selected when enabling a sensor without the camera accessory.
-  private func ensureSensorCamera() {
-    guard viewModel.selectedStreamCamera == nil, viewModel.sensorCamera == nil else { return }
-    viewModel.sensorCamera =
+  /// Ensures a global camera is selected when enabling a camera-dependent accessory.
+  private func ensureCamera() {
+    guard viewModel.selectedStreamCamera == nil else { return }
+    viewModel.selectedStreamCamera =
       viewModel.availableCameras.first {
         $0.name.localizedCaseInsensitiveContains("back")
       }

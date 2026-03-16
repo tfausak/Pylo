@@ -995,14 +995,14 @@ struct AccessoryConfigTests {
     flashlight: Bool = false, camera: String? = nil,
     motion: Bool = false, microphone: Bool = false,
     contact: Bool = false, lightSensor: Bool = false,
-    occupancy: Bool = false, sensorCamera: String? = nil,
+    occupancy: Bool = false,
     siren: Bool = false, button: Bool = false
   ) -> AccessoryConfig {
     AccessoryConfig(
       flashlightEnabled: flashlight, selectedCameraID: camera,
       motionEnabled: motion, microphoneEnabled: microphone,
       contactEnabled: contact, lightSensorEnabled: lightSensor,
-      occupancyEnabled: occupancy, sensorCameraID: sensorCamera,
+      occupancyEnabled: occupancy,
       sirenEnabled: siren, buttonEnabled: button
     )
   }
@@ -1055,6 +1055,5 @@ struct AccessoryConfigTests {
     #expect(base != makeConfig(occupancy: true))
     #expect(base != makeConfig(siren: true))
     #expect(base != makeConfig(button: true))
-    #expect(base != makeConfig(sensorCamera: "s1"))
   }
 }

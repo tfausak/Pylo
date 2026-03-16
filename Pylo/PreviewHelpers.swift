@@ -60,7 +60,6 @@ extension HAPViewModel {
           contactEnabled: contactEnabled,
           lightSensorEnabled: vm.lightSensorEnabled,
           occupancyEnabled: occupancyEnabled,
-          sensorCameraID: vm.sensorCamera?.id,
           sirenEnabled: sirenEnabled,
           buttonEnabled: vm.buttonEnabled
         )

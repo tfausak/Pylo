@@ -28,7 +28,6 @@ struct AccessoryConfig: Equatable {
   var contactEnabled: Bool
   var lightSensorEnabled: Bool
   var occupancyEnabled: Bool
-  var sensorCameraID: String?
   var sirenEnabled: Bool
   var buttonEnabled: Bool
 
@@ -36,7 +35,7 @@ struct AccessoryConfig: Equatable {
     flashlightEnabled: Bool, selectedCameraID: String?,
     motionEnabled: Bool, microphoneEnabled: Bool,
     contactEnabled: Bool, lightSensorEnabled: Bool,
-    occupancyEnabled: Bool, sensorCameraID: String?,
+    occupancyEnabled: Bool,
     sirenEnabled: Bool, buttonEnabled: Bool
   ) {
     self.flashlightEnabled = flashlightEnabled
@@ -46,7 +45,6 @@ struct AccessoryConfig: Equatable {
     self.contactEnabled = contactEnabled
     self.lightSensorEnabled = lightSensorEnabled
     self.occupancyEnabled = occupancyEnabled
-    self.sensorCameraID = sensorCameraID
     self.sirenEnabled = sirenEnabled
     self.buttonEnabled = buttonEnabled
   }
@@ -60,7 +58,6 @@ struct AccessoryConfig: Equatable {
     contactEnabled = vm.contactEnabled
     lightSensorEnabled = vm.lightSensorEnabled
     occupancyEnabled = vm.occupancyEnabled
-    sensorCameraID = vm.sensorCamera?.id
     sirenEnabled = vm.sirenEnabled
     buttonEnabled = vm.buttonEnabled
   }
@@ -113,23 +110,9 @@ final class HAPViewModel: ObservableObject {
       if let selectedStreamCamera {
         UserDefaults.standard.set(selectedStreamCamera.id, forKey: "selectedStreamCameraID")
         cameraAccessory?.selectedCameraID = selectedStreamCamera.id
-        // Keep sensor camera in sync so sensors use the same camera
-        sensorCamera = selectedStreamCamera
       } else {
         UserDefaults.standard.set("none", forKey: "selectedStreamCameraID")
         cameraAccessory?.selectedCameraID = nil
-      }
-    }
-  }
-  /// Which camera device sensors use when the camera accessory is off.
-  /// Synced from selectedStreamCamera; persisted independently.
-  @Published var sensorCamera: CameraOption? {
-    didSet {
-      guard !isRestoring, oldValue?.id != sensorCamera?.id else { return }
-      if let sensorCamera {
-        UserDefaults.standard.set(sensorCamera.id, forKey: "sensorCameraID")
-      } else {
-        UserDefaults.standard.removeObject(forKey: "sensorCameraID")
       }
     }
   }
@@ -473,21 +456,6 @@ final class HAPViewModel: ObservableObject {
       // explicitly enables via the toggle (which requests camera permission).
       selectedStreamCamera = nil
     }
-    // Restore sensor camera selection (used when camera accessory is off)
-    if let savedSensorID = UserDefaults.standard.string(forKey: "sensorCameraID") {
-      sensorCamera = cameras.first(where: { $0.id == savedSensorID })
-    } else if let selectedStreamCamera {
-      // Seed from camera selection on first run after upgrade
-      sensorCamera = selectedStreamCamera
-    }
-    // If sensors are enabled but no sensor camera resolved, auto-select the first
-    // available camera so sensors don't silently fail after upgrade or camera changes.
-    if sensorCamera == nil && (lightSensorEnabled || occupancyEnabled),
-      let fallback = cameras.first
-    {
-      sensorCamera = fallback
-      UserDefaults.standard.set(fallback.id, forKey: "sensorCameraID")
-    }
     hasPairings = UserDefaults.standard.bool(forKey: "hasPairings")
 
     recheckPermissions()
@@ -520,7 +488,6 @@ final class HAPViewModel: ObservableObject {
       lightSensorEnabled: lightSensorEnabled,
       occupancyEnabled: occupancyEnabled,
       occupancyCooldown: occupancyCooldown.duration,
-      sensorCameraID: sensorCamera?.id,
       sirenEnabled: sirenEnabled,
       buttonEnabled: buttonEnabled,
       hasBattery: battery.isAvailable
@@ -879,7 +846,6 @@ final class HAPViewModel: ObservableObject {
     contactEnabled = config.contactEnabled
     lightSensorEnabled = config.lightSensorEnabled
     occupancyEnabled = config.occupancyEnabled
-    sensorCamera = availableCameras.first { $0.id == config.sensorCameraID }
     sirenEnabled = config.sirenEnabled
     buttonEnabled = config.buttonEnabled
 
@@ -943,8 +909,6 @@ private struct StartConfig: Sendable {
   let lightSensorEnabled: Bool
   let occupancyEnabled: Bool
   let occupancyCooldown: TimeInterval
-  /// Camera ID for standalone sensors when the camera accessory is off.
-  let sensorCameraID: String?
   let sirenEnabled: Bool
   let buttonEnabled: Bool
   let hasBattery: Bool
@@ -1108,21 +1072,8 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     }
   }
 
-  // Resolve the camera device for sensors that need it.
-  // When the camera accessory is enabled, use its resolved camera.
-  // Otherwise, resolve from the standalone sensor camera ID.
-  let cameraDeviceForSensors: AVCaptureDevice? = {
-    if config.selectedStreamCameraID != nil {
-      return camera.resolvedCamera
-    }
-    if let sensorID = config.sensorCameraID,
-      let device = AVCaptureDevice(uniqueID: sensorID)
-    {
-      return device
-    }
-    // Fallback to default wide-angle camera if the stored ID is missing or stale
-    return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
-  }()
+  // All camera-dependent accessories share the global camera selection.
+  let cameraDeviceForSensors: AVCaptureDevice? = camera.resolvedCamera
 
   // Ambient light sensor — derives lux from AVCaptureDevice exposure metadata
   // on every frame (internally throttled by MonitoringCaptureSession).
