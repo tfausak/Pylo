@@ -68,7 +68,7 @@ struct ContentView: View {
       } else if viewModel.isNetworkDenied {
         networkDeniedBody
       } else if viewModel.hasPairings {
-        if viewModel.isRunning {
+        if viewModel.isRunning || viewModel.isStarting {
           RunningView(viewModel: viewModel)
         } else {
           pairedBody
@@ -77,8 +77,8 @@ struct ContentView: View {
         PairingView(viewModel: viewModel)
       }
     }
-    .navigationTitle(viewModel.isRunning ? "" : "Pylo")
-    .safeAreaInset(edge: .bottom) {
+    .navigationTitle(viewModel.isRunning || viewModel.isStarting ? "" : "Pylo")
+    .overlay(alignment: .bottom) {
       if viewModel.isWaitingForHomeApp {
         HStack(spacing: 8) {
           ProgressView()
@@ -87,7 +87,7 @@ struct ContentView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(12)
-        .background(.secondary.opacity(0.2), in: .rect(cornerRadius: 12))
+        .background(.thinMaterial, in: .rect(cornerRadius: 12))
         .padding(.horizontal)
         .padding(.bottom, 4)
         .transition(.move(edge: .bottom).combined(with: .opacity))
