@@ -1,5 +1,11 @@
 import SwiftUI
 
+#if os(iOS)
+  import UIKit
+#elseif os(macOS)
+  import AppKit
+#endif
+
 struct ContentView: View {
   @ObservedObject var viewModel: HAPViewModel
   var forceConfig = false
@@ -109,20 +115,12 @@ struct ContentView: View {
     .animation(.default, value: viewModel.isWaitingForHomeApp)
   }
 
-  /// Used by RunningConfigView — paired body plus unpair button.
+  /// Used by RunningConfigView — general settings, accessories, and unpair.
   private var configBody: some View {
     ScrollView {
-      VStack(spacing: 12) {
-        pairedContent
-
-        Button(role: .destructive) {
-          showUnpairConfirmation = true
-        } label: {
-          Text("Unpair")
-            .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.bordered)
-        .padding(.top, 8)
+      VStack(spacing: 20) {
+        generalSection
+        accessoriesSection
       }
       .padding()
     }
@@ -132,15 +130,73 @@ struct ContentView: View {
 
   private var pairedBody: some View {
     ScrollView {
-      VStack(spacing: 12) {
-        pairedContent
+      VStack(spacing: 20) {
+        generalSection
+        accessoriesSection
       }
       .padding()
     }
   }
 
+  // MARK: - General Section
+
   @ViewBuilder
-  private var pairedContent: some View {
+  private var generalSection: some View {
+    VStack(spacing: 0) {
+      // Camera picker
+      if !viewModel.availableCameras.isEmpty {
+        HStack {
+          Label("Camera", systemImage: "camera.fill")
+          Spacer()
+          Picker("Camera", selection: globalCameraBinding) {
+            Text("Off").tag(nil as CameraOption?)
+            ForEach(viewModel.availableCameras) { camera in
+              Text(camera.name).tag(camera as CameraOption?)
+            }
+          }
+          .labelsHidden()
+          .pickerStyle(.menu)
+        }
+        .padding()
+
+        Divider().padding(.horizontal)
+      }
+
+      // Keep Display On / Prevent Sleep
+      HStack {
+        #if os(iOS)
+          Label("Keep Display On", systemImage: "display")
+        #else
+          Label("Prevent Sleep", systemImage: "moon.zzz")
+        #endif
+        Spacer()
+        Toggle("", isOn: $viewModel.keepScreenAwake)
+          .labelsHidden()
+      }
+      .padding()
+
+      // Unpair (config only)
+      if forceConfig {
+        Divider().padding(.horizontal)
+
+        Button(role: .destructive) {
+          showUnpairConfirmation = true
+        } label: {
+          HStack {
+            Label("Unpair", systemImage: "xmark.circle")
+            Spacer()
+          }
+        }
+        .padding()
+      }
+    }
+    .background(cardBackground, in: RoundedRectangle(cornerRadius: 12))
+  }
+
+  // MARK: - Accessories Section
+
+  @ViewBuilder
+  private var accessoriesSection: some View {
     // Camera
     AccessoryCard(
       icon: "camera.fill",
@@ -239,23 +295,6 @@ struct ContentView: View {
       .font(.caption)
       .foregroundStyle(.secondary)
     }
-
-    // Display / Sleep
-    #if os(iOS)
-      AccessoryCard(
-        icon: "display",
-        title: "Keep Display On",
-        isOn: $viewModel.keepScreenAwake
-      ) {
-        displayContent
-      }
-    #else
-      AccessoryCard(
-        icon: "moon.zzz",
-        title: "Prevent Sleep",
-        isOn: $viewModel.keepScreenAwake
-      ) {}
-    #endif
   }
 
   // MARK: - Network Denied
@@ -403,11 +442,6 @@ struct ContentView: View {
   }
 
   @ViewBuilder
-  private var displayContent: some View {
-    EmptyView()
-  }
-
-  @ViewBuilder
   private var sirenContent: some View {
     HStack {
       Text("Status")
@@ -545,6 +579,25 @@ struct ContentView: View {
     )
   }
 
+  private var globalCameraBinding: Binding<CameraOption?> {
+    Binding(
+      get: { viewModel.selectedStreamCamera },
+      set: { newCamera in
+        if let newCamera {
+          Task {
+            guard await viewModel.requestCameraPermission() else {
+              viewModel.permissionAlert = .camera
+              return
+            }
+            viewModel.selectedStreamCamera = newCamera
+          }
+        } else {
+          viewModel.selectedStreamCamera = nil
+        }
+      }
+    )
+  }
+
   /// Ensures a global camera is selected when enabling a camera-dependent accessory.
   private func ensureCamera() {
     guard viewModel.selectedStreamCamera == nil else { return }
@@ -553,6 +606,14 @@ struct ContentView: View {
         $0.name.localizedCaseInsensitiveContains("back")
       }
       ?? viewModel.availableCameras.first
+  }
+
+  private var cardBackground: Color {
+    #if os(iOS)
+      Color(UIColor.secondarySystemGroupedBackground)
+    #elseif os(macOS)
+      Color(NSColor.controlBackgroundColor)
+    #endif
   }
 
 }
