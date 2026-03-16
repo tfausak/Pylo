@@ -459,7 +459,11 @@ final class HAPViewModel: ObservableObject {
     hasPairings = UserDefaults.standard.bool(forKey: "hasPairings")
 
     recheckPermissions()
-    start()
+    // Defer start() when the welcome screen hasn't been seen yet so the
+    // local network permission prompt is triggered by "Get Started" on iOS.
+    if UserDefaults.standard.bool(forKey: "hasSeenWelcome") {
+      start()
+    }
   }
 
   @MainActor

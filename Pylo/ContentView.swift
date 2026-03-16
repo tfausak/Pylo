@@ -5,6 +5,7 @@ struct ContentView: View {
   var forceConfig = false
   @Environment(\.scenePhase) private var scenePhase
   @State private var showUnpairConfirmation = false
+  @AppStorage("hasSeenWelcome") private var hasSeenWelcome = false
 
   var body: some View {
     ZStack {
@@ -54,7 +55,14 @@ struct ContentView: View {
 
   private var mainBody: some View {
     Group {
-      if viewModel.isNetworkDenied {
+      if !hasSeenWelcome {
+        WelcomeView {
+          hasSeenWelcome = true
+          // Start the server now that welcome is dismissed. On iOS this
+          // triggers the local network permission prompt via NWListener.
+          viewModel.start()
+        }
+      } else if viewModel.isNetworkDenied {
         networkDeniedBody
       } else if viewModel.hasPairings {
         if viewModel.isRunning {
