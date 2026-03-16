@@ -118,15 +118,16 @@ struct RunningConfigView: View {
             .font(.body.weight(.semibold))
           }
         }
-        .safeAreaInset(edge: .top) {
+        .safeAreaInset(edge: .bottom) {
           if viewModel.needsRestart {
-            Text("Will restart on close")
-              .font(.subheadline)
-              .foregroundStyle(.secondary)
+            Text("Server will restart on close")
+              .font(.subheadline.weight(.medium))
               .frame(maxWidth: .infinity)
-              .padding(10)
-              .background(.bar)
-              .transition(.move(edge: .top).combined(with: .opacity))
+              .padding(12)
+              .background(.thinMaterial, in: .rect(cornerRadius: 12))
+              .padding(.horizontal)
+              .padding(.bottom, 4)
+              .transition(.move(edge: .bottom).combined(with: .opacity))
           }
         }
         .animation(.default, value: viewModel.needsRestart)
