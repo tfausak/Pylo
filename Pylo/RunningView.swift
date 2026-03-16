@@ -16,14 +16,10 @@ struct RunningView: View {
           .offset(pixelOffset)
       }
     }
-    .overlay(alignment: .top) {
-      HStack {
-        statusIndicator
-        Spacer()
-        gearButton
-      }
-      .padding(.horizontal, 12)
-      .offset(pixelOffset)
+    .overlay(alignment: .topTrailing) {
+      gearButton
+        .padding(.horizontal, 12)
+        .offset(pixelOffset)
     }
     .task { await pixelShiftLoop() }
     #if os(iOS)
@@ -37,15 +33,6 @@ struct RunningView: View {
     #endif
   }
 
-  // MARK: - Status Indicator
-
-  private var statusIndicator: some View {
-    Image(systemName: "checkmark")
-      .font(.title2)
-      .foregroundStyle(.green)
-      .padding(20)
-  }
-
   // MARK: - Button
 
   private var buttonTile: some View {
@@ -57,21 +44,17 @@ struct RunningView: View {
       #endif
       buttonCooldown = true
       Task { @MainActor in
-        try? await Task.sleep(nanoseconds: 2_000_000_000)
+        try? await Task.sleep(nanoseconds: 1_000_000_000)
         buttonCooldown = false
       }
     } label: {
-      Image(systemName: "hand.tap")
-        .font(.system(size: 48))
+      Image(systemName: buttonCooldown ? "checkmark" : "hand.tap")
+        .font(.system(size: 56))
         .foregroundStyle(buttonCooldown ? .gray : .white)
-        .frame(width: 150, height: 150)
-        .background(
-          ZStack {
-            Circle()
-              .fill(buttonCooldown ? Color.gray.opacity(0.3) : Color.white.opacity(0.15))
-            Circle()
-              .strokeBorder(Color.white.opacity(0.3), lineWidth: 1)
-          }
+        .frame(width: 170, height: 170)
+        .overlay(
+          Circle()
+            .strokeBorder(Color.white.opacity(0.3), lineWidth: 1)
         )
     }
     .disabled(buttonCooldown)
@@ -86,7 +69,7 @@ struct RunningView: View {
     Button {
       showConfig = true
     } label: {
-      Image(systemName: "gearshape.fill")
+      Image(systemName: "gear")
         .font(.title2)
         .foregroundStyle(.white.opacity(0.5))
         .padding(20)

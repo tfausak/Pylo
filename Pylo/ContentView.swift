@@ -162,7 +162,7 @@ struct ContentView: View {
       // Camera picker
       if !viewModel.availableCameras.isEmpty {
         HStack {
-          Label("Camera", systemImage: "camera.fill")
+          Label("Camera", systemImage: "camera")
           Spacer()
           Picker("Camera", selection: globalCameraBinding) {
             ForEach(viewModel.availableCameras) { camera in
@@ -211,7 +211,7 @@ struct ContentView: View {
   private var accessoriesSection: some View {
     // Camera
     AccessoryCard(
-      icon: "camera.fill",
+      icon: "camera",
       title: "Camera",
       isOn: cameraEnabled,
       blocked: !viewModel.hasCamera || viewModel.cameraPermissionDenied,
@@ -225,7 +225,7 @@ struct ContentView: View {
 
     // Light Sensor
     AccessoryCard(
-      icon: "light.beacon.max",
+      icon: "rays",
       title: "Light Sensor",
       isOn: lightSensorEnabled,
       blocked: !viewModel.hasCamera || !viewModel.hasAmbientLight
@@ -240,7 +240,7 @@ struct ContentView: View {
 
     // Occupancy Sensor
     AccessoryCard(
-      icon: "person.fill.viewfinder",
+      icon: "figure",
       title: "Occupancy Sensor",
       isOn: occupancyEnabled,
       blocked: !viewModel.hasCamera || viewModel.cameraPermissionDenied,
@@ -254,7 +254,7 @@ struct ContentView: View {
 
     // Flashlight
     AccessoryCard(
-      icon: "flashlight.off.fill",
+      icon: "flashlight.on.fill",
       title: "Flashlight",
       isOn: flashlightEnabled,
       blocked: !viewModel.hasTorch || viewModel.cameraPermissionDenied,
@@ -269,7 +269,7 @@ struct ContentView: View {
 
     // Motion Sensor
     AccessoryCard(
-      icon: "figure.walk.motion",
+      icon: "iphone.motion",
       title: "Motion Sensor",
       isOn: motionEnabled,
       blocked: !viewModel.hasAccelerometer,
@@ -282,7 +282,7 @@ struct ContentView: View {
 
     // Contact Sensor
     AccessoryCard(
-      icon: "sensor.tag.radiowaves.forward.fill",
+      icon: "contact.sensor",
       title: "Contact Sensor",
       isOn: contactEnabled,
       blocked: !viewModel.hasProximity,
@@ -295,7 +295,7 @@ struct ContentView: View {
 
     // Siren
     AccessoryCard(
-      icon: "speaker.wave.3.fill",
+      icon: "speaker.wave.3",
       title: "Siren",
       isOn: $viewModel.sirenEnabled,
       description: "Plays an alarm sound through the device speaker when triggered."
