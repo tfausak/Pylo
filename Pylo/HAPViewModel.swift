@@ -1281,55 +1281,24 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
       // delivery (which would cause dropped frames and affect motion/lux detection).
       let snapshotQueue = DispatchQueue(
         label: "\(Bundle.main.bundleIdentifier!).snapshot-encode", qos: .utility)
-      // HomeKit snapshots are small previews — encode at a reduced size
-      // and 80% quality to cut JPEG encoding cost significantly.
-      // Uses ImageIO (CGImageDestination) instead of CIContext for JPEG
-      // encoding — avoids CIContext's GPU render pipeline overhead.
-      let snapshotMaxDimension = 1280
+      let ciContext = camera.snapshotCIContext
       monitoring.snapshotCallback = { [weak camera] pixelBuffer in
+        // Copy pixel data off the AVFoundation-owned buffer synchronously
+        // using VTCreateCGImageFromCVPixelBuffer — a direct memcpy that
+        // avoids CIContext.createCGImage's GPU render + readback overhead.
         var cgImage: CGImage?
         guard
           VTCreateCGImageFromCVPixelBuffer(pixelBuffer, options: nil, imageOut: &cgImage) == noErr,
           let cgImage
         else { return }
         snapshotQueue.async { [weak camera] in
-          // Downscale if needed using CGContext (CPU blit, fast)
-          let w = cgImage.width
-          let h = cgImage.height
-          let maxDim = max(w, h)
-          let finalImage: CGImage
-          if maxDim > snapshotMaxDimension {
-            let scale = CGFloat(snapshotMaxDimension) / CGFloat(maxDim)
-            let dw = Int(CGFloat(w) * scale)
-            let dh = Int(CGFloat(h) * scale)
-            guard
-              let ctx = CGContext(
-                data: nil, width: dw, height: dh,
-                bitsPerComponent: 8, bytesPerRow: 0,
-                space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue
-              )
-            else { return }
-            ctx.interpolationQuality = .medium
-            ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: dw, height: dh))
-            guard let scaled = ctx.makeImage() else { return }
-            finalImage = scaled
-          } else {
-            finalImage = cgImage
-          }
-          // Encode JPEG via ImageIO — lightweight, no CIContext overhead
-          let data = NSMutableData()
-          guard
-            let dest = CGImageDestinationCreateWithData(
-              data, "public.jpeg" as CFString, 1, nil)
+          let ciImage = CIImage(cgImage: cgImage)
+          guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+            let jpeg = ciContext.jpegRepresentation(
+              of: ciImage, colorSpace: colorSpace,
+              options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 0.8])
           else { return }
-          CGImageDestinationAddImage(
-            dest, finalImage,
-            [
-              kCGImageDestinationLossyCompressionQuality: 0.8
-            ] as CFDictionary)
-          guard CGImageDestinationFinalize(dest) else { return }
-          camera?.cachedSnapshot = data as Data
+          camera?.cachedSnapshot = jpeg
         }
       }
 
