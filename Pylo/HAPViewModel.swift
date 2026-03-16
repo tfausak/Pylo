@@ -1035,13 +1035,13 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
 
     // Restore recordingActive from previous session so the hub doesn't
     // need to re-send the write after an app restart.
-    let savedRecordingActive = UInt8(UserDefaults.standard.integer(forKey: "recordingActive"))
+    let savedRecordingActive = UInt8(clamping: UserDefaults.standard.integer(forKey: "recordingActive"))
     if savedRecordingActive != 0 {
       camera.restoreRecordingActive(savedRecordingActive)
     }
 
     // Restore recordingAudioActive from previous session.
-    let savedAudioActive = UInt8(UserDefaults.standard.integer(forKey: "recordingAudioActive"))
+    let savedAudioActive = UInt8(clamping: UserDefaults.standard.integer(forKey: "recordingAudioActive"))
     if savedAudioActive != 0 {
       camera.restoreRecordingAudioActive(savedAudioActive)
     }
