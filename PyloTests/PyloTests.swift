@@ -32,18 +32,18 @@ struct HAPAccessoryTests {
       serialNumber: "SN-123",
       firmwareRevision: "2.0.0"
     )
-    #expect(accessory.readCharacteristic(iid: 3) == .string("Test Maker"))
-    #expect(accessory.readCharacteristic(iid: 4) == .string("Test Model"))
-    #expect(accessory.readCharacteristic(iid: 5) == .string("Test Light"))
-    #expect(accessory.readCharacteristic(iid: 6) == .string("SN-123"))
-    #expect(accessory.readCharacteristic(iid: 7) == .string("2.0.0"))
+    #expect(accessory.readCharacteristic(iid: AccessoryInfoIID.manufacturer) == .string("Test Maker"))
+    #expect(accessory.readCharacteristic(iid: AccessoryInfoIID.model) == .string("Test Model"))
+    #expect(accessory.readCharacteristic(iid: AccessoryInfoIID.name) == .string("Test Light"))
+    #expect(accessory.readCharacteristic(iid: AccessoryInfoIID.serialNumber) == .string("SN-123"))
+    #expect(accessory.readCharacteristic(iid: AccessoryInfoIID.firmwareRevision) == .string("2.0.0"))
   }
 
   @Test("Read lightbulb state characteristics")
   func readLightbulbState() {
     let accessory = HAPAccessory(aid: 2)
-    #expect(accessory.readCharacteristic(iid: 9) == .bool(false))
-    #expect(accessory.readCharacteristic(iid: 10) == .int(100))
+    #expect(accessory.readCharacteristic(iid: HAPAccessory.iidOn) == .bool(false))
+    #expect(accessory.readCharacteristic(iid: HAPAccessory.iidBrightness) == .int(100))
   }
 
   @Test("Read unknown iid returns nil")
@@ -55,44 +55,44 @@ struct HAPAccessoryTests {
   @Test("Write on/off as bool")
   func writeOnBool() {
     let accessory = HAPAccessory(aid: 2)
-    #expect(accessory.writeCharacteristic(iid: 9, value: .bool(true)))
+    #expect(accessory.writeCharacteristic(iid: HAPAccessory.iidOn, value: .bool(true)))
     #expect(accessory.isOn == true)
-    #expect(accessory.writeCharacteristic(iid: 9, value: .bool(false)))
+    #expect(accessory.writeCharacteristic(iid: HAPAccessory.iidOn, value: .bool(false)))
     #expect(accessory.isOn == false)
   }
 
   @Test("Write on/off coerces int to bool")
   func writeOnInt() {
     let accessory = HAPAccessory(aid: 2)
-    #expect(accessory.writeCharacteristic(iid: 9, value: .int(1)))
+    #expect(accessory.writeCharacteristic(iid: HAPAccessory.iidOn, value: .int(1)))
     #expect(accessory.isOn == true)
-    #expect(accessory.writeCharacteristic(iid: 9, value: .int(0)))
+    #expect(accessory.writeCharacteristic(iid: HAPAccessory.iidOn, value: .int(0)))
     #expect(accessory.isOn == false)
   }
 
   @Test("Write on/off rejects invalid type")
   func writeOnInvalidType() {
     let accessory = HAPAccessory(aid: 2)
-    #expect(accessory.writeCharacteristic(iid: 9, value: .string("yes")) == false)
+    #expect(accessory.writeCharacteristic(iid: HAPAccessory.iidOn, value: .string("yes")) == false)
   }
 
   @Test("Write brightness clamps to 0-100")
   func writeBrightnessClamped() {
     let accessory = HAPAccessory(aid: 2)
-    #expect(accessory.writeCharacteristic(iid: 10, value: .int(50)))
+    #expect(accessory.writeCharacteristic(iid: HAPAccessory.iidBrightness, value: .int(50)))
     #expect(accessory.brightness == 50)
 
-    #expect(accessory.writeCharacteristic(iid: 10, value: .int(150)))
+    #expect(accessory.writeCharacteristic(iid: HAPAccessory.iidBrightness, value: .int(150)))
     #expect(accessory.brightness == 100)
 
-    #expect(accessory.writeCharacteristic(iid: 10, value: .int(-10)))
+    #expect(accessory.writeCharacteristic(iid: HAPAccessory.iidBrightness, value: .int(-10)))
     #expect(accessory.brightness == 0)
   }
 
   @Test("Write brightness rejects non-int")
   func writeBrightnessInvalidType() {
     let accessory = HAPAccessory(aid: 2)
-    #expect(accessory.writeCharacteristic(iid: 10, value: .string("50")) == false)
+    #expect(accessory.writeCharacteristic(iid: HAPAccessory.iidBrightness, value: .string("50")) == false)
   }
 
   @Test("Write to unknown iid returns false")
@@ -101,10 +101,10 @@ struct HAPAccessoryTests {
     #expect(accessory.writeCharacteristic(iid: 99, value: .bool(true)) == false)
   }
 
-  @Test("Write identify (iid 2) succeeds")
+  @Test("Write identify succeeds")
   func writeIdentify() {
     let accessory = HAPAccessory(aid: 2)
-    #expect(accessory.writeCharacteristic(iid: 2, value: .bool(true)))
+    #expect(accessory.writeCharacteristic(iid: AccessoryInfoIID.identify, value: .bool(true)))
   }
 
   @Test("State change callback fires on write")
@@ -118,10 +118,10 @@ struct HAPAccessoryTests {
       receivedAid = aid
       receivedIid = iid
     }
-    accessory.writeCharacteristic(iid: 9, value: .bool(true))
+    accessory.writeCharacteristic(iid: HAPAccessory.iidOn, value: .bool(true))
     #expect(callbackCalled)
     #expect(receivedAid == 2)
-    #expect(receivedIid == 9)
+    #expect(receivedIid == HAPAccessory.iidOn)
   }
 
   @Test("toJSON has correct structure")
@@ -136,26 +136,26 @@ struct HAPAccessoryTests {
     #expect(services.count == 3)
 
     // Accessory Information service
-    #expect(services[0]["type"] as? String == "3E")
+    #expect(services[0]["type"] as? String == HKServiceUUID.accessoryInformation)
     let infoChars = services[0]["characteristics"] as! [[String: Any]]
     #expect(infoChars.count == 6)
 
     // Protocol Information service
-    #expect(services[1]["type"] as? String == "A2")
+    #expect(services[1]["type"] as? String == ProtocolInfoUUID.service)
 
     // Lightbulb service
-    #expect(services[2]["type"] as? String == "43")
+    #expect(services[2]["type"] as? String == HKServiceUUID.lightbulb)
     let lightChars = services[2]["characteristics"] as! [[String: Any]]
     #expect(lightChars.count == 2)
 
     // On characteristic
     let onChar = lightChars[0]
-    #expect(onChar["iid"] as? Int == 9)
+    #expect(onChar["iid"] as? Int == HAPAccessory.iidOn)
     #expect(onChar["format"] as? String == "bool")
 
     // Brightness characteristic
     let brightChar = lightChars[1]
-    #expect(brightChar["iid"] as? Int == 10)
+    #expect(brightChar["iid"] as? Int == HAPAccessory.iidBrightness)
     #expect(brightChar["format"] as? String == "int")
     #expect(brightChar["minValue"] as? Int == 0)
     #expect(brightChar["maxValue"] as? Int == 100)
@@ -185,11 +185,11 @@ struct AccessoryInfoServiceTests {
 
     // All should have same structure
     for json in jsons {
-      #expect(json["iid"] as? Int == 1)
-      #expect(json["type"] as? String == "3E")
+      #expect(json["iid"] as? Int == AccessoryInfoIID.service)
+      #expect(json["type"] as? String == HKServiceUUID.accessoryInformation)
       let chars = json["characteristics"] as! [[String: Any]]
       #expect(chars.count == 6)
-      #expect(chars[0]["iid"] as? Int == 2)
+      #expect(chars[0]["iid"] as? Int == AccessoryInfoIID.identify)
       #expect(chars[1]["value"] as? String == "MF")
       #expect(chars[2]["value"] as? String == "M")
       #expect(chars[3]["value"] as? String == "L")
