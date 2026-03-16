@@ -484,6 +484,12 @@ struct ContentView: View {
     )
   }
 
+  // NOTE: These bindings share a pattern (check permission → set on enable, clear on
+  // disable), but extracting a generic helper is impractical: Binding.init(get:set:)
+  // requires @Sendable closures, which prevents capturing @MainActor-isolated properties
+  // in a helper function. The inline Binding construction gets implicit MainActor context
+  // from the View struct, which a generic helper would lose.
+
   private var flashlightEnabled: Binding<Bool> {
     Binding(
       get: { viewModel.flashlightEnabled && viewModel.hasTorch },
