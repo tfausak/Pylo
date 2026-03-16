@@ -562,7 +562,6 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       $0.videoCaptureDelegate = nil
       $0.audioCaptureDelegate = nil
     }
-    snapshotCallback = nil
     logger.info("Monitoring capture handed off (session still running)")
     return session
   }
