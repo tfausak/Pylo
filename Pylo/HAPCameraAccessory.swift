@@ -610,14 +610,15 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     // Camera Event Recording Management
     case Self.iidRecordingActive:
       if let v = intFromValue(value) {
+        let clamped = Int(UInt8(clamping: v))
         hksvState.withLock { $0.recordingActive = UInt8(clamping: v) }
-        let isActive = v != 0
+        let isActive = clamped != 0
         onRecordingConfigChange?(isActive)
-        onStateChange?(aid, iid, .int(v))
+        onStateChange?(aid, iid, .int(clamped))
         // Signal monitoring capture: needed when recording armed + no live stream.
-        // Read streamSession through the lock to avoid tearing; this is still a
-        // point-in-time check (a session could be installed right after), but the
-        // monitoring layer handles that overlap gracefully.
+        // Reading streamSession through the lock avoids tearing but this is still
+        // a point-in-time check — a session can be installed immediately after.
+        // The monitoring layer handles that overlap gracefully.
         if isActive {
           let hasStream = hasActiveStreamSession
           if !hasStream {
@@ -640,16 +641,18 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
       return false
     case Self.iidRecordingAudioActive:
       if let v = intFromValue(value) {
+        let clamped = Int(UInt8(clamping: v))
         hksvState.withLock { $0.recordingAudioActive = UInt8(clamping: v) }
-        onStateChange?(aid, iid, .int(v))
-        onRecordingAudioActiveChange?(v != 0)
+        onStateChange?(aid, iid, .int(clamped))
+        onRecordingAudioActiveChange?(clamped != 0)
         return true
       }
       return false
     case Self.iidRTPStreamActive:
       if let v = intFromValue(value) {
+        let clamped = Int(UInt8(clamping: v))
         hksvState.withLock { $0.rtpStreamActive = UInt8(clamping: v) }
-        onStateChange?(aid, iid, .int(v))
+        onStateChange?(aid, iid, .int(clamped))
         return true
       }
       return false

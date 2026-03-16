@@ -99,7 +99,11 @@ struct RunningView: View {
   @MainActor
   private func pixelShiftLoop() async {
     while !Task.isCancelled {
-      try? await Task.sleep(nanoseconds: 60_000_000_000)
+      do {
+        try await Task.sleep(nanoseconds: 60_000_000_000)
+      } catch {
+        return
+      }
       guard !Task.isCancelled else { return }
       withAnimation(.easeInOut(duration: 1.0)) {
         pixelOffset = CGSize(

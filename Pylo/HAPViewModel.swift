@@ -523,7 +523,8 @@ final class HAPViewModel: ObservableObject {
     recheckPermissions()
     // Defer start() when the welcome screen hasn't been seen yet so the
     // local network permission prompt is triggered by "Get Started" on iOS.
-    if UserDefaults.standard.bool(forKey: PrefKey.hasSeenWelcome) {
+    // Always start for paired users (covers upgrades where hasSeenWelcome isn't set yet).
+    if hasPairings || UserDefaults.standard.bool(forKey: PrefKey.hasSeenWelcome) {
       start()
     }
   }
@@ -939,6 +940,9 @@ final class HAPViewModel: ObservableObject {
       proximitySensor?.stop()
       isContactDetected = false
     }
+    if !occupancyEnabled {
+      isOccupancyDetected = false
+    }
   }
 
   @MainActor
@@ -1278,12 +1282,11 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
       let snapshotQueue = DispatchQueue(
         label: "\(Bundle.main.bundleIdentifier!).snapshot-encode", qos: .utility)
       monitoring.snapshotCallback = { [weak camera] pixelBuffer in
-        // Render the CVPixelBuffer to a CGImage synchronously while the buffer
-        // is still valid. AVFoundation recycles pixel buffer backing memory
-        // after this callback returns, so deferring access is unsafe.
-        // createCGImage copies the pixel data, freeing the buffer quickly to
-        // avoid starving the capture session's buffer pool. Only the cheaper
-        // JPEG encode step is dispatched to snapshotQueue.
+        // createCGImage must happen synchronously: AVFoundation recycles the
+        // pixel buffer's backing memory after this callback returns.
+        // createCGImage copies the pixel data, freeing the buffer quickly.
+        // This blocks captureQueue briefly; the heavier JPEG encode is
+        // dispatched to snapshotQueue to minimize that impact.
         let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
         guard let cgImage = ciContext.createCGImage(ciImage, from: ciImage.extent) else { return }
         snapshotQueue.async { [weak camera] in

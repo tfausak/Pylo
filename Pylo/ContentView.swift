@@ -190,20 +190,17 @@ struct ContentView: View {
       }
       .padding()
 
-      // Unpair (config only)
-      if forceConfig {
-        Divider().padding(.horizontal)
+      Divider().padding(.horizontal)
 
-        Button(role: .destructive) {
-          showUnpairConfirmation = true
-        } label: {
-          HStack {
-            Label("Unpair", systemImage: "xmark.circle")
-            Spacer()
-          }
+      Button(role: .destructive) {
+        showUnpairConfirmation = true
+      } label: {
+        HStack {
+          Label("Unpair", systemImage: "xmark.circle")
+          Spacer()
         }
-        .padding()
       }
+      .padding()
     }
     .background(Color.cardBackground, in: RoundedRectangle(cornerRadius: 12))
   }

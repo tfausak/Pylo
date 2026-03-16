@@ -1495,8 +1495,6 @@ struct SirenPlayerTests {
       callbackFired.withLock { $0 = true }
     }
     player.stop()
-    // Give the async stop a moment to execute
-    Thread.sleep(forTimeInterval: 0.1)
     #expect(callbackFired.withLock { $0 } == false)
   }
 
