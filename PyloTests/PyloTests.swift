@@ -1,4 +1,5 @@
 import AudioToolbox
+import CoreImage
 import CryptoKit
 import Foundation
 import HAP
@@ -598,6 +599,106 @@ struct VideoMotionDetectorThreadSafetyTests {
   func cachedSnapshotNil() {
     let camera = HAPCameraAccessory(aid: 3)
     #expect(camera.cachedSnapshot(maxAgeSeconds: 10) == nil)
+  }
+}
+
+// MARK: - Camera Write Characteristic Tests
+
+@Suite("Camera Write Characteristics")
+struct CameraWriteCharacteristicTests {
+
+  @Test("Recording active triggers monitoring when no stream session exists")
+  func recordingActiveStartsMonitoring() {
+    let camera = HAPCameraAccessory(aid: 3)
+    nonisolated(unsafe) var monitoringNeeded: Bool?
+    camera.onMonitoringCaptureNeeded = { needed, _ in
+      monitoringNeeded = needed
+    }
+    camera.writeCharacteristic(iid: HAPCameraAccessory.iidRecordingActive, value: .int(1))
+    #expect(monitoringNeeded == true)
+  }
+
+  @Test("Recording active does not trigger monitoring when stream session exists")
+  func recordingActiveSkipsMonitoringWithStream() {
+    let camera = HAPCameraAccessory(aid: 3)
+    // Install a dummy stream session so hasActiveStreamSession returns true
+    let dummySession = CameraStreamSession(
+      sessionID: Data(repeating: 0, count: 16),
+      controllerAddress: "127.0.0.1", controllerVideoPort: 5000, controllerAudioPort: 5001,
+      videoSRTPKey: Data(repeating: 0, count: 16), videoSRTPSalt: Data(repeating: 0, count: 14),
+      audioSRTPKey: Data(repeating: 0, count: 16), audioSRTPSalt: Data(repeating: 0, count: 14),
+      localAddress: "127.0.0.1", localVideoPort: 6000, localAudioPort: 6001,
+      videoSSRC: 1, audioSSRC: 2,
+      ciContext: CIContext()
+    )
+    camera.streamSession = dummySession
+    nonisolated(unsafe) var monitoringCalled = false
+    camera.onMonitoringCaptureNeeded = { _, _ in
+      monitoringCalled = true
+    }
+    camera.writeCharacteristic(iid: HAPCameraAccessory.iidRecordingActive, value: .int(1))
+    #expect(monitoringCalled == false)
+  }
+
+  @Test("Recording deactivate triggers monitoring stop")
+  func recordingDeactivateStopsMonitoring() {
+    let camera = HAPCameraAccessory(aid: 3)
+    // First activate
+    camera.writeCharacteristic(iid: HAPCameraAccessory.iidRecordingActive, value: .int(1))
+    nonisolated(unsafe) var monitoringNeeded: Bool?
+    camera.onMonitoringCaptureNeeded = { needed, _ in
+      monitoringNeeded = needed
+    }
+    camera.writeCharacteristic(iid: HAPCameraAccessory.iidRecordingActive, value: .int(0))
+    #expect(monitoringNeeded == false)
+  }
+
+  @Test("Recording active fires onStateChange")
+  func recordingActiveFiresStateChange() {
+    let camera = HAPCameraAccessory(aid: 3)
+    nonisolated(unsafe) var receivedValue: HAPValue?
+    camera.onStateChange = { _, _, value in
+      receivedValue = value
+    }
+    camera.writeCharacteristic(iid: HAPCameraAccessory.iidRecordingActive, value: .int(1))
+    #expect(receivedValue == .int(1))
+  }
+
+  @Test("HomeKitCameraActive write updates state and fires callback")
+  func homeKitCameraActiveWrite() {
+    let camera = HAPCameraAccessory(aid: 3)
+    nonisolated(unsafe) var stateChanges: [(Int, HAPValue)] = []
+    camera.onStateChange = { _, iid, value in
+      stateChanges.append((iid, value))
+    }
+    camera.writeCharacteristic(iid: HAPCameraAccessory.iidHomeKitCameraActive, value: .bool(false))
+    #expect(camera.homeKitCameraActive == false)
+    // Should also mirror to motion sensor StatusActive
+    #expect(stateChanges.count == 2)
+    #expect(stateChanges[0].0 == HAPCameraAccessory.iidHomeKitCameraActive)
+    #expect(stateChanges[1].0 == HAPCameraAccessory.iidMotionSensorStatusActive)
+  }
+
+  @Test("Microphone mute write updates audio settings")
+  func microphoneMuteWrite() {
+    let camera = HAPCameraAccessory(aid: 3)
+    camera.writeCharacteristic(iid: HAPCameraAccessory.iidMicrophoneMute, value: .bool(true))
+    #expect(camera.readCharacteristic(iid: HAPCameraAccessory.iidMicrophoneMute) == .bool(true))
+  }
+
+  @Test("Speaker volume write clamps to 0-100")
+  func speakerVolumeClamp() {
+    let camera = HAPCameraAccessory(aid: 3)
+    camera.writeCharacteristic(iid: HAPCameraAccessory.iidSpeakerVolume, value: .int(150))
+    #expect(camera.readCharacteristic(iid: HAPCameraAccessory.iidSpeakerVolume) == .int(100))
+    camera.writeCharacteristic(iid: HAPCameraAccessory.iidSpeakerVolume, value: .int(-10))
+    #expect(camera.readCharacteristic(iid: HAPCameraAccessory.iidSpeakerVolume) == .int(0))
+  }
+
+  @Test("Write to unknown iid returns false")
+  func writeUnknownIID() {
+    let camera = HAPCameraAccessory(aid: 3)
+    #expect(camera.writeCharacteristic(iid: 999, value: .bool(true)) == false)
   }
 }
 
