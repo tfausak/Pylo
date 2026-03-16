@@ -584,36 +584,24 @@ struct VideoMotionDetectorThreadSafetyTests {
     }
   }
 
-  // MARK: - Cached Frame Freshness Tests
+  // MARK: - Cached Frame Tests
 
-  @Test("cachedFrame(maxAgeSeconds:) returns frame within age limit")
-  func cachedFrameFresh() {
+  @Test("cachedFrame round-trips a CGImage")
+  func cachedFrameRoundTrip() {
     let camera = HAPCameraAccessory(aid: 3)
-    // Create a minimal 1x1 CGImage for testing
     let ctx = CGContext(
       data: nil, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
       space: CGColorSpace(name: CGColorSpace.sRGB)!,
       bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue)!
     let image = ctx.makeImage()!
     camera.cachedFrame = image
-    #expect(camera.cachedFrame(maxAgeSeconds: 10) != nil)
+    #expect(camera.cachedFrame != nil)
   }
 
-  @Test("cachedFrame(maxAgeSeconds:) returns nil for zero maxAge")
-  func cachedFrameExpired() {
-    let camera = HAPCameraAccessory(aid: 3)
-    let ctx = CGContext(
-      data: nil, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
-      space: CGColorSpace(name: CGColorSpace.sRGB)!,
-      bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue)!
-    camera.cachedFrame = ctx.makeImage()!
-    #expect(camera.cachedFrame(maxAgeSeconds: 0) == nil)
-  }
-
-  @Test("cachedFrame(maxAgeSeconds:) returns nil when no frame is cached")
+  @Test("cachedFrame is nil by default")
   func cachedFrameNil() {
     let camera = HAPCameraAccessory(aid: 3)
-    #expect(camera.cachedFrame(maxAgeSeconds: 10) == nil)
+    #expect(camera.cachedFrame == nil)
   }
 }
 

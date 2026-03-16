@@ -241,28 +241,15 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     }
   }
 
-  /// Most recent CGImage from the monitoring session (used for on-demand JPEG encoding).
-  /// Storing the raw CGImage avoids continuous JPEG encoding — the expensive encode
-  /// only happens when HomeKit actually requests a snapshot.
+  /// Most recent CGImage from the monitoring/streaming session (used for on-demand JPEG
+  /// encoding). Storing the raw CGImage avoids continuous JPEG encoding — the expensive
+  /// encode only happens when HomeKit actually requests a snapshot.
   /// Protected by a lock because it is written from captureQueue and read from the
   /// server queue (snapshot request handler).
-  private let _cachedFrame = Locked<
-    (image: CGImage, timestamp: TimeInterval)?
-  >(initialState: nil)
+  private let _cachedFrame = Locked<CGImage?>(initialState: nil)
   var cachedFrame: CGImage? {
-    get { _cachedFrame.withLock { $0?.image } }
-    set {
-      let now = ProcessInfo.processInfo.systemUptime
-      _cachedFrame.withLock { $0 = newValue.map { (image: $0, timestamp: now) } }
-    }
-  }
-  /// Returns the cached frame only if it was captured within the given max age in seconds.
-  func cachedFrame(maxAgeSeconds: TimeInterval) -> CGImage? {
-    let now = ProcessInfo.processInfo.systemUptime
-    return _cachedFrame.withLock { cached in
-      guard let cached, (now - cached.timestamp) < maxAgeSeconds else { return nil }
-      return cached.image
-    }
+    get { _cachedFrame.withLock { $0 } }
+    set { _cachedFrame.withLock { $0 = newValue } }
   }
 
   /// JPEG-encode a CGImage on demand using the reusable CIContext.

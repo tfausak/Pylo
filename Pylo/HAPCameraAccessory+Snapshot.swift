@@ -27,20 +27,18 @@ extension HAPCameraAccessory {
       return nil
     }
 
-    // If the monitoring session has a recent frame, JPEG-encode it on demand.
-    // This avoids the 1-3 second cold-start delay of creating a new
-    // AVCaptureSession (which causes "No Response") AND avoids the monitoring
-    // session stop/restart cycle that produces black frames while auto-exposure
-    // converges. Use a generous age limit — a slightly stale preview is far
-    // better than a black one or a "No Response" error.
-    if let frame = cachedFrame(maxAgeSeconds: 5) {
-      logger.debug("Encoding cached monitoring frame on demand")
+    // If a cached frame exists, JPEG-encode it on demand. This avoids the
+    // 1-3 second cold-start delay of creating a new AVCaptureSession (which
+    // causes "No Response") AND avoids the monitoring session stop/restart
+    // cycle that produces black frames while auto-exposure reconverges.
+    // A stale frame is always preferable to a black one or "No Response".
+    if let frame = cachedFrame {
+      logger.debug("Encoding cached frame on demand")
       return jpegEncode(frame)
     }
 
     guard let camera = resolveCamera() else {
       logger.error("No camera available for snapshot")
-      if let frame = cachedFrame { return jpegEncode(frame) }
       return nil
     }
 
@@ -56,20 +54,14 @@ extension HAPCameraAccessory {
 
     guard let input = try? AVCaptureDeviceInput(device: camera),
       session.canAddInput(input)
-    else {
-      if let frame = cachedFrame { return jpegEncode(frame) }
-      return nil
-    }
+    else { return nil }
     session.addInput(input)
 
     let videoOutput = AVCaptureVideoDataOutput()
     videoOutput.videoSettings = [
       kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
     ]
-    guard session.canAddOutput(videoOutput) else {
-      if let frame = cachedFrame { return jpegEncode(frame) }
-      return nil
-    }
+    guard session.canAddOutput(videoOutput) else { return nil }
     session.addOutput(videoOutput)
 
     // Rotate to match current device orientation
@@ -101,8 +93,7 @@ extension HAPCameraAccessory {
     _ = grabber.waitForCapture(timeout: .now() + 3)
 
     guard let cgImage = grabber.capturedImage else {
-      logger.warning("Frame grab timed out -- encoding cached frame")
-      if let frame = cachedFrame { return jpegEncode(frame) }
+      logger.warning("Frame grab timed out")
       return nil
     }
 
