@@ -266,6 +266,15 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
         state.fragmentStartPTS = pts
       }
 
+      // Cap video sample accumulation analogous to the audio cap (line 180).
+      // If keyframes stop arriving (hardware encoder throttling), pending samples
+      // grow without bound. 300 frames (~10s at 30fps) is generous enough that
+      // normal keyframe intervals (4s) never hit it.
+      if state.pendingSamples.count >= 300 {
+        state.pendingSamples.removeAll()
+        state.fragmentStartPTS = .invalid
+      }
+
       state.pendingSamples.append(
         VideoSample(data: sampleData, pts: pts, isKeyframe: isKeyframe))
       return (gap, kf)
