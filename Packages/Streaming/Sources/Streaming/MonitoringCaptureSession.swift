@@ -119,6 +119,9 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   /// Keyframe interval counter — only accessed on captureQueue, no lock needed.
   /// Reset in start()/stop() before captureQueue delivers frames.
   private var encodeFrameCount: Int = 0
+  /// Keyframe interval in frames (fps * 4s), captured at start() to avoid
+  /// reading the Locked recordingFps property on every frame.
+  private var keyframeInterval: Int = 120
 
   /// Frame counter for throttling motion/lux/snapshot detection — captureQueue only.
   /// Motion fires every 15 frames (~2fps at 30fps); lux, occupancy, and snapshot
@@ -427,6 +430,7 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       captureQueue.sync { [self] in
         encodeFrameCount = 0
         captureFrameCount = 0
+        keyframeInterval = max(fps * 4, 1)
       }
       if existingSession == nil {
         sessionQueue.async { session.startRunning() }
@@ -482,6 +486,7 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     captureQueue.sync { [self] in
       encodeFrameCount = 0
       captureFrameCount = 0
+      keyframeInterval = max(fps * 4, 1)
     }
     if existingSession == nil {
       let startBlock = { session.startRunning() }
@@ -647,7 +652,7 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     // boundaries. Using only MaxKeyFrameInterval/Duration is insufficient because the
     // encoder's internal counter doesn't reset after an externally-forced keyframe.
     let props: CFDictionary? =
-      frameCount % (recordingFps * 4) == 1
+      frameCount % keyframeInterval == 1
       ? [kVTEncodeFrameOptionKey_ForceKeyFrame: true] as CFDictionary
       : nil
 

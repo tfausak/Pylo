@@ -29,6 +29,7 @@ private nonisolated enum PrefKey {
   static let maxResolution = "maxResolution"
   static let frameRate = "frameRate"
   static let minBitrate = "minBitrate"
+  static let legacyVideoQuality = "videoQuality"
   static let microphoneEnabled = "microphoneEnabled"
   static let contactEnabled = "contactEnabled"
   static let lightSensorEnabled = "lightSensorEnabled"
@@ -467,7 +468,7 @@ final class HAPViewModel: ObservableObject {
     }
     // Migrate from old VideoQuality enum if new keys haven't been set yet
     if UserDefaults.standard.object(forKey: PrefKey.maxResolution) == nil,
-      let oldQuality = UserDefaults.standard.string(forKey: "videoQuality")
+      let oldQuality = UserDefaults.standard.string(forKey: PrefKey.legacyVideoQuality)
     {
       switch oldQuality {
       case "Low":
@@ -487,7 +488,7 @@ final class HAPViewModel: ObservableObject {
       UserDefaults.standard.set(maxResolution.rawValue, forKey: PrefKey.maxResolution)
       UserDefaults.standard.set(frameRate.rawValue, forKey: PrefKey.frameRate)
       UserDefaults.standard.set(minBitrate, forKey: PrefKey.minBitrate)
-      UserDefaults.standard.removeObject(forKey: "videoQuality")
+      UserDefaults.standard.removeObject(forKey: PrefKey.legacyVideoQuality)
     }
     if let savedResolution = UserDefaults.standard.string(forKey: PrefKey.maxResolution),
       let resolution = MaxResolution(rawValue: savedResolution)
