@@ -291,8 +291,10 @@ extension HAPCameraAccessory {
     session.isMuted = settings.isMuted
     session.speakerMuted = settings.speakerMuted
     session.speakerVolume = settings.speakerVolume
-    session.videoMotionDetector = videoMotionDetector
-    session.ambientLightDetector = ambientLightDetector
+    // Don't run motion/lux detection during live streaming — the monitoring
+    // session handles these when no stream is active, and running them on the
+    // captureQueue during streaming adds work that can cause frame drops.
+    // Other HKSV cameras also skip accessory-side motion detection while streaming.
     session.onSnapshotFrame = { [weak self] cgImage in
       self?.cachedFrame = cgImage
     }
