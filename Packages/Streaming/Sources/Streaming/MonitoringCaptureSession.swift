@@ -719,8 +719,10 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
         }
       }
       if allBlack {
-        Logger(subsystem: Bundle.main.bundleIdentifier ?? "Streaming", category: "MonitoringCapture")
-          .debug("copyFrameFromPixelBuffer: rejected black frame (\(dstW)x\(dstH))")
+        Logger(
+          subsystem: Bundle.main.bundleIdentifier ?? "Streaming", category: "MonitoringCapture"
+        )
+        .debug("copyFrameFromPixelBuffer: rejected black frame (\(dstW)x\(dstH))")
         return nil
       }
     }
