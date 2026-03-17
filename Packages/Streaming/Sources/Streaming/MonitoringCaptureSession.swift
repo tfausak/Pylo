@@ -338,7 +338,8 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       // Cold start — create a new AVCaptureSession from scratch
       session = AVCaptureSession()
       session.enableMultitaskingCameraIfSupported()
-      session.sessionPreset = sensorOnly ? .vga640x480 : Self.sessionPreset(width: width, height: height)
+      session.sessionPreset =
+        sensorOnly ? .vga640x480 : Self.sessionPreset(width: width, height: height)
 
       do {
         let input = try AVCaptureDeviceInput(device: camera)
