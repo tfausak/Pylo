@@ -237,7 +237,7 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
     )
 
     self.targetFPS = fps
-    self.snapshotInterval = max(1, fps)
+    self.snapshotInterval = max(1, fps * 2)
     self.rtpPayloadType = payloadType
     self.audioPayloadType = audioPayloadType
     // Safe to reset from any queue here: the capture pipeline hasn't started yet

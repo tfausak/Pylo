@@ -90,10 +90,11 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
 
   /// Frame counter for throttling motion/lux/snapshot detection — captureQueue only.
   /// Motion fires every 15 frames (~2fps at 30fps), lux every 60 (~0.5fps),
-  /// snapshot every 30 (~1fps).
+  /// snapshot every 60 (~2s). HomeKit polls snapshots every 5-15s so a 2s
+  /// cache refresh is more than adequate.
   private var captureFrameCount: Int = 0
   private let motionFrameInterval = 15
-  private let snapshotFrameInterval = 30
+  private let snapshotFrameInterval = 60
 
   /// Lux and occupancy intervals scale with fps so the wall-clock cadence stays
   /// consistent between full mode (30fps) and sensor-only mode (10fps).
