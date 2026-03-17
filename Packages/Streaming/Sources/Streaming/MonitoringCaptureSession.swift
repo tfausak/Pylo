@@ -662,6 +662,14 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   /// for HomeKit snapshot previews. This reduces the copy cost proportionally to the
   /// pixel count reduction (e.g., 1920x1080 → 1280x720 is ~56% fewer pixels).
   static func copyFrameFromPixelBuffer(_ pixelBuffer: CVPixelBuffer) -> CGImage? {
+    // Lock the pixel buffer so the IOSurface stays CPU-mapped through the
+    // VT → CGContext draw pipeline.  Without this, a prior lock/unlock cycle
+    // (e.g. from VideoMotionDetector) can leave the surface unmapped, causing
+    // VTCreateCGImageFromCVPixelBuffer's lazy-backed CGImage to read zeros
+    // when drawn at a different scale.
+    CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
+    defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
+
     var vtImage: CGImage?
     guard
       VTCreateCGImageFromCVPixelBuffer(pixelBuffer, options: nil, imageOut: &vtImage) == noErr,
