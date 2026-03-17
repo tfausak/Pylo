@@ -166,10 +166,10 @@ extension HAPCameraAccessory {
 
     // Parse session control
     var sessionID = Data()
+    var command: UInt8 = 0
     for (tag, val) in tlvs {
       if tag == 0x01 {
         let sub = TLV8.decode(val) as [(UInt8, Data)]
-        var command: UInt8 = 0
         for (stag, sval) in sub {
           switch stag {
           case 0x01: sessionID = sval
@@ -264,7 +264,7 @@ extension HAPCameraAccessory {
     var response = TLV8.Builder()
     var sessionControl = TLV8.Builder()
     sessionControl.add(0x01, sessionID)
-    sessionControl.add(0x02, byte: 0x00)  // command echo (0=end is fine for ack)
+    sessionControl.add(0x02, byte: command)
     response.add(0x01, tlv: sessionControl)
     selectedRTPStreamConfigResponse = response.build()
 

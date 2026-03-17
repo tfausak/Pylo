@@ -179,7 +179,7 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
     set { _onSnapshotFrame.value = newValue }
   }
   private var snapshotFrameCounter = 0
-  private var snapshotInterval = 30  // every ~1s, derived from negotiated fps
+  private var snapshotInterval = 30  // every ~2s, derived from negotiated fps
 
   // Audio encoder state — accumulates PCM until we have a full AAC-ELD frame
   var pcmAccumulator = Data()
@@ -832,6 +832,7 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
     // Dispatched to a utility queue so the pixel-copy + downscale doesn't block
     // captureQueue and cause frame drops. CVPixelBuffer supports concurrent
     // read-only locks, so this is safe alongside VTCompressionSessionEncodeFrame.
+    // The callback is @Sendable and invoked on the utility queue, not captureQueue.
     snapshotFrameCounter += 1
     if snapshotFrameCounter >= snapshotInterval, let callback = onSnapshotFrame {
       snapshotFrameCounter = 0

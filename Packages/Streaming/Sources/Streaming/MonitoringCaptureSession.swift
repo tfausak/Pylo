@@ -689,7 +689,8 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
         bitsPerComponent: 8, bytesPerRow: 0,
         space: vtImage.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)
           ?? CGColorSpaceCreateDeviceRGB(),
-        bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue)
+        bitmapInfo: CGBitmapInfo.byteOrder32Little.rawValue
+          | CGImageAlphaInfo.noneSkipFirst.rawValue)
     else { return nil }
     ctx.interpolationQuality = .low
     ctx.draw(vtImage, in: CGRect(x: 0, y: 0, width: dstW, height: dstH))
@@ -698,9 +699,10 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     // Reject all-black frames — sample a few pixels to detect frames where the
     // IOSurface data was unavailable (zeros). Checking 4 spread-out pixels is
     // cheap and catches the common failure mode (entire frame is black).
+    // Byte layout with byteOrder32Little | noneSkipFirst: [B G R X] per pixel.
     if let data = ctx.data {
       let bytesPerRow = ctx.bytesPerRow
-      let bpp = 4  // XRGB, 4 bytes per pixel
+      let bpp = 4  // BGRX, 4 bytes per pixel
       let samples = [
         (dstW / 4, dstH / 4),
         (3 * dstW / 4, dstH / 4),
@@ -710,9 +712,10 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       var allBlack = true
       for (x, y) in samples {
         let offset = y * bytesPerRow + x * bpp
-        let r = data.load(fromByteOffset: offset + 1, as: UInt8.self)
-        let g = data.load(fromByteOffset: offset + 2, as: UInt8.self)
-        let b = data.load(fromByteOffset: offset + 3, as: UInt8.self)
+        // byteOrder32Little | noneSkipFirst → memory layout: B G R X
+        let b = data.load(fromByteOffset: offset, as: UInt8.self)
+        let g = data.load(fromByteOffset: offset + 1, as: UInt8.self)
+        let r = data.load(fromByteOffset: offset + 2, as: UInt8.self)
         if r > 8 || g > 8 || b > 8 {
           allBlack = false
           break

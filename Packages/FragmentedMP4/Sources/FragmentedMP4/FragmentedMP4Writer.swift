@@ -271,7 +271,9 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
       // grow without bound. 300 frames (~10s at 30fps) is generous enough that
       // normal keyframe intervals (4s) never hit it.
       if state.pendingSamples.count >= 300 {
+        logger.warning("Pending video samples exceeded cap (300) — dropping buffered video+audio")
         state.pendingSamples.removeAll()
+        state.pendingAudioSamples.removeAll()
         state.fragmentStartPTS = .invalid
       }
 

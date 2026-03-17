@@ -110,6 +110,8 @@ extension HAPCameraAccessory {
 // MARK: - Frame Grabber (for silent snapshots)
 
 nonisolated final class FrameGrabber: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
+  private static let logger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "Pylo", category: "FrameGrabber")
   private let semaphore = DispatchSemaphore(value: 0)
   /// CGImage copied from the pixel buffer inside the delegate callback, so
   /// the backing CVPixelBuffer can be safely recycled by AVFoundation.
@@ -144,7 +146,8 @@ nonisolated final class FrameGrabber: NSObject, AVCaptureVideoDataOutputSampleBu
         data: nil, width: 4, height: 1,
         bitsPerComponent: 8, bytesPerRow: 4 * 4,
         space: CGColorSpaceCreateDeviceRGB(),
-        bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue)
+        bitmapInfo: CGBitmapInfo.byteOrder32Little.rawValue
+          | CGImageAlphaInfo.noneSkipFirst.rawValue)
     else { return false }
     for (i, (sx, sy)) in samplePoints.enumerated() {
       // Crop a 1×1 rect from the source and draw it into position i
@@ -154,10 +157,11 @@ nonisolated final class FrameGrabber: NSObject, AVCaptureVideoDataOutputSampleBu
     }
     guard let data = ctx.data else { return false }
     for i in 0..<4 {
+      // byteOrder32Little | noneSkipFirst → memory layout: B G R X
       let offset = i * 4
-      let r = data.load(fromByteOffset: offset + 1, as: UInt8.self)
-      let g = data.load(fromByteOffset: offset + 2, as: UInt8.self)
-      let b = data.load(fromByteOffset: offset + 3, as: UInt8.self)
+      let b = data.load(fromByteOffset: offset, as: UInt8.self)
+      let g = data.load(fromByteOffset: offset + 1, as: UInt8.self)
+      let r = data.load(fromByteOffset: offset + 2, as: UInt8.self)
       if r > 8 || g > 8 || b > 8 { return false }
     }
     return true
@@ -186,8 +190,7 @@ nonisolated final class FrameGrabber: NSObject, AVCaptureVideoDataOutputSampleBu
     guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else { return }
     // Reject all-black frames (auto-exposure hasn't converged yet) — keep trying.
     if Self.isBlackFrame(cgImage) {
-      Logger(subsystem: Bundle.main.bundleIdentifier ?? "Pylo", category: "FrameGrabber")
-        .debug("Rejected black frame (frame \(self._framesReceived))")
+      Self.logger.debug("Rejected black frame (frame \(self._framesReceived))")
       return
     }
     lock.withLock { _capturedImage = cgImage }
