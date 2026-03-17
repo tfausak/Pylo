@@ -307,13 +307,12 @@ extension HAPCameraAccessory {
       onMonitoringCaptureNeeded?(false, nil)
     }
 
-    let effectiveBitrate = max(bitrate, minimumBitrate)
     let rotation = currentRotation()
     logger.info(
-      "Bitrate: negotiated=\(bitrate)kbps, minimum=\(self.minimumBitrate)kbps, effective=\(effectiveBitrate)kbps, rotation=\(rotation.angle)\u{00B0}"
+      "Bitrate: \(bitrate)kbps, rotation=\(rotation.angle)\u{00B0}"
     )
     let started = session.startStreaming(
-      width: width, height: height, fps: fps, bitrate: effectiveBitrate, payloadType: payloadType,
+      width: width, height: height, fps: fps, bitrate: bitrate, payloadType: payloadType,
       audioPayloadType: audioPayloadType, camera: camera, rotationAngle: rotation.angle,
       swapDimensions: rotation.swapDimensions, existingCaptureSession: existingSession,
       microphoneEnabled: microphoneEnabled)
