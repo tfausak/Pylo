@@ -26,7 +26,10 @@ private nonisolated enum PrefKey {
   static let flashlightEnabled = "flashlightEnabled"
   static let motionEnabled = "motionEnabled"
   static let motionSensitivity = "motionSensitivity"
-  static let videoQuality = "videoQuality"
+  static let maxResolution = "maxResolution"
+  static let frameRate = "frameRate"
+  static let minBitrate = "minBitrate"
+  static let legacyVideoQuality = "videoQuality"
   static let microphoneEnabled = "microphoneEnabled"
   static let contactEnabled = "contactEnabled"
   static let lightSensorEnabled = "lightSensorEnabled"
@@ -208,11 +211,25 @@ final class HAPViewModel: ObservableObject {
   }
   @Published var isOccupancyDetected = false
   @Published var currentLux: Float = 0
-  @Published var videoQuality: VideoQuality = .medium {
+  @Published var maxResolution: MaxResolution = .r1080p {
     didSet {
-      guard !isRestoring, videoQuality != oldValue else { return }
-      UserDefaults.standard.set(videoQuality.rawValue, forKey: PrefKey.videoQuality)
-      cameraAccessory?.minimumBitrate = videoQuality.minimumBitrate
+      guard !isRestoring, maxResolution != oldValue else { return }
+      UserDefaults.standard.set(maxResolution.rawValue, forKey: PrefKey.maxResolution)
+      cameraAccessory?.maxResolution = maxResolution
+    }
+  }
+  @Published var frameRate: FrameRate = .fps30 {
+    didSet {
+      guard !isRestoring, frameRate != oldValue else { return }
+      UserDefaults.standard.set(frameRate.rawValue, forKey: PrefKey.frameRate)
+      cameraAccessory?.frameRate = frameRate
+    }
+  }
+  @Published var minBitrate: Int = 2000 {
+    didSet {
+      guard !isRestoring, minBitrate != oldValue else { return }
+      UserDefaults.standard.set(minBitrate, forKey: PrefKey.minBitrate)
+      cameraAccessory?.minBitrate = minBitrate
     }
   }
   @Published var sirenEnabled: Bool = false {
@@ -449,10 +466,44 @@ final class HAPViewModel: ObservableObject {
     {
       motionSensitivity = sensitivity
     }
-    if let savedQuality = UserDefaults.standard.string(forKey: PrefKey.videoQuality),
-      let quality = VideoQuality(rawValue: savedQuality)
+    // Migrate from old VideoQuality enum if new keys haven't been set yet
+    if UserDefaults.standard.object(forKey: PrefKey.maxResolution) == nil,
+      let oldQuality = UserDefaults.standard.string(forKey: PrefKey.legacyVideoQuality)
     {
-      videoQuality = quality
+      switch oldQuality {
+      case "Low":
+        maxResolution = .r720p
+        frameRate = .fps24
+        minBitrate = 500
+      case "High":
+        maxResolution = .r1080p
+        frameRate = .fps30
+        minBitrate = 4000
+      default:  // "Medium"
+        maxResolution = .r1080p
+        frameRate = .fps30
+        minBitrate = 2000
+      }
+      // Persist migrated values
+      UserDefaults.standard.set(maxResolution.rawValue, forKey: PrefKey.maxResolution)
+      UserDefaults.standard.set(frameRate.rawValue, forKey: PrefKey.frameRate)
+      UserDefaults.standard.set(minBitrate, forKey: PrefKey.minBitrate)
+      UserDefaults.standard.removeObject(forKey: PrefKey.legacyVideoQuality)
+    }
+    if let savedResolution = UserDefaults.standard.string(forKey: PrefKey.maxResolution),
+      let resolution = MaxResolution(rawValue: savedResolution)
+    {
+      maxResolution = resolution
+    }
+    if UserDefaults.standard.object(forKey: PrefKey.frameRate) != nil {
+      let savedFps = UserDefaults.standard.integer(forKey: PrefKey.frameRate)
+      if let fps = FrameRate(rawValue: savedFps) {
+        frameRate = fps
+      }
+    }
+    if UserDefaults.standard.object(forKey: PrefKey.minBitrate) != nil {
+      let saved = UserDefaults.standard.integer(forKey: PrefKey.minBitrate)
+      if saved >= 300 { minBitrate = saved }
     }
     if UserDefaults.standard.object(forKey: PrefKey.microphoneEnabled) != nil {
       microphoneEnabled = UserDefaults.standard.bool(forKey: PrefKey.microphoneEnabled)
@@ -550,7 +601,9 @@ final class HAPViewModel: ObservableObject {
       selectedStreamCameraID: cameraEnabled ? selectedStreamCamera?.id : nil,
       motionEnabled: motionEnabled,
       motionThreshold: motionSensitivity.threshold,
-      minimumBitrate: videoQuality.minimumBitrate,
+      maxResolution: maxResolution,
+      frameRate: frameRate,
+      minBitrate: minBitrate,
       microphoneEnabled: microphoneEnabled,
       contactEnabled: contactEnabled,
       lightSensorEnabled: lightSensorEnabled,
@@ -988,7 +1041,9 @@ private struct StartConfig: Sendable {
   let selectedStreamCameraID: String?
   let motionEnabled: Bool
   let motionThreshold: Double
-  let minimumBitrate: Int
+  let maxResolution: MaxResolution
+  let frameRate: FrameRate
+  let minBitrate: Int
   let microphoneEnabled: Bool
   let contactEnabled: Bool
   let lightSensorEnabled: Bool
@@ -1098,7 +1153,9 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
 
   if config.selectedStreamCameraID != nil {
     camera.selectedCameraID = config.selectedStreamCameraID
-    camera.minimumBitrate = config.minimumBitrate
+    camera.maxResolution = config.maxResolution
+    camera.frameRate = config.frameRate
+    camera.minBitrate = config.minBitrate
     camera.microphoneEnabled = config.microphoneEnabled
     camera.hksvEnabled = true
     camera.videoMotionEnabled = true
@@ -1305,6 +1362,10 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
           monitoring?.audioRecordingEnabled =
             camera.recordingAudioActive != 0 && camera.microphoneEnabled
           if let device = camera.resolvedCamera {
+            monitoring?.recordingWidth = camera.maxResolution.width
+            monitoring?.recordingHeight = camera.maxResolution.height
+            monitoring?.recordingFps = camera.frameRate.rawValue
+            monitoring?.recordingBitrate = camera.minBitrate
             monitoring?.start(camera: device, existingSession: existingSession)
           }
         } else if occupancyDetector != nil || ambientLightDetector != nil {
@@ -1339,6 +1400,12 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
         monitoring.audioRecordingEnabled =
           recordingArmed && camera.recordingAudioActive != 0 && camera.microphoneEnabled
         if let device = camera.resolvedCamera {
+          if recordingArmed {
+            monitoring.recordingWidth = camera.maxResolution.width
+            monitoring.recordingHeight = camera.maxResolution.height
+            monitoring.recordingFps = camera.frameRate.rawValue
+            monitoring.recordingBitrate = camera.minBitrate
+          }
           monitoring.start(camera: device)
         }
       }

@@ -19,7 +19,7 @@ extension HAPCameraAccessory {
         "type": Self.uuidSupportedVideoStreamConfig,
         "format": "tlv8",
         "perms": ["pr"],
-        "value": Self.supportedVideoConfig().base64(),
+        "value": supportedVideoConfig().base64(),
       ],
       [
         "iid": Self.iidSupportedAudioConfig,

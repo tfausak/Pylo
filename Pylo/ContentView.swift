@@ -5,6 +5,7 @@ struct ContentView: View {
   var forceConfig = false
   @Environment(\.scenePhase) private var scenePhase
   @State private var showUnpairConfirmation = false
+  @State private var sliderBitrate: Double = 2000
   @AppStorage("hasSeenWelcome") private var hasSeenWelcome = false
 
   var body: some View {
@@ -346,17 +347,51 @@ struct ContentView: View {
           Text(camera.name)
         }
       }
+      // Max Resolution
       HStack {
-        Text("Quality")
+        Text("Resolution")
           .foregroundStyle(.secondary)
         Spacer()
-        Picker("Quality", selection: $viewModel.videoQuality) {
-          ForEach(VideoQuality.allCases) { quality in
-            Text(quality.rawValue).tag(quality)
+        Picker("Resolution", selection: $viewModel.maxResolution) {
+          ForEach(MaxResolution.allCases) { res in
+            Text(res.rawValue).tag(res)
           }
         }
         .labelsHidden()
         .pickerStyle(.menu)
+      }
+
+      // Frame Rate
+      HStack {
+        Text("Frame Rate")
+          .foregroundStyle(.secondary)
+        Spacer()
+        Picker("Frame Rate", selection: $viewModel.frameRate) {
+          ForEach(FrameRate.allCases) { fps in
+            Text(fps.label).tag(fps)
+          }
+        }
+        .labelsHidden()
+        .pickerStyle(.menu)
+      }
+
+      // Min Bitrate
+      VStack(spacing: 4) {
+        HStack {
+          Text("Min Bitrate")
+            .foregroundStyle(.secondary)
+          Spacer()
+          Text(Self.bitrateLabel(Self.snappedBitrate(sliderBitrate)))
+        }
+        Slider(value: $sliderBitrate, in: 300...6000) { editing in
+          if !editing {
+            viewModel.minBitrate = Self.snappedBitrate(sliderBitrate)
+          }
+        }
+        .onAppear { sliderBitrate = Double(viewModel.minBitrate) }
+        .onChangeCompat(of: viewModel.minBitrate) { newValue in
+          sliderBitrate = Double(newValue)
+        }
       }
       Toggle("Microphone", isOn: microphoneEnabled)
         .tint(viewModel.microphonePermissionDenied ? Color.secondary : nil)
@@ -481,6 +516,29 @@ struct ContentView: View {
   }
 
   // MARK: - Bindings
+
+  /// Formats bitrate for display: "300 kbps", "1.0 Mbps", "2.5 Mbps", etc.
+  private static func bitrateLabel(_ kbps: Int) -> String {
+    if kbps < 1000 {
+      return "\(kbps) kbps"
+    }
+    let mbps = Double(kbps) / 1000.0
+    // Show one decimal place, but drop ".0" for whole numbers
+    if kbps % 1000 == 0 {
+      return "\(Int(mbps)) Mbps"
+    }
+    return String(format: "%.1f Mbps", mbps)
+  }
+
+  /// Snaps a raw slider value to detent values (1000, 2000, ..., 6000 kbps).
+  /// Values within 75 kbps of a detent snap to it; others round to nearest 100.
+  private static func snappedBitrate(_ value: Double) -> Int {
+    let rounded = Int(value)
+    for detent in [1000, 2000, 3000, 4000, 5000, 6000] {
+      if abs(rounded - detent) < 75 { return detent }
+    }
+    return (rounded + 50) / 100 * 100
+  }
 
   private var permissionAlertPresented: Binding<Bool> {
     Binding(

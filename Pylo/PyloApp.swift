@@ -4,21 +4,45 @@ import SwiftUI
 
 // MARK: - Video Quality
 
-enum VideoQuality: String, CaseIterable, Identifiable {
-  case low = "Low"
-  case medium = "Medium"
-  case high = "High"
+nonisolated enum MaxResolution: String, CaseIterable, Identifiable, Sendable {
+  case r1080p = "1080p"
+  case r720p = "720p"
+  case r480p = "480p"
 
   var id: String { rawValue }
 
-  /// Minimum bitrate floor in kbps.
-  var minimumBitrate: Int {
+  var width: Int {
     switch self {
-    case .low: return 500
-    case .medium: return 2000
-    case .high: return 4000
+    case .r1080p: return 1920
+    case .r720p: return 1280
+    case .r480p: return 854
     }
   }
+
+  var height: Int {
+    switch self {
+    case .r1080p: return 1080
+    case .r720p: return 720
+    case .r480p: return 480
+    }
+  }
+
+  /// All resolutions at or below this setting, for advertising to HomeKit.
+  var advertisedResolutions: [MaxResolution] {
+    let all = MaxResolution.allCases  // [1080p, 720p, 480p]
+    guard let idx = all.firstIndex(of: self) else { return [self] }
+    return Array(all[idx...])
+  }
+}
+
+nonisolated enum FrameRate: Int, CaseIterable, Identifiable, Sendable {
+  case fps30 = 30
+  case fps24 = 24
+  case fps15 = 15
+
+  var id: Int { rawValue }
+
+  var label: String { "\(rawValue) fps" }
 }
 
 // MARK: - Motion Sensitivity

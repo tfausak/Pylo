@@ -1223,7 +1223,8 @@ struct TLV8ConfigBuilderTests {
 
   @Test("Supported video config produces valid TLV8")
   func supportedVideoConfig() {
-    let builder = HAPCameraAccessory.supportedVideoConfig()
+    let camera = HAPCameraAccessory(aid: 1)
+    let builder = camera.supportedVideoConfig()
     let data = builder.build()
     #expect(!data.isEmpty)
     let tlvs = TLV8.decode(data) as [(UInt8, Data)]
