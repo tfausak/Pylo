@@ -5,6 +5,7 @@ struct ContentView: View {
   var forceConfig = false
   @Environment(\.scenePhase) private var scenePhase
   @State private var showUnpairConfirmation = false
+  @State private var sliderBitrate: Double = 2000
   @AppStorage("hasSeenWelcome") private var hasSeenWelcome = false
 
   var body: some View {
@@ -380,14 +381,18 @@ struct ContentView: View {
           Text("Min Bitrate")
             .foregroundStyle(.secondary)
           Spacer()
-          Text(Self.bitrateLabel(viewModel.minBitrate))
+          Text(Self.bitrateLabel(Self.snappedBitrate(sliderBitrate)))
         }
-        Slider(
-          value: bitrateSliderBinding,
-          in: 300...6000,
-          step: 1
-        )
+        Slider(value: $sliderBitrate, in: 300...6000, step: 1) { editing in
+          if !editing {
+            viewModel.minBitrate = Self.snappedBitrate(sliderBitrate)
+          }
+        }
         .tint(.accentColor)
+        .onAppear { sliderBitrate = Double(viewModel.minBitrate) }
+        .onChangeCompat(of: viewModel.minBitrate) { newValue in
+          sliderBitrate = Double(newValue)
+        }
       }
       Toggle("Microphone", isOn: microphoneEnabled)
         .tint(viewModel.microphonePermissionDenied ? Color.secondary : nil)
@@ -526,24 +531,14 @@ struct ContentView: View {
     return String(format: "%.1f Mbps", mbps)
   }
 
-  /// Binding that snaps the bitrate slider to detent values (1000, 2000, ..., 6000 kbps).
+  /// Snaps a raw slider value to detent values (1000, 2000, ..., 6000 kbps).
   /// Values within 75 kbps of a detent snap to it; others round to nearest 100.
-  private var bitrateSliderBinding: Binding<Double> {
-    Binding(
-      get: { Double(viewModel.minBitrate) },
-      set: { newValue in
-        let rounded = Int(newValue)
-        let detents = [1000, 2000, 3000, 4000, 5000, 6000]
-        for detent in detents {
-          if abs(rounded - detent) < 75 {
-            viewModel.minBitrate = detent
-            return
-          }
-        }
-        // Round to nearest 100 between detents
-        viewModel.minBitrate = (rounded + 50) / 100 * 100
-      }
-    )
+  private static func snappedBitrate(_ value: Double) -> Int {
+    let rounded = Int(value)
+    for detent in [1000, 2000, 3000, 4000, 5000, 6000] {
+      if abs(rounded - detent) < 75 { return detent }
+    }
+    return (rounded + 50) / 100 * 100
   }
 
   private var permissionAlertPresented: Binding<Bool> {
