@@ -47,6 +47,8 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
   private var compressionSession: VTCompressionSession?
   public let captureQueue = DispatchQueue(
     label: "\(Bundle.main.bundleIdentifier ?? "Streaming").camera.capture")
+  public let audioQueue = DispatchQueue(
+    label: "\(Bundle.main.bundleIdentifier ?? "Streaming").camera.audio")
   public let rtpQueue = DispatchQueue(
     label: "\(Bundle.main.bundleIdentifier ?? "Streaming").camera.rtp")
 
@@ -58,6 +60,7 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
   private var sequenceNumber: UInt16 = 0
   private var rtpTimestamp: UInt32 = 0
   private var lastSentRTPTimestamp: UInt32 = 0  // for RTCP SR (timestamp of last sent frame)
+  private var firstPTS: CMTime = .invalid  // PTS of the first frame, for RTP timestamp derivation
   private var encodeFrameCount: Int = 0  // captureQueue only
   private var captureFrameCount: Int = 0  // captureQueue only
   private let motionFrameInterval = 15
@@ -84,9 +87,9 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
   // Audio pipeline (microphone → controller)
   // These fields are accessed from CameraStreamSession+Audio.swift (same module)
   // so they cannot be `private`.  All mutable audio RTP state is owned by rtpQueue;
-  // audioOutput and audioConverter are owned by captureQueue.
-  var audioOutput: AVCaptureAudioDataOutput?  // captureQueue
-  var audioConverter: AudioConverterRef?  // captureQueue
+  // audioOutput and audioConverter are owned by audioQueue.
+  var audioOutput: AVCaptureAudioDataOutput?  // audioQueue
+  var audioConverter: AudioConverterRef?  // audioQueue
   var audioSRTPContext: SRTPContext?  // rtpQueue
   var audioRTPSeq: UInt16 = 0  // rtpQueue
   var audioRTPTimestamp: UInt32 = 0  // rtpQueue
@@ -98,16 +101,16 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
   /// Protected by a lock: written from the server queue, read from captureQueue.
   private let _videoMotionDetector = Locked<VideoMotionDetector?>(initialState: nil)
   public var videoMotionDetector: VideoMotionDetector? {
-    get { _videoMotionDetector.withLockUnchecked { $0 } }
-    set { _videoMotionDetector.withLockUnchecked { $0 = newValue } }
+    get { _videoMotionDetector.valueUnchecked }
+    set { _videoMotionDetector.valueUnchecked = newValue }
   }
 
   /// Optional ambient light detector — called every `luxFrameInterval` frames.
   private let _ambientLightDetector = Locked<AmbientLightDetector?>(
     initialState: nil)
   public var ambientLightDetector: AmbientLightDetector? {
-    get { _ambientLightDetector.withLockUnchecked { $0 } }
-    set { _ambientLightDetector.withLockUnchecked { $0 = newValue } }
+    get { _ambientLightDetector.valueUnchecked }
+    set { _ambientLightDetector.valueUnchecked = newValue }
   }
 
   // Audio flags — written from the server queue, read from captureQueue/rtpQueue.
@@ -172,17 +175,17 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
   // so it must be synchronized.
   private let _onSnapshotFrame = Locked<(@Sendable (CGImage) -> Void)?>(initialState: nil)
   public var onSnapshotFrame: (@Sendable (CGImage) -> Void)? {
-    get { _onSnapshotFrame.withLock { $0 } }
-    set { _onSnapshotFrame.withLock { $0 = newValue } }
+    get { _onSnapshotFrame.value }
+    set { _onSnapshotFrame.value = newValue }
   }
   private var snapshotFrameCounter = 0
-  private var snapshotInterval = 30  // every ~1s, derived from negotiated fps
+  private var snapshotInterval = 30  // every ~2s, derived from negotiated fps
 
   // Audio encoder state — accumulates PCM until we have a full AAC-ELD frame
   var pcmAccumulator = Data()
   public let aacFrameSamples = 480  // AAC-ELD frame size at 16kHz
 
-  var audioSampleCount: Int = 0  // captureQueue only
+  var audioSampleCount: Int = 0  // audioQueue only
   var incomingAudioPacketCount: Int = 0  // rtpQueue only
 
   public init(
@@ -237,7 +240,7 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
     )
 
     self.targetFPS = fps
-    self.snapshotInterval = max(1, fps)
+    self.snapshotInterval = max(1, fps * 2)
     self.rtpPayloadType = payloadType
     self.audioPayloadType = audioPayloadType
     // Safe to reset from any queue here: the capture pipeline hasn't started yet
@@ -247,6 +250,7 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
     // every authentication check to fail (black video).
     self.sequenceNumber = 0
     self.rtpTimestamp = 0
+    self.firstPTS = .invalid
     self.packetsSent = 0
     self.octetsSent = 0
     self.audioRTPSeq = 0
@@ -408,6 +412,7 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
   @discardableResult
   private func tearDown(keepCaptureSession: Bool) -> AVCaptureSession? {
     dispatchPrecondition(condition: .notOnQueue(captureQueue))
+    dispatchPrecondition(condition: .notOnQueue(audioQueue))
     dispatchPrecondition(condition: .notOnQueue(rtpQueue))
     if keepCaptureSession {
       logger.info("Handing off stream session")
@@ -443,9 +448,13 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
       captureSession = nil
     }
 
-    // Drain in-flight captureQueue blocks so no concurrent encodeFrame or
-    // encodeAndSendAudioFrame call is mid-execution when we dispose resources.
+    // Drain in-flight captureQueue blocks so no concurrent encodeFrame call
+    // is mid-execution when we dispose resources.
     captureQueue.sync {}
+
+    // Drain in-flight audioQueue blocks so no concurrent handleAudioSampleBuffer
+    // or encodeAndSendAudioFrame call is mid-execution when we dispose resources.
+    audioQueue.sync {}
 
     if let cs = compressionSession {
       // Flush in-flight async encodes before invalidating (undefined behavior otherwise)
@@ -467,7 +476,7 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
     audioCaptureDelegate = nil
 
     // Safe to dispose here: encodeAndSendAudioFrame uses audioConverter synchronously
-    // on captureQueue (already drained above), and only dispatches the encoded result
+    // on audioQueue (already drained above), and only dispatches the encoded result
     // to rtpQueue (also drained above). No in-flight code references this converter.
     if let enc = audioConverter {
       AudioConverterDispose(enc)
@@ -615,7 +624,7 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
         let audioDelegate = AudioCaptureDelegate { [weak self] sampleBuffer in
           self?.handleAudioSampleBuffer(sampleBuffer)
         }
-        audioOut.setSampleBufferDelegate(audioDelegate, queue: captureQueue)
+        audioOut.setSampleBufferDelegate(audioDelegate, queue: audioQueue)
         if session.canAddOutput(audioOut) {
           session.addOutput(audioOut)
           self.audioOutput = audioOut
@@ -660,7 +669,7 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
         let audioDelegate = AudioCaptureDelegate { [weak self] sampleBuffer in
           self?.handleAudioSampleBuffer(sampleBuffer)
         }
-        audioOut.setSampleBufferDelegate(audioDelegate, queue: captureQueue)
+        audioOut.setSampleBufferDelegate(audioDelegate, queue: audioQueue)
         if session.canAddOutput(audioOut) {
           session.addOutput(audioOut)
           self.audioOutput = audioOut
@@ -820,11 +829,18 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
 
     // Periodically cache a CGImage for snapshot requests while streaming.
     // JPEG encoding is deferred to when HomeKit actually requests a snapshot.
+    // Dispatched to a utility queue so the pixel-copy + downscale doesn't block
+    // captureQueue and cause frame drops. CVPixelBuffer supports concurrent
+    // read-only locks, so this is safe alongside VTCompressionSessionEncodeFrame.
+    // The callback is @Sendable and invoked on the utility queue, not captureQueue.
     snapshotFrameCounter += 1
     if snapshotFrameCounter >= snapshotInterval, let callback = onSnapshotFrame {
       snapshotFrameCounter = 0
-      if let owned = MonitoringCaptureSession.copyFrameFromPixelBuffer(pixelBuffer) {
-        callback(owned)
+      nonisolated(unsafe) let buffer = pixelBuffer
+      DispatchQueue.global(qos: .utility).async {
+        if let owned = MonitoringCaptureSession.copyFrameFromPixelBuffer(buffer) {
+          callback(owned)
+        }
       }
     }
 
@@ -881,6 +897,16 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
     dispatchPrecondition(condition: .onQueue(rtpQueue))
     guard let dataBuffer = sampleBuffer.dataBuffer else { return }
 
+    // Derive RTP timestamp from the actual presentation timestamp (90kHz clock).
+    // Using real PTS instead of a fixed-increment counter ensures the RTCP SR's
+    // NTP↔RTP mapping stays accurate even when frames are dropped by
+    // alwaysDiscardsLateVideoFrames — preventing receiver jitter buffer corrections
+    // that cause visible hitches every 5 seconds.
+    let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+    if !firstPTS.isValid { firstPTS = pts }
+    let elapsed = CMTimeGetSeconds(CMTimeSubtract(pts, firstPTS))
+    rtpTimestamp = UInt32(truncatingIfNeeded: Int64(elapsed * 90000))
+
     // Get H.264 NAL units from the sample buffer
     var totalLength = 0
     var dataPointer: UnsafeMutablePointer<CChar>?
@@ -932,9 +958,7 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
       sendNALUnit(nal, marker: isLast)
     }
 
-    // Advance RTP timestamp (90kHz clock)
     lastSentRTPTimestamp = rtpTimestamp
-    rtpTimestamp &+= UInt32(90000 / targetFPS)
   }
 
   private func sendParameterSets(_ formatDesc: CMFormatDescription) {
@@ -1059,16 +1083,22 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
   /// Send data via the BSD video socket to the controller's video port.
   private func sendVideoUDP(_ data: Data) {
     guard videoSocketFD >= 0, var addr = controllerVideoAddr else { return }
-    Self.sendUDP(data, fd: videoSocketFD, addr: &addr)
+    let sent = Self.sendUDP(data, fd: videoSocketFD, addr: &addr)
+    if sent < 0 {
+      let err = errno
+      logger.debug("Video sendto failed: errno \(err) (\(data.count) bytes)")
+    }
   }
 
   /// Send a UDP datagram via a BSD socket to the given address.
-  nonisolated static func sendUDP(_ data: Data, fd: Int32, addr: inout sockaddr_in) {
-    data.withUnsafeBytes { buf in
-      guard let base = buf.baseAddress else { return }
-      withUnsafePointer(to: &addr) { addrPtr in
+  /// Returns the number of bytes sent, or -1 on error (errno is set).
+  @discardableResult
+  nonisolated static func sendUDP(_ data: Data, fd: Int32, addr: inout sockaddr_in) -> Int {
+    data.withUnsafeBytes { buf -> Int in
+      guard let base = buf.baseAddress else { return -1 }
+      return withUnsafePointer(to: &addr) { addrPtr in
         addrPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
-          _ = sendto(fd, base, buf.count, 0, sockPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
+          sendto(fd, base, buf.count, 0, sockPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
         }
       }
     }

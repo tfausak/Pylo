@@ -27,7 +27,7 @@ public final class HDSConnection: @unchecked Sendable {
   /// setupTransport (HAP queue) to distinguish "keys never arrived" from
   /// "keys were applied". Protected by Locked since it's read cross-queue.
   private let _isEncrypted = Locked(initialState: false)
-  public var isEncrypted: Bool { _isEncrypted.withLock { $0 } }
+  public var isEncrypted: Bool { _isEncrypted.value }
   private let nonces = Locked(initialState: (read: UInt64(0), write: UInt64(0)))
 
   /// The fragment writer to serve video from.

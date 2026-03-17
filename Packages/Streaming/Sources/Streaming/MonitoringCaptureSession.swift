@@ -26,8 +26,8 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   /// Protected: written from server queue, read from captureQueue.
   private let _videoMotionDetector = Locked<VideoMotionDetector?>(initialState: nil)
   public var videoMotionDetector: VideoMotionDetector? {
-    get { _videoMotionDetector.withLockUnchecked { $0 } }
-    set { _videoMotionDetector.withLockUnchecked { $0 = newValue } }
+    get { _videoMotionDetector.valueUnchecked }
+    set { _videoMotionDetector.valueUnchecked = newValue }
   }
 
   /// Optional ambient light detector — called every `luxFrameInterval` frames.
@@ -35,24 +35,24 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   private let _ambientLightDetector = Locked<AmbientLightDetector?>(
     initialState: nil)
   public var ambientLightDetector: AmbientLightDetector? {
-    get { _ambientLightDetector.withLockUnchecked { $0 } }
-    set { _ambientLightDetector.withLockUnchecked { $0 = newValue } }
+    get { _ambientLightDetector.valueUnchecked }
+    set { _ambientLightDetector.valueUnchecked = newValue }
   }
 
   /// Optional occupancy sensor — called every `occupancyFrameInterval` frames.
   /// Protected: written from server queue, read from captureQueue.
   private let _occupancySensor = Locked<OccupancySensor?>(initialState: nil)
   public var occupancySensor: OccupancySensor? {
-    get { _occupancySensor.withLockUnchecked { $0 } }
-    set { _occupancySensor.withLockUnchecked { $0 = newValue } }
+    get { _occupancySensor.valueUnchecked }
+    set { _occupancySensor.valueUnchecked = newValue }
   }
 
   /// Optional fMP4 writer for HKSV recording — feeds encoded H.264 samples.
   /// Protected: written from server queue, read from VT output handler and start/stop.
   private let _fragmentWriter = Locked<FragmentedMP4Writer?>(initialState: nil)
   public var fragmentWriter: FragmentedMP4Writer? {
-    get { _fragmentWriter.withLockUnchecked { $0 } }
-    set { _fragmentWriter.withLockUnchecked { $0 = newValue } }
+    get { _fragmentWriter.valueUnchecked }
+    set { _fragmentWriter.valueUnchecked = newValue }
   }
 
   /// Whether the hub has enabled audio recording (recordingAudioActive == 1).
@@ -60,16 +60,16 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   /// Protected: written from server queue, read from start().
   private let _audioRecordingEnabled = Locked(initialState: false)
   public var audioRecordingEnabled: Bool {
-    get { _audioRecordingEnabled.withLock { $0 } }
-    set { _audioRecordingEnabled.withLock { $0 = newValue } }
+    get { _audioRecordingEnabled.value }
+    set { _audioRecordingEnabled.value = newValue }
   }
 
   /// When true, skips VTCompressionSession creation and H.264 encoding entirely.
   /// Used when only sensors (ambient light, occupancy) need camera frames.
   private let _sensorOnly = Locked(initialState: false)
   public var sensorOnly: Bool {
-    get { _sensorOnly.withLock { $0 } }
-    set { _sensorOnly.withLock { $0 = newValue } }
+    get { _sensorOnly.value }
+    set { _sensorOnly.value = newValue }
   }
 
   public let logger = Logger(
@@ -89,27 +89,25 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   private var encodeFrameCount: Int = 0
 
   /// Frame counter for throttling motion/lux/snapshot detection — captureQueue only.
-  /// Motion fires every 15 frames (~2fps at 30fps), lux every 60 (~0.5fps),
-  /// snapshot every 30 (~1fps).
+  /// Motion fires every 15 frames (~2fps at 30fps); lux, occupancy, and snapshot
+  /// intervals scale with fps so the wall-clock cadence stays consistent between
+  /// full mode (30fps) and sensor-only mode (10fps).
   private var captureFrameCount: Int = 0
   private let motionFrameInterval = 15
-  private let snapshotFrameInterval = 30
-
-  /// Lux and occupancy intervals scale with fps so the wall-clock cadence stays
-  /// consistent between full mode (30fps) and sensor-only mode (10fps).
+  private var snapshotFrameInterval: Int { sensorOnly ? 20 : 60 }  // ~2s
   private var luxFrameInterval: Int { sensorOnly ? 20 : 60 }  // ~2s
   private var occupancyFrameInterval: Int { sensorOnly ? 25 : 75 }  // ~2.5s
 
   /// Callback to periodically provide a CGImage for snapshot caching.
-  /// Called every ~1 second on the captureQueue. The CGImage is an owned copy
+  /// Called every ~2 seconds on the captureQueue. The CGImage is an owned copy
   /// with no ties to the pixel buffer pool, so the receiver can cache it
   /// indefinitely. JPEG encoding is deferred until a snapshot is requested.
   /// Protected: written from server queue, read from captureQueue.
   private let _snapshotCallback = Locked<(@Sendable (CGImage) -> Void)?>(
     initialState: nil)
   public var snapshotCallback: (@Sendable (CGImage) -> Void)? {
-    get { _snapshotCallback.withLockUnchecked { $0 } }
-    set { _snapshotCallback.withLockUnchecked { $0 = newValue } }
+    get { _snapshotCallback.value }
+    set { _snapshotCallback.value = newValue }
   }
 
   public init() {
@@ -659,24 +657,80 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   /// VTCreateCGImageFromCVPixelBuffer may back the CGImage with the pixel buffer's
   /// IOSurface; drawing into a CGContext forces a true copy so the image stays valid
   /// after the buffer is recycled by AVFoundation.
+  ///
+  /// Downscales to at most 1280x720 during the copy since these frames are only used
+  /// for HomeKit snapshot previews. This reduces the copy cost proportionally to the
+  /// pixel count reduction (e.g., 1920x1080 → 1280x720 is ~56% fewer pixels).
   static func copyFrameFromPixelBuffer(_ pixelBuffer: CVPixelBuffer) -> CGImage? {
+    // Lock the pixel buffer so the IOSurface stays CPU-mapped through the
+    // VT → CGContext draw pipeline.  Without this, a prior lock/unlock cycle
+    // (e.g. from VideoMotionDetector) can leave the surface unmapped, causing
+    // VTCreateCGImageFromCVPixelBuffer's lazy-backed CGImage to read zeros
+    // when drawn at a different scale.
+    CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
+    defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
+
     var vtImage: CGImage?
     guard
       VTCreateCGImageFromCVPixelBuffer(pixelBuffer, options: nil, imageOut: &vtImage) == noErr,
       let vtImage
     else { return nil }
-    let w = vtImage.width
-    let h = vtImage.height
+    let srcW = vtImage.width
+    let srcH = vtImage.height
+    // Downscale to fit within 1280x720, preserving aspect ratio.
+    let maxW = 1280
+    let maxH = 720
+    let scale = min(Double(maxW) / Double(srcW), Double(maxH) / Double(srcH), 1.0)
+    let dstW = Int(Double(srcW) * scale)
+    let dstH = Int(Double(srcH) * scale)
     guard
       let ctx = CGContext(
-        data: nil, width: w, height: h,
+        data: nil, width: dstW, height: dstH,
         bitsPerComponent: 8, bytesPerRow: 0,
         space: vtImage.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)
           ?? CGColorSpaceCreateDeviceRGB(),
-        bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue)
+        bitmapInfo: CGBitmapInfo.byteOrder32Little.rawValue
+          | CGImageAlphaInfo.noneSkipFirst.rawValue)
     else { return nil }
-    ctx.draw(vtImage, in: CGRect(x: 0, y: 0, width: w, height: h))
-    return ctx.makeImage()
+    ctx.interpolationQuality = .low
+    ctx.draw(vtImage, in: CGRect(x: 0, y: 0, width: dstW, height: dstH))
+    guard let image = ctx.makeImage() else { return nil }
+
+    // Reject all-black frames — sample a few pixels to detect frames where the
+    // IOSurface data was unavailable (zeros). Checking 4 spread-out pixels is
+    // cheap and catches the common failure mode (entire frame is black).
+    // Byte layout with byteOrder32Little | noneSkipFirst: [B G R X] per pixel.
+    if let data = ctx.data {
+      let bytesPerRow = ctx.bytesPerRow
+      let bpp = 4  // BGRX, 4 bytes per pixel
+      let samples = [
+        (dstW / 4, dstH / 4),
+        (3 * dstW / 4, dstH / 4),
+        (dstW / 2, dstH / 2),
+        (dstW / 4, 3 * dstH / 4),
+      ]
+      var allBlack = true
+      for (x, y) in samples {
+        let offset = y * bytesPerRow + x * bpp
+        // byteOrder32Little | noneSkipFirst → memory layout: B G R X
+        let b = data.load(fromByteOffset: offset, as: UInt8.self)
+        let g = data.load(fromByteOffset: offset + 1, as: UInt8.self)
+        let r = data.load(fromByteOffset: offset + 2, as: UInt8.self)
+        if r > 8 || g > 8 || b > 8 {
+          allBlack = false
+          break
+        }
+      }
+      if allBlack {
+        Logger(
+          subsystem: Bundle.main.bundleIdentifier ?? "Streaming", category: "MonitoringCapture"
+        )
+        .debug("copyFrameFromPixelBuffer: rejected black frame (\(dstW)x\(dstH))")
+        return nil
+      }
+    }
+
+    return image
   }
 
   // MARK: - Helpers

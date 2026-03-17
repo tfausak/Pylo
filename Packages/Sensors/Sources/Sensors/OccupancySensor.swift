@@ -23,8 +23,8 @@ public nonisolated final class OccupancySensor: @unchecked Sendable {
 
   private let _onOccupancyChange = Locked<((Bool) -> Void)?>(initialState: nil)
   public var onOccupancyChange: ((Bool) -> Void)? {
-    get { _onOccupancyChange.withLockUnchecked { $0 } }
-    set { _onOccupancyChange.withLockUnchecked { $0 = newValue } }
+    get { _onOccupancyChange.valueUnchecked }
+    set { _onOccupancyChange.valueUnchecked = newValue }
   }
 
   /// Seconds to stay "occupied" after last person detection before clearing.

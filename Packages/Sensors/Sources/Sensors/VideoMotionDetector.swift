@@ -10,8 +10,8 @@ public nonisolated final class VideoMotionDetector {
 
   private let _onMotionChange = Locked<((Bool) -> Void)?>(initialState: nil)
   public var onMotionChange: ((Bool) -> Void)? {
-    get { _onMotionChange.withLockUnchecked { $0 } }
-    set { _onMotionChange.withLockUnchecked { $0 = newValue } }
+    get { _onMotionChange.valueUnchecked }
+    set { _onMotionChange.valueUnchecked = newValue }
   }
 
   /// Fraction of pixels that must differ to trigger motion (0.0–1.0).
@@ -148,35 +148,47 @@ public nonisolated final class VideoMotionDetector {
     switch format {
     case kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
       kCVPixelFormatType_420YpCbCr8BiPlanarFullRange:
-      // NV12 — the Y plane is already planar 8-bit grayscale; stride-sample
-      // nearest-neighbor (no interpolation needed for motion detection)
+      // NV12 — the Y plane is already planar 8-bit grayscale.
+      // Use vImageScale_Planar8 for SIMD-accelerated downscale.
       guard let yBase = CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, 0) else { return false }
       let yRowBytes = CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, 0)
-      let yPtr = yBase.assumingMemoryBound(to: UInt8.self)
-      scratchGray.withUnsafeMutableBufferPointer { dst in
-        for ty in 0..<th {
-          let srcRowStart = (ty * srcHeight / th) * yRowBytes
-          for tx in 0..<tw {
-            dst[ty * tw + tx] = yPtr[srcRowStart + (tx * srcWidth / tw)]
-          }
-        }
+      var src = vImage_Buffer(
+        data: yBase, height: vImagePixelCount(srcHeight),
+        width: vImagePixelCount(srcWidth), rowBytes: yRowBytes)
+      let scaleErr: vImage_Error = scratchGray.withUnsafeMutableBufferPointer { dst in
+        var dstBuf = vImage_Buffer(
+          data: dst.baseAddress!, height: vImagePixelCount(th),
+          width: vImagePixelCount(tw), rowBytes: tw)
+        return vImageScale_Planar8(&src, &dstBuf, nil, vImage_Flags(kvImageNoFlags))
       }
-      return true
+      return scaleErr == kvImageNoError
 
     case kCVPixelFormatType_32BGRA:
-      // BGRA fallback: nearest-neighbor sampling the green channel (offset 1)
+      // BGRA fallback: scale with vImage, then extract green channel (offset 1).
       guard let base = CVPixelBufferGetBaseAddress(pixelBuffer) else { return false }
       let rowBytes = CVPixelBufferGetBytesPerRow(pixelBuffer)
-      scratchGray.withUnsafeMutableBufferPointer { dst in
-        for ty in 0..<th {
-          let srcRow = base + (ty * srcHeight / th) * rowBytes
-          for tx in 0..<tw {
-            dst[ty * tw + tx] = srcRow.load(
-              fromByteOffset: (tx * srcWidth / tw) * 4 + 1, as: UInt8.self)
-          }
+      var src = vImage_Buffer(
+        data: base, height: vImagePixelCount(srcHeight),
+        width: vImagePixelCount(srcWidth), rowBytes: rowBytes)
+      let scaleErr: vImage_Error = scratchBGRA.withUnsafeMutableBufferPointer { bgraDst in
+        var dstBuf = vImage_Buffer(
+          data: bgraDst.baseAddress!, height: vImagePixelCount(th),
+          width: vImagePixelCount(tw), rowBytes: tw * 4)
+        return vImageScale_ARGB8888(&src, &dstBuf, nil, vImage_Flags(kvImageNoFlags))
+      }
+      guard scaleErr == kvImageNoError else { return false }
+      let extractErr: vImage_Error = scratchGray.withUnsafeMutableBufferPointer { grayDst in
+        scratchBGRA.withUnsafeBufferPointer { bgraSrc in
+          var srcBuf = vImage_Buffer(
+            data: UnsafeMutableRawPointer(mutating: bgraSrc.baseAddress!),
+            height: vImagePixelCount(th), width: vImagePixelCount(tw), rowBytes: tw * 4)
+          var grayBuf = vImage_Buffer(
+            data: grayDst.baseAddress!, height: vImagePixelCount(th),
+            width: vImagePixelCount(tw), rowBytes: tw)
+          return vImageExtractChannel_ARGB8888(&srcBuf, &grayBuf, 1, vImage_Flags(kvImageNoFlags))
         }
       }
-      return true
+      return extractErr == kvImageNoError
 
     default:
       return false
@@ -187,6 +199,7 @@ public nonisolated final class VideoMotionDetector {
   // Accessed only from processPixelBuffer which has a concurrency guard.
   private static let scratchCount = thumbWidth * thumbHeight
   private var scratchGray = [UInt8](repeating: 0, count: scratchCount)
+  private var scratchBGRA = [UInt8](repeating: 0, count: scratchCount * 4)
   private var scratchPrev = [Float](repeating: 0, count: scratchCount)
   private var scratchCurr = [Float](repeating: 0, count: scratchCount)
   private var scratchDiff = [Float](repeating: 0, count: scratchCount)

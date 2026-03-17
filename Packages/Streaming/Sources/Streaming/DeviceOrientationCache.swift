@@ -49,7 +49,7 @@ import Locked
     /// Lazily registers a notification observer on first access.
     public static var current: UIDeviceOrientation {
       _ = token
-      return UIDeviceOrientation(rawValue: state.withLock { $0 }) ?? .portrait
+      return UIDeviceOrientation(rawValue: state.value) ?? .portrait
     }
   }
 #endif

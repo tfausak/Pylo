@@ -104,8 +104,8 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
   /// Called when a new fragment is completed.
   private let _onFragmentReady = Locked<((MP4Fragment) -> Void)?>(initialState: nil)
   public var onFragmentReady: ((MP4Fragment) -> Void)? {
-    get { _onFragmentReady.withLockUnchecked { $0 } }
-    set { _onFragmentReady.withLockUnchecked { $0 = newValue } }
+    get { _onFragmentReady.valueUnchecked }
+    set { _onFragmentReady.valueUnchecked = newValue }
   }
 
   private let logger = Logger(subsystem: logSubsystem, category: "fMP4Writer")
@@ -264,6 +264,17 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
       // Track fragment start time
       if !state.fragmentStartPTS.isValid {
         state.fragmentStartPTS = pts
+      }
+
+      // Cap video sample accumulation analogous to the audio cap (line 180).
+      // If keyframes stop arriving (hardware encoder throttling), pending samples
+      // grow without bound. 300 frames (~10s at 30fps) is generous enough that
+      // normal keyframe intervals (4s) never hit it.
+      if state.pendingSamples.count >= 300 {
+        logger.warning("Pending video samples exceeded cap (300) — dropping buffered video+audio")
+        state.pendingSamples.removeAll()
+        state.pendingAudioSamples.removeAll()
+        state.fragmentStartPTS = .invalid
       }
 
       state.pendingSamples.append(

@@ -21,7 +21,13 @@ public nonisolated final class VideoCaptureDelegate: NSObject,
   ) {
     guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
     let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-    handler(pixelBuffer, pts)
+    // Drain autoreleased objects every frame. The capture queue runs at 30fps
+    // and never goes idle, so without an explicit pool, CF→Swift bridged objects
+    // from CoreGraphics (snapshot copies), VTCompressionSession, and Vision
+    // accumulate indefinitely on the thread's implicit autorelease pool.
+    autoreleasepool {
+      handler(pixelBuffer, pts)
+    }
   }
 }
 

@@ -59,8 +59,8 @@ nonisolated final class HAPAccessory: HAPAccessoryProtocol, @unchecked Sendable 
   /// Protected by a lock: written from @MainActor during setup, read on the server queue.
   private let _batteryState = Locked<BatteryState?>(initialState: nil)
   var batteryState: BatteryState? {
-    get { _batteryState.withLock { $0 } }
-    set { _batteryState.withLock { $0 = newValue } }
+    get { _batteryState.value }
+    set { _batteryState.value = newValue }
   }
 
   /// In-progress identify blink task, cancelled on server stop to avoid
@@ -73,8 +73,8 @@ nonisolated final class HAPAccessory: HAPAccessoryProtocol, @unchecked Sendable 
     (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
   >(initialState: nil)
   var onStateChange: (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)? {
-    get { _onStateChange.withLock { $0 } }
-    set { _onStateChange.withLock { $0 = newValue } }
+    get { _onStateChange.value }
+    set { _onStateChange.value = newValue }
   }
 
   init(
