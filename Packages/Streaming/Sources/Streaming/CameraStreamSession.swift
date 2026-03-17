@@ -827,11 +827,20 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
 
     // Periodically cache a CGImage for snapshot requests while streaming.
     // JPEG encoding is deferred to when HomeKit actually requests a snapshot.
+    // Dispatched to a utility queue so the pixel-copy + downscale doesn't block
+    // captureQueue and cause frame drops. CVPixelBuffer supports concurrent
+    // read-only locks, so this is safe alongside VTCompressionSessionEncodeFrame.
     snapshotFrameCounter += 1
     if snapshotFrameCounter >= snapshotInterval, let callback = onSnapshotFrame {
       snapshotFrameCounter = 0
-      if let owned = MonitoringCaptureSession.copyFrameFromPixelBuffer(pixelBuffer) {
-        callback(owned)
+      // Retain the pixel buffer (CFType) so it stays valid on the async queue.
+      // nonisolated(unsafe) suppresses the Sendable warning — the buffer is only
+      // read, never mutated, so no data race is possible.
+      nonisolated(unsafe) let buffer = pixelBuffer
+      DispatchQueue.global(qos: .utility).async {
+        if let owned = MonitoringCaptureSession.copyFrameFromPixelBuffer(buffer) {
+          callback(owned)
+        }
       }
     }
 
@@ -1066,16 +1075,22 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
   /// Send data via the BSD video socket to the controller's video port.
   private func sendVideoUDP(_ data: Data) {
     guard videoSocketFD >= 0, var addr = controllerVideoAddr else { return }
-    Self.sendUDP(data, fd: videoSocketFD, addr: &addr)
+    let sent = Self.sendUDP(data, fd: videoSocketFD, addr: &addr)
+    if sent < 0 {
+      let err = errno
+      logger.debug("Video sendto failed: errno \(err) (\(data.count) bytes)")
+    }
   }
 
   /// Send a UDP datagram via a BSD socket to the given address.
-  nonisolated static func sendUDP(_ data: Data, fd: Int32, addr: inout sockaddr_in) {
-    data.withUnsafeBytes { buf in
-      guard let base = buf.baseAddress else { return }
-      withUnsafePointer(to: &addr) { addrPtr in
+  /// Returns the number of bytes sent, or -1 on error (errno is set).
+  @discardableResult
+  nonisolated static func sendUDP(_ data: Data, fd: Int32, addr: inout sockaddr_in) -> Int {
+    data.withUnsafeBytes { buf -> Int in
+      guard let base = buf.baseAddress else { return -1 }
+      return withUnsafePointer(to: &addr) { addrPtr in
         addrPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
-          _ = sendto(fd, base, buf.count, 0, sockPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
+          sendto(fd, base, buf.count, 0, sockPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
         }
       }
     }

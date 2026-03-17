@@ -303,7 +303,11 @@ extension CameraStreamSession {
   /// Send data via the BSD audio socket to the controller's audio port.
   private nonisolated func sendAudioUDP(_ data: Data) {
     guard audioSocketFD >= 0, var addr = controllerAudioAddr else { return }
-    Self.sendUDP(data, fd: audioSocketFD, addr: &addr)
+    let sent = Self.sendUDP(data, fd: audioSocketFD, addr: &addr)
+    if sent < 0 {
+      let err = errno
+      logger.debug("Audio sendto failed: errno \(err) (\(data.count) bytes)")
+    }
   }
 
   /// Called by GCD read source when data is available on the audio socket.
