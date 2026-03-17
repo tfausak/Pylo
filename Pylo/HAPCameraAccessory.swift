@@ -350,6 +350,13 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     set { _setupEndpointsResponse.value = newValue }
   }
 
+  // Pending SelectedRTPStreamConfig write-response (echoes session ID back to controller).
+  let _selectedRTPStreamConfigResponse = Locked(initialState: Data())
+  var selectedRTPStreamConfigResponse: Data {
+    get { _selectedRTPStreamConfigResponse.value }
+    set { _selectedRTPStreamConfigResponse.value = newValue }
+  }
+
   // Pending setup DataStream response.
   // Protected by lock for the same reasons as setupEndpointsResponse.
   let _setupDataStreamResponse = Locked(initialState: Data())
@@ -485,7 +492,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     case Self.iidSetupEndpoints:
       return .string(setupEndpointsResponse.base64EncodedString())
     case Self.iidSelectedRTPStreamConfig:
-      return .string("")  // write-only effectively
+      return .string(selectedRTPStreamConfigResponse.base64EncodedString())
     case Self.iidStreamingStatus:
       return .string(streamingStatusTLV().base64EncodedString())
     case Self.iidMicrophoneMute: return .bool(audioSettings.withLock { $0.isMuted })

@@ -38,13 +38,13 @@ extension HAPCameraAccessory {
       [
         "iid": Self.iidSetupEndpoints,
         "type": Self.uuidSetupEndpoints, "format": "tlv8",
-        "perms": ["pr", "pw"], "value": "",
+        "perms": ["pr", "pw", "wr"], "value": "",
       ],
       [
         "iid": Self.iidSelectedRTPStreamConfig,
         "type": Self.uuidSelectedRTPStreamConfig,
         "format": "tlv8",
-        "perms": ["pr", "pw"], "value": "",
+        "perms": ["pr", "pw", "wr"], "value": "",
       ],
       [
         "iid": Self.iidStreamingStatus,

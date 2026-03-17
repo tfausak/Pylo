@@ -165,12 +165,17 @@ extension HAPCameraAccessory {
     let tlvs = TLV8.decode(data) as [(UInt8, Data)]
 
     // Parse session control
+    var sessionID = Data()
     for (tag, val) in tlvs {
       if tag == 0x01 {
         let sub = TLV8.decode(val) as [(UInt8, Data)]
         var command: UInt8 = 0
         for (stag, sval) in sub {
-          if stag == 0x02, let c = sval.first { command = c }
+          switch stag {
+          case 0x01: sessionID = sval
+          case 0x02: if let c = sval.first { command = c }
+          default: break
+          }
         }
 
         switch command {
@@ -252,6 +257,17 @@ extension HAPCameraAccessory {
         }
       }
     }
+
+    // Build write-response TLV echoing the session ID back to the controller.
+    // HAP requires this so the controller can correlate the response to the
+    // session it sent. Without it, some controllers show a camera-slash icon.
+    var response = TLV8.Builder()
+    var sessionControl = TLV8.Builder()
+    sessionControl.add(0x01, sessionID)
+    sessionControl.add(0x02, byte: 0x00)  // command echo (0=end is fine for ack)
+    response.add(0x01, tlv: sessionControl)
+    selectedRTPStreamConfigResponse = response.build()
+
     return true
   }
 
