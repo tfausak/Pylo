@@ -7,15 +7,7 @@ private let logSubsystem = "me.fausak.taylor.Pylo"
 // MARK: - Fragment Ring Buffer
 
 /// A completed fMP4 fragment ready for serving via HDS.
-///
-/// This is a class (not a struct) to avoid a Swift reabstraction thunk cycle.
-/// When a struct is passed through a closure stored in a generic wrapper
-/// (e.g. `Locked<((MP4Fragment) -> Void)?>`), the compiler may generate two
-/// thunks that convert between indirect and direct calling conventions —
-/// and these thunks can call each other in an infinite mutual recursion,
-/// overflowing the stack. Classes are always passed by reference, so no
-/// reabstraction thunks are needed.
-public final class MP4Fragment: Sendable {
+public struct MP4Fragment: Sendable {
   public let data: Data
   public let timestamp: CMTime
   public let duration: CMTime
