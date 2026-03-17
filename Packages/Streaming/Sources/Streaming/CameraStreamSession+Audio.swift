@@ -24,7 +24,7 @@ extension CameraStreamSession {
   // MARK: - Audio Sample Buffer Processing
 
   nonisolated func handleAudioSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
-    dispatchPrecondition(condition: .onQueue(captureQueue))
+    dispatchPrecondition(condition: .onQueue(audioQueue))
     guard audioConverter != nil else { return }
     guard audioSocketFD >= 0 else { return }
     guard !isMuted else { return }

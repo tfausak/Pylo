@@ -47,6 +47,8 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
   private var compressionSession: VTCompressionSession?
   public let captureQueue = DispatchQueue(
     label: "\(Bundle.main.bundleIdentifier ?? "Streaming").camera.capture")
+  public let audioQueue = DispatchQueue(
+    label: "\(Bundle.main.bundleIdentifier ?? "Streaming").camera.audio")
   public let rtpQueue = DispatchQueue(
     label: "\(Bundle.main.bundleIdentifier ?? "Streaming").camera.rtp")
 
@@ -84,9 +86,9 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
   // Audio pipeline (microphone → controller)
   // These fields are accessed from CameraStreamSession+Audio.swift (same module)
   // so they cannot be `private`.  All mutable audio RTP state is owned by rtpQueue;
-  // audioOutput and audioConverter are owned by captureQueue.
-  var audioOutput: AVCaptureAudioDataOutput?  // captureQueue
-  var audioConverter: AudioConverterRef?  // captureQueue
+  // audioOutput and audioConverter are owned by audioQueue.
+  var audioOutput: AVCaptureAudioDataOutput?  // audioQueue
+  var audioConverter: AudioConverterRef?  // audioQueue
   var audioSRTPContext: SRTPContext?  // rtpQueue
   var audioRTPSeq: UInt16 = 0  // rtpQueue
   var audioRTPTimestamp: UInt32 = 0  // rtpQueue
@@ -182,7 +184,7 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
   var pcmAccumulator = Data()
   public let aacFrameSamples = 480  // AAC-ELD frame size at 16kHz
 
-  var audioSampleCount: Int = 0  // captureQueue only
+  var audioSampleCount: Int = 0  // audioQueue only
   var incomingAudioPacketCount: Int = 0  // rtpQueue only
 
   public init(
@@ -408,6 +410,7 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
   @discardableResult
   private func tearDown(keepCaptureSession: Bool) -> AVCaptureSession? {
     dispatchPrecondition(condition: .notOnQueue(captureQueue))
+    dispatchPrecondition(condition: .notOnQueue(audioQueue))
     dispatchPrecondition(condition: .notOnQueue(rtpQueue))
     if keepCaptureSession {
       logger.info("Handing off stream session")
@@ -443,9 +446,13 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
       captureSession = nil
     }
 
-    // Drain in-flight captureQueue blocks so no concurrent encodeFrame or
-    // encodeAndSendAudioFrame call is mid-execution when we dispose resources.
+    // Drain in-flight captureQueue blocks so no concurrent encodeFrame call
+    // is mid-execution when we dispose resources.
     captureQueue.sync {}
+
+    // Drain in-flight audioQueue blocks so no concurrent handleAudioSampleBuffer
+    // or encodeAndSendAudioFrame call is mid-execution when we dispose resources.
+    audioQueue.sync {}
 
     if let cs = compressionSession {
       // Flush in-flight async encodes before invalidating (undefined behavior otherwise)
@@ -467,7 +474,7 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
     audioCaptureDelegate = nil
 
     // Safe to dispose here: encodeAndSendAudioFrame uses audioConverter synchronously
-    // on captureQueue (already drained above), and only dispatches the encoded result
+    // on audioQueue (already drained above), and only dispatches the encoded result
     // to rtpQueue (also drained above). No in-flight code references this converter.
     if let enc = audioConverter {
       AudioConverterDispose(enc)
@@ -615,7 +622,7 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
         let audioDelegate = AudioCaptureDelegate { [weak self] sampleBuffer in
           self?.handleAudioSampleBuffer(sampleBuffer)
         }
-        audioOut.setSampleBufferDelegate(audioDelegate, queue: captureQueue)
+        audioOut.setSampleBufferDelegate(audioDelegate, queue: audioQueue)
         if session.canAddOutput(audioOut) {
           session.addOutput(audioOut)
           self.audioOutput = audioOut
@@ -660,7 +667,7 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
         let audioDelegate = AudioCaptureDelegate { [weak self] sampleBuffer in
           self?.handleAudioSampleBuffer(sampleBuffer)
         }
-        audioOut.setSampleBufferDelegate(audioDelegate, queue: captureQueue)
+        audioOut.setSampleBufferDelegate(audioDelegate, queue: audioQueue)
         if session.canAddOutput(audioOut) {
           session.addOutput(audioOut)
           self.audioOutput = audioOut
