@@ -383,12 +383,11 @@ struct ContentView: View {
           Spacer()
           Text(Self.bitrateLabel(Self.snappedBitrate(sliderBitrate)))
         }
-        Slider(value: $sliderBitrate, in: 300...6000, step: 1) { editing in
+        Slider(value: $sliderBitrate, in: 300...6000) { editing in
           if !editing {
             viewModel.minBitrate = Self.snappedBitrate(sliderBitrate)
           }
         }
-        .tint(.accentColor)
         .onAppear { sliderBitrate = Double(viewModel.minBitrate) }
         .onChangeCompat(of: viewModel.minBitrate) { newValue in
           sliderBitrate = Double(newValue)
