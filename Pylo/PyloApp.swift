@@ -4,7 +4,7 @@ import SwiftUI
 
 // MARK: - Video Quality
 
-enum MaxResolution: String, CaseIterable, Identifiable {
+nonisolated enum MaxResolution: String, CaseIterable, Identifiable, Sendable {
   case r1080p = "1080p"
   case r720p = "720p"
   case r480p = "480p"
@@ -35,7 +35,7 @@ enum MaxResolution: String, CaseIterable, Identifiable {
   }
 }
 
-enum FrameRate: Int, CaseIterable, Identifiable {
+nonisolated enum FrameRate: Int, CaseIterable, Identifiable, Sendable {
   case fps30 = 30
   case fps24 = 24
   case fps15 = 15
