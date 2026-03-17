@@ -7,8 +7,8 @@ import os
 nonisolated final class SirenPlayer: @unchecked Sendable {
 
   var onActiveChange: ((Bool) -> Void)? {
-    get { _onActiveChange.withLockUnchecked { $0 } }
-    set { _onActiveChange.withLockUnchecked { $0 = newValue } }
+    get { _onActiveChange.value }
+    set { _onActiveChange.value = newValue }
   }
 
   var isPlaying: Bool { _state.withLockUnchecked { $0.isPlaying } }

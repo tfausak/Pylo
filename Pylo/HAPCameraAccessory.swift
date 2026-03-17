@@ -87,15 +87,15 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
   >(initialState: nil)
   var onStateChange: (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)? {
-    get { _onStateChange.withLock { $0 } }
-    set { _onStateChange.withLock { $0 = newValue } }
+    get { _onStateChange.value }
+    set { _onStateChange.value = newValue }
   }
 
   /// Shared battery state -- nil means no battery, omit battery service.
   private let _batteryState = Locked<BatteryState?>(initialState: nil)
   var batteryState: BatteryState? {
-    get { _batteryState.withLock { $0 } }
-    set { _batteryState.withLock { $0 = newValue } }
+    get { _batteryState.value }
+    set { _batteryState.value = newValue }
   }
 
   /// Callback closures set once during setup and called from the server queue.
@@ -208,8 +208,8 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   /// stream/monitoring setup. Protected by a lock to avoid a data race.
   private let _microphoneEnabled = Locked(initialState: false)
   var microphoneEnabled: Bool {
-    get { _microphoneEnabled.withLock { $0 } }
-    set { _microphoneEnabled.withLock { $0 = newValue } }
+    get { _microphoneEnabled.value }
+    set { _microphoneEnabled.value = newValue }
   }
 
   /// Active streaming session (nil when idle).
@@ -248,8 +248,8 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   /// server queue (snapshot request handler).
   private let _cachedFrame = Locked<CGImage?>(initialState: nil)
   var cachedFrame: CGImage? {
-    get { _cachedFrame.withLock { $0 } }
-    set { _cachedFrame.withLock { $0 = newValue } }
+    get { _cachedFrame.value }
+    set { _cachedFrame.value = newValue }
   }
 
   /// JPEG-encode a CGImage on demand using the reusable CIContext.
@@ -320,7 +320,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   /// Motion sensor state (linked to this camera accessory)
   private let _isMotionDetected = Locked(initialState: false)
   var isMotionDetected: Bool {
-    _isMotionDetected.withLock { $0 }
+    _isMotionDetected.value
   }
 
   /// Whether HKSV services are enabled on this accessory.
@@ -346,16 +346,16 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   // capture can trigger handleSetupEndpoints from another queue.
   let _setupEndpointsResponse = Locked(initialState: Data())
   var setupEndpointsResponse: Data {
-    get { _setupEndpointsResponse.withLock { $0 } }
-    set { _setupEndpointsResponse.withLock { $0 = newValue } }
+    get { _setupEndpointsResponse.value }
+    set { _setupEndpointsResponse.value = newValue }
   }
 
   // Pending setup DataStream response.
   // Protected by lock for the same reasons as setupEndpointsResponse.
   let _setupDataStreamResponse = Locked(initialState: Data())
   var setupDataStreamResponse: Data {
-    get { _setupDataStreamResponse.withLock { $0 } }
-    set { _setupDataStreamResponse.withLock { $0 = newValue } }
+    get { _setupDataStreamResponse.value }
+    set { _setupDataStreamResponse.value = newValue }
   }
 
   /// Callback for DataStream setup -- set by HAPDataStream.

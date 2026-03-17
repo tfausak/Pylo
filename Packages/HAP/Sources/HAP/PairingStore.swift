@@ -25,8 +25,8 @@ public final class PairingStore: @unchecked Sendable {
   /// Protected by its own lock: set from @MainActor, called from the server queue.
   private let _onChange = Locked<(@Sendable () -> Void)?>(initialState: nil)
   public var onChange: (@Sendable () -> Void)? {
-    get { _onChange.withLock { $0 } }
-    set { _onChange.withLock { $0 = newValue } }
+    get { _onChange.value }
+    set { _onChange.value = newValue }
   }
 
   /// Lock-protected pairings dictionary.
@@ -34,7 +34,7 @@ public final class PairingStore: @unchecked Sendable {
 
   /// Thread-safe snapshot of all pairings.
   public var pairings: [String: Pairing] {
-    lock.withLock { $0 }
+    lock.value
   }
 
   private static var storageURL: URL {

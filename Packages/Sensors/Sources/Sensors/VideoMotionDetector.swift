@@ -10,8 +10,8 @@ public nonisolated final class VideoMotionDetector {
 
   private let _onMotionChange = Locked<((Bool) -> Void)?>(initialState: nil)
   public var onMotionChange: ((Bool) -> Void)? {
-    get { _onMotionChange.withLockUnchecked { $0 } }
-    set { _onMotionChange.withLockUnchecked { $0 = newValue } }
+    get { _onMotionChange.value }
+    set { _onMotionChange.value = newValue }
   }
 
   /// Fraction of pixels that must differ to trigger motion (0.0–1.0).

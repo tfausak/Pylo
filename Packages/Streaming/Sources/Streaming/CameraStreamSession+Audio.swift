@@ -207,7 +207,7 @@ extension CameraStreamSession {
   private nonisolated func sendAudioRTCPSenderReport() {
     guard let ctx = audioSRTPContext else { return }
 
-    let stats = audioRTPStats.withLock { $0 }
+    let stats = audioRTPStats.value
     let sr = Self.buildRTCPSenderReport(
       ssrc: audioSSRC, rtpTimestamp: stats.timestamp,
       packetsSent: stats.packetsSent, octetsSent: stats.octetsSent)

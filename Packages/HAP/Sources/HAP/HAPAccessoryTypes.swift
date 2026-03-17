@@ -293,8 +293,8 @@ public final class HAPBridgeInfo: HAPAccessoryProtocol, @unchecked Sendable {
     (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
   >(initialState: nil)
   public var onStateChange: (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)? {
-    get { _onStateChange.withLock { $0 } }
-    set { _onStateChange.withLock { $0 = newValue } }
+    get { _onStateChange.value }
+    set { _onStateChange.value = newValue }
   }
 
   public init(
@@ -366,29 +366,29 @@ public final class HAPSirenAccessory: HAPAccessoryProtocol, @unchecked Sendable 
     (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
   >(initialState: nil)
   public var onStateChange: (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)? {
-    get { _onStateChange.withLock { $0 } }
-    set { _onStateChange.withLock { $0 = newValue } }
+    get { _onStateChange.value }
+    set { _onStateChange.value = newValue }
   }
 
   /// Shared battery state — nil uses safe defaults (0/0/0) since the battery
   /// service is always present in `toJSON()` for stable accessory database hashing.
   private let _batteryState = Locked<BatteryState?>(initialState: nil)
   public var batteryState: BatteryState? {
-    get { _batteryState.withLock { $0 } }
-    set { _batteryState.withLock { $0 = newValue } }
+    get { _batteryState.value }
+    set { _batteryState.value = newValue }
   }
 
   /// Called when HomeKit writes to the On characteristic.
   /// The app wires this to start/stop the siren player.
   private let _onSirenActivate = Locked<(@Sendable (Bool) -> Void)?>(initialState: nil)
   public var onSirenActivate: (@Sendable (Bool) -> Void)? {
-    get { _onSirenActivate.withLock { $0 } }
-    set { _onSirenActivate.withLock { $0 = newValue } }
+    get { _onSirenActivate.value }
+    set { _onSirenActivate.value = newValue }
   }
 
   private let _isOn = Locked(initialState: false)
   public var isOn: Bool {
-    _isOn.withLock { $0 }
+    _isOn.value
   }
 
   public static let iidSwitchService = 8
@@ -456,7 +456,7 @@ public final class HAPSirenAccessory: HAPAccessoryProtocol, @unchecked Sendable 
       onSirenActivate?(on)
       // Read back _isOn — the callback may have rejected the change (e.g.
       // camera is streaming) by calling updateOn(false).
-      let finalOn = _isOn.withLock { $0 }
+      let finalOn = _isOn.value
       onStateChange?(aid, Self.iidOn, .bool(finalOn))
       return true
     default:
@@ -503,20 +503,20 @@ public final class HAPMotionSensorAccessory: HAPAccessoryProtocol, @unchecked Se
     (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
   >(initialState: nil)
   public var onStateChange: (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)? {
-    get { _onStateChange.withLock { $0 } }
-    set { _onStateChange.withLock { $0 = newValue } }
+    get { _onStateChange.value }
+    set { _onStateChange.value = newValue }
   }
 
   /// Shared battery state — nil means no battery, omit battery service.
   private let _batteryState = Locked<BatteryState?>(initialState: nil)
   public var batteryState: BatteryState? {
-    get { _batteryState.withLock { $0 } }
-    set { _batteryState.withLock { $0 = newValue } }
+    get { _batteryState.value }
+    set { _batteryState.value = newValue }
   }
 
   private let _isMotionDetected = Locked(initialState: false)
   public var isMotionDetected: Bool {
-    _isMotionDetected.withLock { $0 }
+    _isMotionDetected.value
   }
 
   public static let iidMotionSensorService = 8
@@ -615,21 +615,21 @@ public final class HAPContactSensorAccessory: HAPAccessoryProtocol,
     (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
   >(initialState: nil)
   public var onStateChange: (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)? {
-    get { _onStateChange.withLock { $0 } }
-    set { _onStateChange.withLock { $0 = newValue } }
+    get { _onStateChange.value }
+    set { _onStateChange.value = newValue }
   }
 
   /// Shared battery state — nil means no battery, omit battery service.
   private let _batteryState = Locked<BatteryState?>(initialState: nil)
   public var batteryState: BatteryState? {
-    get { _batteryState.withLock { $0 } }
-    set { _batteryState.withLock { $0 = newValue } }
+    get { _batteryState.value }
+    set { _batteryState.value = newValue }
   }
 
   /// HAP ContactSensorState: 0 = contact detected (closed), 1 = contact not detected (open).
   private let _contactState = Locked(initialState: 1)
   public var contactState: Int {
-    _contactState.withLock { $0 }
+    _contactState.value
   }
 
   public static let iidContactSensorService = 8
@@ -732,20 +732,20 @@ public final class HAPOccupancySensorAccessory: HAPAccessoryProtocol,
     (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
   >(initialState: nil)
   public var onStateChange: (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)? {
-    get { _onStateChange.withLock { $0 } }
-    set { _onStateChange.withLock { $0 = newValue } }
+    get { _onStateChange.value }
+    set { _onStateChange.value = newValue }
   }
 
   /// Shared battery state — nil means no battery, omit battery service.
   private let _batteryState = Locked<BatteryState?>(initialState: nil)
   public var batteryState: BatteryState? {
-    get { _batteryState.withLock { $0 } }
-    set { _batteryState.withLock { $0 = newValue } }
+    get { _batteryState.value }
+    set { _batteryState.value = newValue }
   }
 
   private let _isOccupancyDetected = Locked(initialState: false)
   public var isOccupancyDetected: Bool {
-    _isOccupancyDetected.withLock { $0 }
+    _isOccupancyDetected.value
   }
 
   public static let iidOccupancySensorService = 8
@@ -842,20 +842,20 @@ public final class HAPLightSensorAccessory: HAPAccessoryProtocol, @unchecked Sen
     (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
   >(initialState: nil)
   public var onStateChange: (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)? {
-    get { _onStateChange.withLock { $0 } }
-    set { _onStateChange.withLock { $0 = newValue } }
+    get { _onStateChange.value }
+    set { _onStateChange.value = newValue }
   }
 
   /// Shared battery state — nil means no battery, omit battery service.
   private let _batteryState = Locked<BatteryState?>(initialState: nil)
   public var batteryState: BatteryState? {
-    get { _batteryState.withLock { $0 } }
-    set { _batteryState.withLock { $0 = newValue } }
+    get { _batteryState.value }
+    set { _batteryState.value = newValue }
   }
 
   private let _currentLux = Locked<Float>(initialState: 1.0)
   public var currentLux: Float {
-    _currentLux.withLock { $0 }
+    _currentLux.value
   }
 
   public static let iidLightSensorService = 8
@@ -954,14 +954,14 @@ public final class HAPButtonAccessory: HAPAccessoryProtocol, @unchecked Sendable
     (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)?
   >(initialState: nil)
   public var onStateChange: (@Sendable (_ aid: Int, _ iid: Int, _ value: HAPValue) -> Void)? {
-    get { _onStateChange.withLock { $0 } }
-    set { _onStateChange.withLock { $0 = newValue } }
+    get { _onStateChange.value }
+    set { _onStateChange.value = newValue }
   }
 
   private let _batteryState = Locked<BatteryState?>(initialState: nil)
   public var batteryState: BatteryState? {
-    get { _batteryState.withLock { $0 } }
-    set { _batteryState.withLock { $0 = newValue } }
+    get { _batteryState.value }
+    set { _batteryState.value = newValue }
   }
 
   // Stateless Programmable Switch service (iid 8-10)

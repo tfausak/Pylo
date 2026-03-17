@@ -26,8 +26,8 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   /// Protected: written from server queue, read from captureQueue.
   private let _videoMotionDetector = Locked<VideoMotionDetector?>(initialState: nil)
   public var videoMotionDetector: VideoMotionDetector? {
-    get { _videoMotionDetector.withLockUnchecked { $0 } }
-    set { _videoMotionDetector.withLockUnchecked { $0 = newValue } }
+    get { _videoMotionDetector.value }
+    set { _videoMotionDetector.value = newValue }
   }
 
   /// Optional ambient light detector — called every `luxFrameInterval` frames.
@@ -35,24 +35,24 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   private let _ambientLightDetector = Locked<AmbientLightDetector?>(
     initialState: nil)
   public var ambientLightDetector: AmbientLightDetector? {
-    get { _ambientLightDetector.withLockUnchecked { $0 } }
-    set { _ambientLightDetector.withLockUnchecked { $0 = newValue } }
+    get { _ambientLightDetector.value }
+    set { _ambientLightDetector.value = newValue }
   }
 
   /// Optional occupancy sensor — called every `occupancyFrameInterval` frames.
   /// Protected: written from server queue, read from captureQueue.
   private let _occupancySensor = Locked<OccupancySensor?>(initialState: nil)
   public var occupancySensor: OccupancySensor? {
-    get { _occupancySensor.withLockUnchecked { $0 } }
-    set { _occupancySensor.withLockUnchecked { $0 = newValue } }
+    get { _occupancySensor.value }
+    set { _occupancySensor.value = newValue }
   }
 
   /// Optional fMP4 writer for HKSV recording — feeds encoded H.264 samples.
   /// Protected: written from server queue, read from VT output handler and start/stop.
   private let _fragmentWriter = Locked<FragmentedMP4Writer?>(initialState: nil)
   public var fragmentWriter: FragmentedMP4Writer? {
-    get { _fragmentWriter.withLockUnchecked { $0 } }
-    set { _fragmentWriter.withLockUnchecked { $0 = newValue } }
+    get { _fragmentWriter.value }
+    set { _fragmentWriter.value = newValue }
   }
 
   /// Whether the hub has enabled audio recording (recordingAudioActive == 1).
@@ -60,16 +60,16 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   /// Protected: written from server queue, read from start().
   private let _audioRecordingEnabled = Locked(initialState: false)
   public var audioRecordingEnabled: Bool {
-    get { _audioRecordingEnabled.withLock { $0 } }
-    set { _audioRecordingEnabled.withLock { $0 = newValue } }
+    get { _audioRecordingEnabled.value }
+    set { _audioRecordingEnabled.value = newValue }
   }
 
   /// When true, skips VTCompressionSession creation and H.264 encoding entirely.
   /// Used when only sensors (ambient light, occupancy) need camera frames.
   private let _sensorOnly = Locked(initialState: false)
   public var sensorOnly: Bool {
-    get { _sensorOnly.withLock { $0 } }
-    set { _sensorOnly.withLock { $0 = newValue } }
+    get { _sensorOnly.value }
+    set { _sensorOnly.value = newValue }
   }
 
   public let logger = Logger(
@@ -108,8 +108,8 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   private let _snapshotCallback = Locked<(@Sendable (CGImage) -> Void)?>(
     initialState: nil)
   public var snapshotCallback: (@Sendable (CGImage) -> Void)? {
-    get { _snapshotCallback.withLockUnchecked { $0 } }
-    set { _snapshotCallback.withLockUnchecked { $0 = newValue } }
+    get { _snapshotCallback.value }
+    set { _snapshotCallback.value = newValue }
   }
 
   public init() {

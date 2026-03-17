@@ -10,7 +10,7 @@ extension HAPCameraAccessory {
 
   func toJSON() -> [String: Any] {
     // Snapshot HKSV state once to avoid holding the lock during serialization.
-    let hksv = hksvState.withLock { $0 }
+    let hksv = hksvState.value
 
     // Camera RTP Stream Management -- conditionally include Active for HKSV
     var rtpCharacteristics: [[String: Any]] = [

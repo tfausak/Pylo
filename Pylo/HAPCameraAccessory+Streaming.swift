@@ -271,7 +271,7 @@ extension HAPCameraAccessory {
       return
     }
 
-    let settings = audioSettings.withLock { $0 }
+    let settings = audioSettings.value
     session.isMuted = settings.isMuted
     session.speakerMuted = settings.speakerMuted
     session.speakerVolume = settings.speakerVolume

@@ -98,16 +98,16 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
   /// Protected by a lock: written from the server queue, read from captureQueue.
   private let _videoMotionDetector = Locked<VideoMotionDetector?>(initialState: nil)
   public var videoMotionDetector: VideoMotionDetector? {
-    get { _videoMotionDetector.withLockUnchecked { $0 } }
-    set { _videoMotionDetector.withLockUnchecked { $0 = newValue } }
+    get { _videoMotionDetector.value }
+    set { _videoMotionDetector.value = newValue }
   }
 
   /// Optional ambient light detector — called every `luxFrameInterval` frames.
   private let _ambientLightDetector = Locked<AmbientLightDetector?>(
     initialState: nil)
   public var ambientLightDetector: AmbientLightDetector? {
-    get { _ambientLightDetector.withLockUnchecked { $0 } }
-    set { _ambientLightDetector.withLockUnchecked { $0 = newValue } }
+    get { _ambientLightDetector.value }
+    set { _ambientLightDetector.value = newValue }
   }
 
   // Audio flags — written from the server queue, read from captureQueue/rtpQueue.
@@ -172,8 +172,8 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
   // so it must be synchronized.
   private let _onSnapshotFrame = Locked<(@Sendable (CGImage) -> Void)?>(initialState: nil)
   public var onSnapshotFrame: (@Sendable (CGImage) -> Void)? {
-    get { _onSnapshotFrame.withLock { $0 } }
-    set { _onSnapshotFrame.withLock { $0 = newValue } }
+    get { _onSnapshotFrame.value }
+    set { _onSnapshotFrame.value = newValue }
   }
   private var snapshotFrameCounter = 0
   private var snapshotInterval = 30  // every ~1s, derived from negotiated fps

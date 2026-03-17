@@ -90,8 +90,8 @@ public enum PairSetupHandler {
   /// and terminateSessions) reset this flag to prevent it from getting stuck.
   private static let _pairSetupInProgress = Locked(initialState: false)
   static var isPairSetupInProgress: Bool {
-    get { _pairSetupInProgress.withLock { $0 } }
-    set { _pairSetupInProgress.withLock { $0 = newValue } }
+    get { _pairSetupInProgress.value }
+    set { _pairSetupInProgress.value = newValue }
   }
 
   /// Atomically claims the pair-setup slot. Returns true if claimed, false if already in progress.
@@ -142,8 +142,8 @@ public enum PairSetupHandler {
   /// adding complexity with no practical benefit for a single-server app.
   private static let _keyStore = Locked<KeyStore?>(initialState: nil)
   public static var keyStore: KeyStore! {
-    get { _keyStore.withLock { $0 } }
-    set { _keyStore.withLock { $0 = newValue } }
+    get { _keyStore.value }
+    set { _keyStore.value = newValue }
   }
 
   /// The setup code displayed to the user (format: XXX-XX-XXX).
