@@ -659,23 +659,34 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   /// VTCreateCGImageFromCVPixelBuffer may back the CGImage with the pixel buffer's
   /// IOSurface; drawing into a CGContext forces a true copy so the image stays valid
   /// after the buffer is recycled by AVFoundation.
+  ///
+  /// Downscales to at most 1280x720 during the copy since these frames are only used
+  /// for HomeKit snapshot previews. This reduces the copy cost proportionally to the
+  /// pixel count reduction (e.g., 1920x1080 → 1280x720 is ~56% fewer pixels).
   static func copyFrameFromPixelBuffer(_ pixelBuffer: CVPixelBuffer) -> CGImage? {
     var vtImage: CGImage?
     guard
       VTCreateCGImageFromCVPixelBuffer(pixelBuffer, options: nil, imageOut: &vtImage) == noErr,
       let vtImage
     else { return nil }
-    let w = vtImage.width
-    let h = vtImage.height
+    let srcW = vtImage.width
+    let srcH = vtImage.height
+    // Downscale to fit within 1280x720, preserving aspect ratio.
+    let maxW = 1280
+    let maxH = 720
+    let scale = min(Double(maxW) / Double(srcW), Double(maxH) / Double(srcH), 1.0)
+    let dstW = Int(Double(srcW) * scale)
+    let dstH = Int(Double(srcH) * scale)
     guard
       let ctx = CGContext(
-        data: nil, width: w, height: h,
+        data: nil, width: dstW, height: dstH,
         bitsPerComponent: 8, bytesPerRow: 0,
         space: vtImage.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)
           ?? CGColorSpaceCreateDeviceRGB(),
         bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue)
     else { return nil }
-    ctx.draw(vtImage, in: CGRect(x: 0, y: 0, width: w, height: h))
+    ctx.interpolationQuality = .low
+    ctx.draw(vtImage, in: CGRect(x: 0, y: 0, width: dstW, height: dstH))
     return ctx.makeImage()
   }
 
