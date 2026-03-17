@@ -346,17 +346,48 @@ struct ContentView: View {
           Text(camera.name)
         }
       }
+      // Max Resolution
       HStack {
-        Text("Quality")
+        Text("Resolution")
           .foregroundStyle(.secondary)
         Spacer()
-        Picker("Quality", selection: $viewModel.videoQuality) {
-          ForEach(VideoQuality.allCases) { quality in
-            Text(quality.rawValue).tag(quality)
+        Picker("Resolution", selection: $viewModel.maxResolution) {
+          ForEach(MaxResolution.allCases) { res in
+            Text(res.rawValue).tag(res)
           }
         }
         .labelsHidden()
         .pickerStyle(.menu)
+      }
+
+      // Frame Rate
+      HStack {
+        Text("Frame Rate")
+          .foregroundStyle(.secondary)
+        Spacer()
+        Picker("Frame Rate", selection: $viewModel.frameRate) {
+          ForEach(FrameRate.allCases) { fps in
+            Text(fps.label).tag(fps)
+          }
+        }
+        .labelsHidden()
+        .pickerStyle(.menu)
+      }
+
+      // Min Bitrate
+      VStack(spacing: 4) {
+        HStack {
+          Text("Min Bitrate")
+            .foregroundStyle(.secondary)
+          Spacer()
+          Text(Self.bitrateLabel(viewModel.minBitrate))
+        }
+        Slider(
+          value: bitrateSliderBinding,
+          in: 300...6000,
+          step: 1
+        )
+        .tint(.accentColor)
       }
       Toggle("Microphone", isOn: microphoneEnabled)
         .tint(viewModel.microphonePermissionDenied ? Color.secondary : nil)
@@ -481,6 +512,39 @@ struct ContentView: View {
   }
 
   // MARK: - Bindings
+
+  /// Formats bitrate for display: "300 kbps", "1.0 Mbps", "2.5 Mbps", etc.
+  private static func bitrateLabel(_ kbps: Int) -> String {
+    if kbps < 1000 {
+      return "\(kbps) kbps"
+    }
+    let mbps = Double(kbps) / 1000.0
+    // Show one decimal place, but drop ".0" for whole numbers
+    if kbps % 1000 == 0 {
+      return "\(Int(mbps)) Mbps"
+    }
+    return String(format: "%.1f Mbps", mbps)
+  }
+
+  /// Binding that snaps the bitrate slider to detent values (1000, 2000, ..., 6000 kbps).
+  /// Values within 75 kbps of a detent snap to it; others round to nearest 100.
+  private var bitrateSliderBinding: Binding<Double> {
+    Binding(
+      get: { Double(viewModel.minBitrate) },
+      set: { newValue in
+        let rounded = Int(newValue)
+        let detents = [1000, 2000, 3000, 4000, 5000, 6000]
+        for detent in detents {
+          if abs(rounded - detent) < 75 {
+            viewModel.minBitrate = detent
+            return
+          }
+        }
+        // Round to nearest 100 between detents
+        viewModel.minBitrate = (rounded + 50) / 100 * 100
+      }
+    )
+  }
 
   private var permissionAlertPresented: Binding<Bool> {
     Binding(

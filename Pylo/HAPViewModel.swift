@@ -465,6 +465,30 @@ final class HAPViewModel: ObservableObject {
     {
       motionSensitivity = sensitivity
     }
+    // Migrate from old VideoQuality enum if new keys haven't been set yet
+    if UserDefaults.standard.object(forKey: PrefKey.maxResolution) == nil,
+      let oldQuality = UserDefaults.standard.string(forKey: "videoQuality")
+    {
+      switch oldQuality {
+      case "Low":
+        maxResolution = .r720p
+        frameRate = .fps24
+        minBitrate = 500
+      case "High":
+        maxResolution = .r1080p
+        frameRate = .fps30
+        minBitrate = 4000
+      default:  // "Medium"
+        maxResolution = .r1080p
+        frameRate = .fps30
+        minBitrate = 2000
+      }
+      // Persist migrated values
+      UserDefaults.standard.set(maxResolution.rawValue, forKey: PrefKey.maxResolution)
+      UserDefaults.standard.set(frameRate.rawValue, forKey: PrefKey.frameRate)
+      UserDefaults.standard.set(minBitrate, forKey: PrefKey.minBitrate)
+      UserDefaults.standard.removeObject(forKey: "videoQuality")
+    }
     if let savedResolution = UserDefaults.standard.string(forKey: PrefKey.maxResolution),
       let resolution = MaxResolution(rawValue: savedResolution)
     {
