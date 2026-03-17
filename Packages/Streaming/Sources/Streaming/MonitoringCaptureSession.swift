@@ -718,7 +718,11 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
           break
         }
       }
-      if allBlack { return nil }
+      if allBlack {
+        Logger(subsystem: Bundle.main.bundleIdentifier ?? "Streaming", category: "MonitoringCapture")
+          .debug("copyFrameFromPixelBuffer: rejected black frame (\(dstW)x\(dstH))")
+        return nil
+      }
     }
 
     return image

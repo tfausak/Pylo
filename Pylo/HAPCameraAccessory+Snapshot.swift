@@ -22,8 +22,11 @@ extension HAPCameraAccessory {
 
     // If streaming is active, encode the cached frame on demand.
     if hasActiveStreamSession {
-      logger.debug("Stream active -- encoding cached frame")
-      if let frame = cachedFrame { return jpegEncode(frame) }
+      if let frame = cachedFrame {
+        logger.debug("Stream active -- encoding cached frame (\(frame.width)x\(frame.height))")
+        return jpegEncode(frame)
+      }
+      logger.debug("Stream active -- no cached frame available")
       return nil
     }
 
@@ -33,8 +36,10 @@ extension HAPCameraAccessory {
     // cycle that produces black frames while auto-exposure reconverges.
     // A stale frame is always preferable to a black one or "No Response".
     if let frame = cachedFrame {
-      logger.debug("Encoding cached frame on demand")
-      return jpegEncode(frame)
+      logger.debug("Encoding cached frame on demand (\(frame.width)x\(frame.height))")
+      let jpeg = jpegEncode(frame)
+      logger.debug("JPEG result: \(jpeg?.count ?? 0) bytes")
+      return jpeg
     }
 
     guard let camera = resolveCamera() else {
@@ -180,7 +185,11 @@ nonisolated final class FrameGrabber: NSObject, AVCaptureVideoDataOutputSampleBu
     let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
     guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else { return }
     // Reject all-black frames (auto-exposure hasn't converged yet) — keep trying.
-    if Self.isBlackFrame(cgImage) { return }
+    if Self.isBlackFrame(cgImage) {
+      Logger(subsystem: Bundle.main.bundleIdentifier ?? "Pylo", category: "FrameGrabber")
+        .debug("Rejected black frame (frame \(self._framesReceived))")
+      return
+    }
     lock.withLock { _capturedImage = cgImage }
     semaphore.signal()
   }
