@@ -198,10 +198,11 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   /// no concurrent access occurs — the server queue is not active during setup.
   var selectedCameraID: String?
 
-  /// Minimum bitrate (kbps) to use regardless of what the controller negotiates.
-  /// Written once during setup before the server starts. Not locked because
-  /// no concurrent access occurs — the server queue is not active during setup.
-  var minimumBitrate: Int = 0
+  /// Video quality settings written once during setup before the server starts.
+  /// Not locked because no concurrent access occurs — the server queue is not active during setup.
+  var maxResolution: MaxResolution = .r1080p
+  var frameRate: FrameRate = .fps30
+  var minBitrate: Int = 2000
 
   /// Whether microphone audio is enabled (user preference). When false, capture sessions
   /// skip mic input entirely. Written from MainActor, read from the server queue during
@@ -484,7 +485,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     case AccessoryInfoIID.firmwareRevision: return .string(firmwareRevision)
     case ProtocolInfoIID.version: return .string(hapProtocolVersion)
     case Self.iidSupportedVideoConfig:
-      return .string(Self.supportedVideoConfig().base64())
+      return .string(supportedVideoConfig().base64())
     case Self.iidSupportedAudioConfig:
       return .string(Self.supportedAudioConfig().base64())
     case Self.iidSupportedRTPConfig:

@@ -7,38 +7,26 @@ import os
 extension HAPCameraAccessory {
 
   /// SupportedVideoStreamConfiguration TLV8
-  static func supportedVideoConfig() -> TLV8.Builder {
+  func supportedVideoConfig() -> TLV8.Builder {
     // H.264 codec parameters: Constrained Baseline profile, Level 3.1
     var codecParams = TLV8.Builder()
     codecParams.add(0x01, byte: 0x00)  // ProfileID: Constrained Baseline
     codecParams.add(0x02, byte: 0x00)  // Level: 3.1
     codecParams.add(0x03, byte: 0x00)  // Packetization: Non-interleaved
 
-    // Resolution: 1920x1080 @ 30fps
-    var attrs1080 = TLV8.Builder()
-    attrs1080.add(0x01, uint16: 1920)
-    attrs1080.add(0x02, uint16: 1080)
-    attrs1080.add(0x03, byte: 30)
-
-    // Resolution: 1280x720 @ 30fps
-    var attrs720 = TLV8.Builder()
-    attrs720.add(0x01, uint16: 1280)
-    attrs720.add(0x02, uint16: 720)
-    attrs720.add(0x03, byte: 30)
-
-    // Resolution: 320x240 @ 15fps
-    var attrs240 = TLV8.Builder()
-    attrs240.add(0x01, uint16: 320)
-    attrs240.add(0x02, uint16: 240)
-    attrs240.add(0x03, byte: 15)
-
     // Video codec config
     var codecConfig = TLV8.Builder()
     codecConfig.add(0x01, byte: 0x00)  // CodecType: H.264
     codecConfig.add(0x02, tlv: codecParams)
-    codecConfig.add(0x03, tlv: attrs1080)
-    codecConfig.add(0x03, tlv: attrs720)
-    codecConfig.add(0x03, tlv: attrs240)
+
+    // Add each advertised resolution at the configured frame rate
+    for res in maxResolution.advertisedResolutions {
+      var attrs = TLV8.Builder()
+      attrs.add(0x01, uint16: UInt16(res.width))
+      attrs.add(0x02, uint16: UInt16(res.height))
+      attrs.add(0x03, byte: UInt8(frameRate.rawValue))
+      codecConfig.add(0x03, tlv: attrs)
+    }
 
     // Top-level
     var config = TLV8.Builder()
@@ -103,23 +91,21 @@ extension HAPCameraAccessory {
     codecParams.addList(0x01, bytes: [0x00, 0x01, 0x02])  // Profiles: Baseline, Main, High
     codecParams.addList(0x02, bytes: [0x00, 0x01, 0x02])  // Levels: 3.1, 3.2, 4.0
 
-    // Resolution: 1920x1080 @ 30fps
-    var attrs1080 = TLV8.Builder()
-    attrs1080.add(0x01, uint16: 1920)
-    attrs1080.add(0x02, uint16: 1080)
-    attrs1080.add(0x03, byte: 30)
-
-    // Resolution: 1280x720 @ 24fps
-    var attrs720 = TLV8.Builder()
-    attrs720.add(0x01, uint16: 1280)
-    attrs720.add(0x02, uint16: 720)
-    attrs720.add(0x03, byte: 24)
+    // Add each advertised resolution at the configured frame rate
+    var resTLVs: [TLV8.Builder] = []
+    for res in maxResolution.advertisedResolutions {
+      var attrs = TLV8.Builder()
+      attrs.add(0x01, uint16: UInt16(res.width))
+      attrs.add(0x02, uint16: UInt16(res.height))
+      attrs.add(0x03, byte: UInt8(frameRate.rawValue))
+      resTLVs.append(attrs)
+    }
 
     // Video codec configuration
     var codecConfig = TLV8.Builder()
     codecConfig.add(0x01, byte: 0x00)  // CodecType: H.264
     codecConfig.add(0x02, tlv: codecParams)  // Single CodecParameters with lists
-    codecConfig.addList(0x03, tlvs: [attrs1080, attrs720])  // Attributes with delimiters
+    codecConfig.addList(0x03, tlvs: resTLVs)  // Attributes with delimiters
 
     var config = TLV8.Builder()
     config.add(0x01, tlv: codecConfig)  // VIDEO_CODEC_CONFIGURATION

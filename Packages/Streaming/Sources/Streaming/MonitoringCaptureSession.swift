@@ -72,6 +72,38 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     set { _sensorOnly.value = newValue }
   }
 
+  /// Recording resolution width. Used when `sensorOnly` is false.
+  /// Set before calling `start(camera:)`.
+  private let _recordingWidth = Locked(initialState: 1920)
+  public var recordingWidth: Int {
+    get { _recordingWidth.value }
+    set { _recordingWidth.value = newValue }
+  }
+
+  /// Recording resolution height. Used when `sensorOnly` is false.
+  /// Set before calling `start(camera:)`.
+  private let _recordingHeight = Locked(initialState: 1080)
+  public var recordingHeight: Int {
+    get { _recordingHeight.value }
+    set { _recordingHeight.value = newValue }
+  }
+
+  /// Recording frame rate. Used when `sensorOnly` is false.
+  /// Set before calling `start(camera:)`.
+  private let _recordingFps = Locked(initialState: 30)
+  public var recordingFps: Int {
+    get { _recordingFps.value }
+    set { _recordingFps.value = newValue }
+  }
+
+  /// Recording bitrate in kbps. Used when `sensorOnly` is false.
+  /// Set before calling `start(camera:)`.
+  private let _recordingBitrate = Locked(initialState: 2000)
+  public var recordingBitrate: Int {
+    get { _recordingBitrate.value }
+    set { _recordingBitrate.value = newValue }
+  }
+
   public let logger = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "Streaming", category: "MonitoringCapture")
 
@@ -171,10 +203,10 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     }
     guard !alreadyRunning else { return }
 
-    let width = sensorOnly ? 640 : 1920
-    let height = sensorOnly ? 480 : 1080
-    let fps = sensorOnly ? 10 : 30
-    let bitrate = 2000  // kbps — match hub's SelectedCameraRecordingConfig
+    let width = sensorOnly ? 640 : recordingWidth
+    let height = sensorOnly ? 480 : recordingHeight
+    let fps = sensorOnly ? 10 : recordingFps
+    let bitrate = recordingBitrate
 
     // Configure camera frame rate
     do {
@@ -245,8 +277,9 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       // Remove stream's outputs
       for old in session.outputs { session.removeOutput(old) }
 
-      // Restore preset to monitoring's 1080p
-      if session.sessionPreset != .hd1920x1080 { session.sessionPreset = .hd1920x1080 }
+      // Restore preset to monitoring's target resolution
+      let targetPreset = Self.sessionPreset(width: width, height: height)
+      if session.sessionPreset != targetPreset { session.sessionPreset = targetPreset }
 
       // Add monitoring video output
       if session.canAddOutput(output) {
@@ -305,7 +338,7 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       // Cold start — create a new AVCaptureSession from scratch
       session = AVCaptureSession()
       session.enableMultitaskingCameraIfSupported()
-      session.sessionPreset = sensorOnly ? .vga640x480 : .hd1920x1080
+      session.sessionPreset = sensorOnly ? .vga640x480 : Self.sessionPreset(width: width, height: height)
 
       do {
         let input = try AVCaptureDeviceInput(device: camera)
@@ -613,7 +646,7 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     // boundaries. Using only MaxKeyFrameInterval/Duration is insufficient because the
     // encoder's internal counter doesn't reset after an externally-forced keyframe.
     let props: CFDictionary? =
-      frameCount % 120 == 1
+      frameCount % (recordingFps * 4) == 1
       ? [kVTEncodeFrameOptionKey_ForceKeyFrame: true] as CFDictionary
       : nil
 
@@ -734,6 +767,13 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   }
 
   // MARK: - Helpers
+
+  /// Maps resolution to the most appropriate AVCaptureSession preset.
+  private static func sessionPreset(width: Int, height: Int) -> AVCaptureSession.Preset {
+    if width >= 1920 { return .hd1920x1080 }
+    if width >= 1280 { return .hd1280x720 }
+    return .vga640x480
+  }
 
   private static func createCompressionSession(
     width: Int, height: Int, fps: Int, bitrate: Int, logger: Logger,
