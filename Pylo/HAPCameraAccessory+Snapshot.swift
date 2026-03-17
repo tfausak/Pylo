@@ -122,6 +122,42 @@ nonisolated final class FrameGrabber: NSObject, AVCaptureVideoDataOutputSampleBu
     self.context = context
   }
 
+  /// Quick check whether a CGImage is all-black (or near-black).  Samples a
+  /// few spread-out pixels via a tiny 4×1 CGContext render — cheap enough to
+  /// run on the capture callback queue.
+  private static func isBlackFrame(_ image: CGImage) -> Bool {
+    let w = image.width
+    let h = image.height
+    guard w > 0, h > 0 else { return true }
+    // Draw 4 sampled source pixels into a 4×1 strip
+    let samplePoints: [(Int, Int)] = [
+      (w / 4, h / 4), (3 * w / 4, h / 4),
+      (w / 2, h / 2), (w / 4, 3 * h / 4),
+    ]
+    guard
+      let ctx = CGContext(
+        data: nil, width: 4, height: 1,
+        bitsPerComponent: 8, bytesPerRow: 4 * 4,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue)
+    else { return false }
+    for (i, (sx, sy)) in samplePoints.enumerated() {
+      // Crop a 1×1 rect from the source and draw it into position i
+      if let cropped = image.cropping(to: CGRect(x: sx, y: sy, width: 1, height: 1)) {
+        ctx.draw(cropped, in: CGRect(x: i, y: 0, width: 1, height: 1))
+      }
+    }
+    guard let data = ctx.data else { return false }
+    for i in 0..<4 {
+      let offset = i * 4
+      let r = data.load(fromByteOffset: offset + 1, as: UInt8.self)
+      let g = data.load(fromByteOffset: offset + 2, as: UInt8.self)
+      let b = data.load(fromByteOffset: offset + 3, as: UInt8.self)
+      if r > 8 || g > 8 || b > 8 { return false }
+    }
+    return true
+  }
+
   /// Block until a usable frame is captured, or the timeout expires.
   func waitForCapture(timeout: DispatchTime) -> DispatchTimeoutResult {
     semaphore.wait(timeout: timeout)
@@ -143,6 +179,8 @@ nonisolated final class FrameGrabber: NSObject, AVCaptureVideoDataOutputSampleBu
     // recycle the backing memory after this callback returns.
     let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
     guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else { return }
+    // Reject all-black frames (auto-exposure hasn't converged yet) — keep trying.
+    if Self.isBlackFrame(cgImage) { return }
     lock.withLock { _capturedImage = cgImage }
     semaphore.signal()
   }

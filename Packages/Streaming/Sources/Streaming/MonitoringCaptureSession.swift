@@ -693,7 +693,35 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     else { return nil }
     ctx.interpolationQuality = .low
     ctx.draw(vtImage, in: CGRect(x: 0, y: 0, width: dstW, height: dstH))
-    return ctx.makeImage()
+    guard let image = ctx.makeImage() else { return nil }
+
+    // Reject all-black frames — sample a few pixels to detect frames where the
+    // IOSurface data was unavailable (zeros). Checking 4 spread-out pixels is
+    // cheap and catches the common failure mode (entire frame is black).
+    if let data = ctx.data {
+      let bytesPerRow = ctx.bytesPerRow
+      let bpp = 4  // XRGB, 4 bytes per pixel
+      let samples = [
+        (dstW / 4, dstH / 4),
+        (3 * dstW / 4, dstH / 4),
+        (dstW / 2, dstH / 2),
+        (dstW / 4, 3 * dstH / 4),
+      ]
+      var allBlack = true
+      for (x, y) in samples {
+        let offset = y * bytesPerRow + x * bpp
+        let r = data.load(fromByteOffset: offset + 1, as: UInt8.self)
+        let g = data.load(fromByteOffset: offset + 2, as: UInt8.self)
+        let b = data.load(fromByteOffset: offset + 3, as: UInt8.self)
+        if r > 8 || g > 8 || b > 8 {
+          allBlack = false
+          break
+        }
+      }
+      if allBlack { return nil }
+    }
+
+    return image
   }
 
   // MARK: - Helpers

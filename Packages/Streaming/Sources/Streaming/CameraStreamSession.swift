@@ -827,20 +827,14 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
 
     // Periodically cache a CGImage for snapshot requests while streaming.
     // JPEG encoding is deferred to when HomeKit actually requests a snapshot.
-    // Dispatched to a utility queue so the pixel-copy + downscale doesn't block
-    // captureQueue and cause frame drops. CVPixelBuffer supports concurrent
-    // read-only locks, so this is safe alongside VTCompressionSessionEncodeFrame.
+    // Done synchronously on captureQueue (not async) to avoid racing with
+    // VTCompressionSessionEncodeFrame's GPU access to the same pixel buffer.
+    // The copy + downscale to 1280x720 takes ~1ms and only runs every ~2s.
     snapshotFrameCounter += 1
     if snapshotFrameCounter >= snapshotInterval, let callback = onSnapshotFrame {
       snapshotFrameCounter = 0
-      // Retain the pixel buffer (CFType) so it stays valid on the async queue.
-      // nonisolated(unsafe) suppresses the Sendable warning — the buffer is only
-      // read, never mutated, so no data race is possible.
-      nonisolated(unsafe) let buffer = pixelBuffer
-      DispatchQueue.global(qos: .utility).async {
-        if let owned = MonitoringCaptureSession.copyFrameFromPixelBuffer(buffer) {
-          callback(owned)
-        }
+      if let owned = MonitoringCaptureSession.copyFrameFromPixelBuffer(pixelBuffer) {
+        callback(owned)
       }
     }
 
