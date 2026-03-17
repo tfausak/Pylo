@@ -60,6 +60,7 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
   private var sequenceNumber: UInt16 = 0
   private var rtpTimestamp: UInt32 = 0
   private var lastSentRTPTimestamp: UInt32 = 0  // for RTCP SR (timestamp of last sent frame)
+  private var firstPTS: CMTime = .invalid  // PTS of the first frame, for RTP timestamp derivation
   private var encodeFrameCount: Int = 0  // captureQueue only
   private var captureFrameCount: Int = 0  // captureQueue only
   private let motionFrameInterval = 15
@@ -249,6 +250,7 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
     // every authentication check to fail (black video).
     self.sequenceNumber = 0
     self.rtpTimestamp = 0
+    self.firstPTS = .invalid
     self.packetsSent = 0
     self.octetsSent = 0
     self.audioRTPSeq = 0
@@ -891,6 +893,16 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
     dispatchPrecondition(condition: .onQueue(rtpQueue))
     guard let dataBuffer = sampleBuffer.dataBuffer else { return }
 
+    // Derive RTP timestamp from the actual presentation timestamp (90kHz clock).
+    // Using real PTS instead of a fixed-increment counter ensures the RTCP SR's
+    // NTP↔RTP mapping stays accurate even when frames are dropped by
+    // alwaysDiscardsLateVideoFrames — preventing receiver jitter buffer corrections
+    // that cause visible hitches every 5 seconds.
+    let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+    if !firstPTS.isValid { firstPTS = pts }
+    let elapsed = CMTimeGetSeconds(CMTimeSubtract(pts, firstPTS))
+    rtpTimestamp = UInt32(truncatingIfNeeded: Int64(elapsed * 90000))
+
     // Get H.264 NAL units from the sample buffer
     var totalLength = 0
     var dataPointer: UnsafeMutablePointer<CChar>?
@@ -942,9 +954,7 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
       sendNALUnit(nal, marker: isLast)
     }
 
-    // Advance RTP timestamp (90kHz clock)
     lastSentRTPTimestamp = rtpTimestamp
-    rtpTimestamp &+= UInt32(90000 / targetFPS)
   }
 
   private func sendParameterSets(_ formatDesc: CMFormatDescription) {
