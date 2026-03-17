@@ -110,7 +110,7 @@ struct RunningConfigView: View {
   @Environment(\.dismiss) private var dismiss
 
   var body: some View {
-    NavigationView {
+    navigationWrapper {
       ContentView(viewModel: viewModel, forceConfig: true)
         .navigationTitle("Settings")
         .toolbar {
@@ -135,10 +135,22 @@ struct RunningConfigView: View {
         }
         .animation(.default, value: viewModel.needsRestart)
     }
-    #if os(iOS)
-      .navigationViewStyle(.stack)
-    #else
+    #if os(macOS)
       .frame(minWidth: 480, minHeight: 500)
     #endif
+  }
+
+  @ViewBuilder
+  private func navigationWrapper<Content: View>(
+    @ViewBuilder content: () -> Content
+  ) -> some View {
+    if #available(iOS 16.0, macOS 13.0, *) {
+      NavigationStack(root: content)
+    } else {
+      NavigationView(content: content)
+        #if os(iOS)
+          .navigationViewStyle(.stack)
+        #endif
+    }
   }
 }
