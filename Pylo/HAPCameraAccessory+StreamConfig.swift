@@ -28,6 +28,13 @@ extension HAPCameraAccessory {
       codecConfig.add(0x03, tlv: attrs)
     }
 
+    // Always advertise a low resolution for Apple Watch / widget thumbnails
+    var attrs240 = TLV8.Builder()
+    attrs240.add(0x01, uint16: 320)
+    attrs240.add(0x02, uint16: 240)
+    attrs240.add(0x03, byte: 15)
+    codecConfig.add(0x03, tlv: attrs240)
+
     // Top-level
     var config = TLV8.Builder()
     config.add(0x01, tlv: codecConfig)

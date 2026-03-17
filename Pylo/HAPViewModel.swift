@@ -501,7 +501,8 @@ final class HAPViewModel: ObservableObject {
       }
     }
     if UserDefaults.standard.object(forKey: PrefKey.minBitrate) != nil {
-      minBitrate = UserDefaults.standard.integer(forKey: PrefKey.minBitrate)
+      let saved = UserDefaults.standard.integer(forKey: PrefKey.minBitrate)
+      if saved >= 300 { minBitrate = saved }
     }
     if UserDefaults.standard.object(forKey: PrefKey.microphoneEnabled) != nil {
       microphoneEnabled = UserDefaults.standard.bool(forKey: PrefKey.microphoneEnabled)

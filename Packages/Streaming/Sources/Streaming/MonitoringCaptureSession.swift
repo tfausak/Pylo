@@ -206,7 +206,7 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     let width = sensorOnly ? 640 : recordingWidth
     let height = sensorOnly ? 480 : recordingHeight
     let fps = sensorOnly ? 10 : recordingFps
-    let bitrate = recordingBitrate
+    let bitrate = sensorOnly ? 500 : recordingBitrate
 
     // Configure camera frame rate
     do {
@@ -772,7 +772,7 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   /// Maps resolution to the most appropriate AVCaptureSession preset.
   private static func sessionPreset(width: Int, height: Int) -> AVCaptureSession.Preset {
     if width >= 1920 { return .hd1920x1080 }
-    if width >= 1280 { return .hd1280x720 }
+    if width >= 854 { return .hd1280x720 }
     return .vga640x480
   }
 
