@@ -104,8 +104,8 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
   /// Called when a new fragment is completed.
   private let _onFragmentReady = Locked<((MP4Fragment) -> Void)?>(initialState: nil)
   public var onFragmentReady: ((MP4Fragment) -> Void)? {
-    get { _onFragmentReady.value }
-    set { _onFragmentReady.value = newValue }
+    get { _onFragmentReady.valueUnchecked }
+    set { _onFragmentReady.valueUnchecked = newValue }
   }
 
   private let logger = Logger(subsystem: logSubsystem, category: "fMP4Writer")

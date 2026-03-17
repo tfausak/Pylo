@@ -26,8 +26,8 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   /// Protected: written from server queue, read from captureQueue.
   private let _videoMotionDetector = Locked<VideoMotionDetector?>(initialState: nil)
   public var videoMotionDetector: VideoMotionDetector? {
-    get { _videoMotionDetector.value }
-    set { _videoMotionDetector.value = newValue }
+    get { _videoMotionDetector.valueUnchecked }
+    set { _videoMotionDetector.valueUnchecked = newValue }
   }
 
   /// Optional ambient light detector — called every `luxFrameInterval` frames.
@@ -35,24 +35,24 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   private let _ambientLightDetector = Locked<AmbientLightDetector?>(
     initialState: nil)
   public var ambientLightDetector: AmbientLightDetector? {
-    get { _ambientLightDetector.value }
-    set { _ambientLightDetector.value = newValue }
+    get { _ambientLightDetector.valueUnchecked }
+    set { _ambientLightDetector.valueUnchecked = newValue }
   }
 
   /// Optional occupancy sensor — called every `occupancyFrameInterval` frames.
   /// Protected: written from server queue, read from captureQueue.
   private let _occupancySensor = Locked<OccupancySensor?>(initialState: nil)
   public var occupancySensor: OccupancySensor? {
-    get { _occupancySensor.value }
-    set { _occupancySensor.value = newValue }
+    get { _occupancySensor.valueUnchecked }
+    set { _occupancySensor.valueUnchecked = newValue }
   }
 
   /// Optional fMP4 writer for HKSV recording — feeds encoded H.264 samples.
   /// Protected: written from server queue, read from VT output handler and start/stop.
   private let _fragmentWriter = Locked<FragmentedMP4Writer?>(initialState: nil)
   public var fragmentWriter: FragmentedMP4Writer? {
-    get { _fragmentWriter.value }
-    set { _fragmentWriter.value = newValue }
+    get { _fragmentWriter.valueUnchecked }
+    set { _fragmentWriter.valueUnchecked = newValue }
   }
 
   /// Whether the hub has enabled audio recording (recordingAudioActive == 1).
@@ -89,20 +89,17 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   private var encodeFrameCount: Int = 0
 
   /// Frame counter for throttling motion/lux/snapshot detection — captureQueue only.
-  /// Motion fires every 15 frames (~2fps at 30fps), lux every 60 (~0.5fps),
-  /// snapshot every 60 (~2s). HomeKit polls snapshots every 5-15s so a 2s
-  /// cache refresh is more than adequate.
+  /// Motion fires every 15 frames (~2fps at 30fps); lux, occupancy, and snapshot
+  /// intervals scale with fps so the wall-clock cadence stays consistent between
+  /// full mode (30fps) and sensor-only mode (10fps).
   private var captureFrameCount: Int = 0
   private let motionFrameInterval = 15
-  private let snapshotFrameInterval = 60
-
-  /// Lux and occupancy intervals scale with fps so the wall-clock cadence stays
-  /// consistent between full mode (30fps) and sensor-only mode (10fps).
+  private var snapshotFrameInterval: Int { sensorOnly ? 20 : 60 }  // ~2s
   private var luxFrameInterval: Int { sensorOnly ? 20 : 60 }  // ~2s
   private var occupancyFrameInterval: Int { sensorOnly ? 25 : 75 }  // ~2.5s
 
   /// Callback to periodically provide a CGImage for snapshot caching.
-  /// Called every ~1 second on the captureQueue. The CGImage is an owned copy
+  /// Called every ~2 seconds on the captureQueue. The CGImage is an owned copy
   /// with no ties to the pixel buffer pool, so the receiver can cache it
   /// indefinitely. JPEG encoding is deferred until a snapshot is requested.
   /// Protected: written from server queue, read from captureQueue.

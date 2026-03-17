@@ -10,8 +10,8 @@ public nonisolated final class VideoMotionDetector {
 
   private let _onMotionChange = Locked<((Bool) -> Void)?>(initialState: nil)
   public var onMotionChange: ((Bool) -> Void)? {
-    get { _onMotionChange.value }
-    set { _onMotionChange.value = newValue }
+    get { _onMotionChange.valueUnchecked }
+    set { _onMotionChange.valueUnchecked = newValue }
   }
 
   /// Fraction of pixels that must differ to trigger motion (0.0–1.0).
@@ -155,13 +155,13 @@ public nonisolated final class VideoMotionDetector {
       var src = vImage_Buffer(
         data: yBase, height: vImagePixelCount(srcHeight),
         width: vImagePixelCount(srcWidth), rowBytes: yRowBytes)
-      scratchGray.withUnsafeMutableBufferPointer { dst in
+      let scaleErr: vImage_Error = scratchGray.withUnsafeMutableBufferPointer { dst in
         var dstBuf = vImage_Buffer(
           data: dst.baseAddress!, height: vImagePixelCount(th),
           width: vImagePixelCount(tw), rowBytes: tw)
-        vImageScale_Planar8(&src, &dstBuf, nil, vImage_Flags(kvImageNoFlags))
+        return vImageScale_Planar8(&src, &dstBuf, nil, vImage_Flags(kvImageNoFlags))
       }
-      return true
+      return scaleErr == kvImageNoError
 
     case kCVPixelFormatType_32BGRA:
       // BGRA fallback: scale with vImage, then extract green channel (offset 1).
@@ -170,13 +170,14 @@ public nonisolated final class VideoMotionDetector {
       var src = vImage_Buffer(
         data: base, height: vImagePixelCount(srcHeight),
         width: vImagePixelCount(srcWidth), rowBytes: rowBytes)
-      scratchBGRA.withUnsafeMutableBufferPointer { bgraDst in
+      let scaleErr: vImage_Error = scratchBGRA.withUnsafeMutableBufferPointer { bgraDst in
         var dstBuf = vImage_Buffer(
           data: bgraDst.baseAddress!, height: vImagePixelCount(th),
           width: vImagePixelCount(tw), rowBytes: tw * 4)
-        vImageScale_ARGB8888(&src, &dstBuf, nil, vImage_Flags(kvImageNoFlags))
+        return vImageScale_ARGB8888(&src, &dstBuf, nil, vImage_Flags(kvImageNoFlags))
       }
-      scratchGray.withUnsafeMutableBufferPointer { grayDst in
+      guard scaleErr == kvImageNoError else { return false }
+      let extractErr: vImage_Error = scratchGray.withUnsafeMutableBufferPointer { grayDst in
         scratchBGRA.withUnsafeBufferPointer { bgraSrc in
           var srcBuf = vImage_Buffer(
             data: UnsafeMutableRawPointer(mutating: bgraSrc.baseAddress!),
@@ -184,10 +185,10 @@ public nonisolated final class VideoMotionDetector {
           var grayBuf = vImage_Buffer(
             data: grayDst.baseAddress!, height: vImagePixelCount(th),
             width: vImagePixelCount(tw), rowBytes: tw)
-          vImageExtractChannel_ARGB8888(&srcBuf, &grayBuf, 1, vImage_Flags(kvImageNoFlags))
+          return vImageExtractChannel_ARGB8888(&srcBuf, &grayBuf, 1, vImage_Flags(kvImageNoFlags))
         }
       }
-      return true
+      return extractErr == kvImageNoError
 
     default:
       return false

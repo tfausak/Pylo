@@ -98,16 +98,16 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
   /// Protected by a lock: written from the server queue, read from captureQueue.
   private let _videoMotionDetector = Locked<VideoMotionDetector?>(initialState: nil)
   public var videoMotionDetector: VideoMotionDetector? {
-    get { _videoMotionDetector.value }
-    set { _videoMotionDetector.value = newValue }
+    get { _videoMotionDetector.valueUnchecked }
+    set { _videoMotionDetector.valueUnchecked = newValue }
   }
 
   /// Optional ambient light detector — called every `luxFrameInterval` frames.
   private let _ambientLightDetector = Locked<AmbientLightDetector?>(
     initialState: nil)
   public var ambientLightDetector: AmbientLightDetector? {
-    get { _ambientLightDetector.value }
-    set { _ambientLightDetector.value = newValue }
+    get { _ambientLightDetector.valueUnchecked }
+    set { _ambientLightDetector.valueUnchecked = newValue }
   }
 
   // Audio flags — written from the server queue, read from captureQueue/rtpQueue.

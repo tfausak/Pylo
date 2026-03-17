@@ -55,17 +55,16 @@ public final class Locked<State>: @unchecked Sendable {
     return try body(&_buffer.pointee.state)
   }
 
-  /// Direct locked access to the stored value.
+  /// Direct locked access to the stored value (unchecked variant).
   ///
-  /// Prefer this over `withLock { $0 }` / `withLockUnchecked { $0 }` for
-  /// simple get/set. The closure-based APIs introduce two generic boundaries
-  /// (the closure parameter and its return value), which can trigger a Swift
-  /// reabstraction thunk cycle — two thunks converting between indirect and
-  /// direct calling conventions call each other in infinite mutual recursion.
-  /// A property accessor has only one boundary (the return), making recursion
-  /// impossible.
+  /// Prefer this over `withLockUnchecked { $0 }` for simple get/set.
+  /// The closure-based APIs introduce two generic boundaries (the closure
+  /// parameter and its return value), which can trigger a Swift reabstraction
+  /// thunk cycle — two thunks converting between indirect and direct calling
+  /// conventions call each other in infinite mutual recursion. A property
+  /// accessor has only one boundary (the return), making recursion impossible.
   @inlinable
-  public var value: State {
+  public var valueUnchecked: State {
     get {
       os_unfair_lock_lock(&_buffer.pointee.lock)
       defer { os_unfair_lock_unlock(&_buffer.pointee.lock) }
@@ -76,5 +75,17 @@ public final class Locked<State>: @unchecked Sendable {
       defer { os_unfair_lock_unlock(&_buffer.pointee.lock) }
       _buffer.pointee.state = newValue
     }
+  }
+}
+
+extension Locked where State: Sendable {
+  /// Direct locked access to the stored value (Sendable variant).
+  ///
+  /// Prefer this over `withLock { $0 }` for simple get/set. See
+  /// `valueUnchecked` for the rationale on avoiding the closure-based APIs.
+  @inlinable
+  public var value: State {
+    get { valueUnchecked }
+    set { valueUnchecked = newValue }
   }
 }

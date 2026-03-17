@@ -19,14 +19,14 @@ public nonisolated final class AmbientLightDetector {
 
   private let _onLuxChange = Locked<((Float) -> Void)?>(initialState: nil)
   public var onLuxChange: ((Float) -> Void)? {
-    get { _onLuxChange.value }
-    set { _onLuxChange.value = newValue }
+    get { _onLuxChange.valueUnchecked }
+    set { _onLuxChange.valueUnchecked = newValue }
   }
 
   private let _device = Locked<AVCaptureDevice?>(initialState: nil)
   public var device: AVCaptureDevice? {
-    get { _device.value }
-    set { _device.value = newValue }
+    get { _device.valueUnchecked }
+    set { _device.valueUnchecked = newValue }
   }
 
   private struct State {
