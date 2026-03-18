@@ -58,6 +58,7 @@ struct RunningView: View {
             .strokeBorder(Color.white.opacity(0.3), lineWidth: 1)
         )
     }
+    .buttonStyle(.plain)
     .disabled(buttonCooldown)
     .animation(.easeInOut(duration: 0.2), value: buttonCooldown)
     .accessibilityLabel("Button")
@@ -75,6 +76,7 @@ struct RunningView: View {
         .foregroundStyle(.white.opacity(0.5))
         .padding(20)
     }
+    .buttonStyle(.plain)
     .accessibilityLabel("Settings")
   }
 
