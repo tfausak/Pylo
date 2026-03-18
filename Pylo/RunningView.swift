@@ -6,22 +6,29 @@ struct RunningView: View {
   @State private var pixelOffset = CGSize.zero
   @State private var buttonCooldown = false
 
+  private enum Focus: Hashable { case tap, gear }
+  @FocusState private var focus: Focus?
+
   var body: some View {
     ZStack {
       Color.black
         .ignoresSafeArea()
+        .onTapGesture { focus = nil }
 
       if viewModel.buttonEnabled {
         buttonTile
+          .focused($focus, equals: .tap)
           .offset(pixelOffset)
       }
     }
     .overlay(alignment: .topTrailing) {
       gearButton
+        .focused($focus, equals: .gear)
         .padding(.horizontal, 12)
         .offset(pixelOffset)
     }
     .task { await pixelShiftLoop() }
+    .onAppear { DispatchQueue.main.async { focus = nil } }
     #if os(iOS)
       .navigationBarHidden(true)
       .fullScreenCover(isPresented: $showConfig, onDismiss: restartIfNeeded) {
