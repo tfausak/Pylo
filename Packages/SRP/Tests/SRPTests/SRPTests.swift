@@ -436,6 +436,100 @@ struct SRPConcurrencyTests {
   }
 }
 
+// MARK: - SRP Property Tests
+
+@Suite("SRP Property Tests")
+struct SRPPropertyTests {
+
+  @Test(
+    "Handshake succeeds for various passwords",
+    arguments: [
+      "111-22-333",
+      "000-00-000",
+      "999-99-999",
+      "",
+      "a",
+      String(repeating: "X", count: 1000),
+      "émoji-🔐-пароль",
+    ]
+  )
+  func handshakeSucceedsForPassword(password: String) {
+    let username = "Pair-Setup"
+    let server = SRPServer(username: username, password: password)!
+
+    guard
+      let client = SRPTestClient.handshake(
+        username: username, password: password,
+        salt: server.salt, serverPublicKey: server.publicKey
+      )
+    else {
+      Issue.record("Client handshake failed for password: \(password)")
+      return
+    }
+
+    #expect(server.setClientPublicKey(client.clientPublicKey) == true)
+    let serverProof = server.verifyClientProof(client.clientProof)
+    #expect(serverProof != nil, "Handshake should succeed for password: \(password)")
+
+    // Session keys must match
+    let serverKeyData = server.sessionKey!.withUnsafeBytes { Data($0) }
+    #expect(serverKeyData == client.sessionKey, "Session keys must match for password: \(password)")
+  }
+
+  @Test("Wrong password never produces a valid proof")
+  func wrongPasswordNeverSucceeds() {
+    let username = "Pair-Setup"
+    let correctPassword = "111-22-333"
+    let wrongPasswords = ["111-22-334", "222-22-333", "", "111-22-333 ", " 111-22-333"]
+
+    for wrong in wrongPasswords {
+      let server = SRPServer(username: username, password: correctPassword)!
+
+      guard
+        let client = SRPTestClient.handshake(
+          username: username, password: wrong,
+          salt: server.salt, serverPublicKey: server.publicKey
+        )
+      else {
+        Issue.record("Client handshake failed for password: \(wrong)")
+        continue
+      }
+
+      #expect(server.setClientPublicKey(client.clientPublicKey) == true)
+      let serverProof = server.verifyClientProof(client.clientProof)
+      #expect(serverProof == nil, "Wrong password '\(wrong)' should be rejected")
+      #expect(server.sessionKey == nil)
+    }
+  }
+
+  @Test("Multiple random handshakes all succeed")
+  func multipleRandomHandshakes() {
+    let username = "Pair-Setup"
+    let password = "111-22-333"
+
+    for _ in 0..<10 {
+      let server = SRPServer(username: username, password: password)!
+
+      guard
+        let client = SRPTestClient.handshake(
+          username: username, password: password,
+          salt: server.salt, serverPublicKey: server.publicKey
+        )
+      else {
+        Issue.record("Client handshake failed")
+        return
+      }
+
+      #expect(server.setClientPublicKey(client.clientPublicKey) == true)
+      let serverProof = server.verifyClientProof(client.clientProof)
+      #expect(serverProof != nil)
+
+      let serverKeyData = server.sessionKey!.withUnsafeBytes { Data($0) }
+      #expect(serverKeyData == client.sessionKey)
+    }
+  }
+}
+
 // MARK: - SRP Deterministic Test Vectors
 
 @Suite("SRP Deterministic Vectors")
