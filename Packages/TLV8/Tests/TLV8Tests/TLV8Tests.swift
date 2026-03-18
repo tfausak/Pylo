@@ -550,6 +550,69 @@ struct TLV8BoundaryTests {
     #expect(decoded[0].1 == value)
   }
 
+  @Test(
+    "Encode-decode roundtrip for boundary lengths",
+    arguments: [0, 1, 254, 255, 256, 510, 511, 512, 765, 1000]
+  )
+  func roundtripBoundaryLengths(length: Int) {
+    let value = Data((0..<length).map { UInt8($0 & 0xFF) })
+    let encoded = TLV8.encode(.publicKey, value)
+    let decoded: [(UInt8, Data)] = TLV8.decode(encoded)
+    #expect(decoded.count == 1)
+    #expect(decoded[0].0 == TLV8.Tag.publicKey.rawValue)
+    #expect(decoded[0].1 == value)
+  }
+
+  @Test(
+    "Fragmentation produces correct number of chunks",
+    arguments: [
+      (0, 1), (1, 1), (255, 1), (256, 2), (510, 2), (511, 3), (765, 3), (766, 4),
+    ] as [(Int, Int)]
+  )
+  func fragmentCount(length: Int, expectedChunks: Int) {
+    let value = Data(repeating: 0xAA, count: length)
+    let encoded = TLV8.encode(.publicKey, value)
+    // Each chunk is 2 bytes header + up to 255 bytes data
+    // Empty value is special: 1 chunk with 0 data bytes
+    let expectedSize = length == 0 ? 2 : expectedChunks * 2 + length
+    #expect(encoded.count == expectedSize)
+  }
+
+  @Test("Roundtrip preserves multiple items with mixed sizes")
+  func roundtripMixedSizes() {
+    let items: [(TLV8.Tag, Data)] = [
+      (.state, Data([0x02])),
+      (.publicKey, Data(repeating: 0xAA, count: 384)),
+      (.proof, Data(repeating: 0xBB, count: 64)),
+      (.salt, Data(repeating: 0xCC, count: 16)),
+      (.encryptedData, Data(repeating: 0xDD, count: 512)),
+    ]
+    let encoded = TLV8.encode(items)
+    let decoded: [(UInt8, Data)] = TLV8.decode(encoded)
+    #expect(decoded.count == items.count)
+    for (i, (tag, value)) in items.enumerated() {
+      #expect(decoded[i].0 == tag.rawValue)
+      #expect(decoded[i].1 == value)
+    }
+  }
+
+  @Test(
+    "All tag values roundtrip correctly",
+    arguments: [
+      TLV8.Tag.method, .identifier, .salt, .publicKey, .proof,
+      .encryptedData, .state, .error, .retryDelay, .certificate,
+      .signature, .permissions, .fragmentData, .fragmentLast, .flags,
+    ]
+  )
+  func roundtripAllTags(tag: TLV8.Tag) {
+    let value = Data([0x42])
+    let encoded = TLV8.encode(tag, value)
+    let decoded: [(UInt8, Data)] = TLV8.decode(encoded)
+    #expect(decoded.count == 1)
+    #expect(decoded[0].0 == tag.rawValue)
+    #expect(decoded[0].1 == value)
+  }
+
   @Test("Builder output round-trips through decode")
   func builderRoundtrip() {
     var builder = TLV8.Builder()

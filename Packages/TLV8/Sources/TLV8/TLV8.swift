@@ -15,7 +15,7 @@ public enum TLV8 {
 
   // MARK: - HAP TLV Types (Table 5-6 in HAP R2 spec)
 
-  public enum Tag: UInt8 {
+  public enum Tag: UInt8, Sendable {
     case method = 0x00
     case identifier = 0x01
     case salt = 0x02
