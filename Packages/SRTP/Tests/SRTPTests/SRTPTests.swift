@@ -139,6 +139,18 @@ struct AUHeaderTests {
     let result = AUHeader.add(to: payload)
     #expect(result == nil)
   }
+
+  @Test(
+    "Roundtrip for various payload sizes",
+    arguments: [0, 1, 10, 255, 256, 1000, 4096, 8191]
+  )
+  func roundtripVariousSizes(size: Int) throws {
+    let payload = Data(repeating: 0xAB, count: size)
+    let framed = try #require(AUHeader.add(to: payload))
+    #expect(framed.count == size + 4)
+    let stripped = AUHeader.strip(from: framed)
+    #expect(stripped == payload)
+  }
 }
 
 // MARK: - SRTP Tests
