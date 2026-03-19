@@ -65,6 +65,30 @@ struct LockedTests {
     }
   }
 
+  @Test("value property reads and writes")
+  func valueProperty() {
+    let locked = Locked(initialState: 7)
+    #expect(locked.value == 7)
+    locked.value = 21
+    #expect(locked.value == 21)
+  }
+
+  @Test("valueUnchecked property reads and writes")
+  func valueUncheckedProperty() {
+    let locked = Locked(initialState: "hello")
+    #expect(locked.valueUnchecked == "hello")
+    locked.valueUnchecked = "world"
+    #expect(locked.valueUnchecked == "world")
+  }
+
+  @Test("Closure-typed state does not trigger thunk cycle")
+  func closureState() {
+    let locked = Locked<((Int) -> Int)?>(initialState: nil)
+    locked.valueUnchecked = { $0 * 2 }
+    let fn = locked.valueUnchecked
+    #expect(fn?(5) == 10)
+  }
+
   @Test("Stored reference type is released on deinit")
   func referenceTypeDeinit() {
     let released = Locked(initialState: false)

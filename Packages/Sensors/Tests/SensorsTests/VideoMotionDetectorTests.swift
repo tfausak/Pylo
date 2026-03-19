@@ -31,7 +31,7 @@ import Testing
     #expect(ratio == 0)
   }
 
-  @Test func differencAbovePixelThreshold() {
+  @Test func differenceAbovePixelThreshold() {
     let detector = VideoMotionDetector()
     // A difference of 30 per pixel → squared = 900, above pixel threshold of 625
     let a = [UInt8](repeating: 100, count: 160 * 120)
@@ -52,6 +52,21 @@ import Testing
     let ratio = detector.computeChangeRatio(previous: a, current: b)
     // Should be approximately 0.5
     #expect(ratio > 0.45 && ratio < 0.55)
+  }
+
+  @Test func changeRatioIsSymmetric() {
+    let detector = VideoMotionDetector()
+    let a = [UInt8](repeating: 50, count: 160 * 120)
+    let b = [UInt8](repeating: 200, count: 160 * 120)
+    let forward = detector.computeChangeRatio(previous: a, current: b)
+    let reverse = detector.computeChangeRatio(previous: b, current: a)
+    #expect(abs(forward - reverse) < 0.001)
+  }
+
+  @Test func emptyFramesReturnZero() {
+    let detector = VideoMotionDetector()
+    let ratio = detector.computeChangeRatio(previous: [], current: [])
+    #expect(ratio == 0)
   }
 
   @Test func subScratchCountInputsAreCorrect() {

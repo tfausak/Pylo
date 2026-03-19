@@ -48,6 +48,23 @@ import Testing
 
   // MARK: - shouldNotify
 
+  @Test(
+    "estimateLux is always within bounds for positive inputs",
+    arguments: [
+      (iso: Float(1), duration: Float(0.000001), aperture: Float(1.0)),
+      (iso: Float(100_000), duration: Float(10.0), aperture: Float(1.0)),
+      (iso: Float(100), duration: Float(0.01), aperture: Float(16.0)),
+      (iso: Float(50), duration: Float(0.001), aperture: Float(1.2)),
+      (iso: Float(3200), duration: Float(0.033), aperture: Float(2.8)),
+    ]
+  )
+  func estimateLuxAlwaysInBounds(iso: Float, duration: Float, aperture: Float) {
+    let lux = AmbientLightDetector.estimateLux(
+      iso: iso, exposureDuration: duration, aperture: aperture)
+    #expect(lux >= 0.0001)
+    #expect(lux <= 100_000)
+  }
+
   @Test func shouldNotifyFirstReading() {
     #expect(AmbientLightDetector.shouldNotify(previous: 0, current: 42.0))
   }

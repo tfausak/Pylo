@@ -2,26 +2,40 @@ import SwiftUI
 
 struct RunningView: View {
   @ObservedObject var viewModel: HAPViewModel
+  @AppStorage(PrefKey.needsInitialConfig) private var needsInitialConfig = false
   @State private var showConfig = false
   @State private var pixelOffset = CGSize.zero
   @State private var buttonCooldown = false
+
+  private enum Focus: Hashable { case tap, gear }
+  @FocusState private var focus: Focus?
 
   var body: some View {
     ZStack {
       Color.black
         .ignoresSafeArea()
+        .onTapGesture { focus = nil }
 
       if viewModel.buttonEnabled {
         buttonTile
+          .focused($focus, equals: .tap)
           .offset(pixelOffset)
       }
     }
     .overlay(alignment: .topTrailing) {
       gearButton
+        .focused($focus, equals: .gear)
         .padding(.horizontal, 12)
         .offset(pixelOffset)
     }
     .task { await pixelShiftLoop() }
+    .onAppear {
+      DispatchQueue.main.async { focus = nil }
+      if needsInitialConfig {
+        needsInitialConfig = false
+        showConfig = true
+      }
+    }
     #if os(iOS)
       .navigationBarHidden(true)
       .fullScreenCover(isPresented: $showConfig, onDismiss: restartIfNeeded) {
@@ -58,6 +72,7 @@ struct RunningView: View {
             .strokeBorder(Color.white.opacity(0.3), lineWidth: 1)
         )
     }
+    .buttonStyle(.plain)
     .disabled(buttonCooldown)
     .animation(.easeInOut(duration: 0.2), value: buttonCooldown)
     .accessibilityLabel("Button")
@@ -75,6 +90,7 @@ struct RunningView: View {
         .foregroundStyle(.white.opacity(0.5))
         .padding(20)
     }
+    .buttonStyle(.plain)
     .accessibilityLabel("Settings")
   }
 

@@ -21,7 +21,7 @@ import SwiftUI
 /// Centralizes UserDefaults key strings to prevent typos. Each key is used in both
 /// the `@Published` property's `didSet` and in `restorePreferences()` — a mismatch
 /// between the two would silently break persistence.
-private nonisolated enum PrefKey {
+nonisolated enum PrefKey {
   static let cameraEnabled = "cameraEnabled"
   static let flashlightEnabled = "flashlightEnabled"
   static let motionEnabled = "motionEnabled"
@@ -39,6 +39,7 @@ private nonisolated enum PrefKey {
   static let buttonEnabled = "buttonEnabled"
   static let keepScreenAwake = "keepScreenAwake"
   static let selectedStreamCameraID = "selectedStreamCameraID"
+  static let needsInitialConfig = "needsInitialConfig"
   static let hasPairings = "hasPairings"
   static let hasSeenWelcome = "hasSeenWelcome"
   static let recordingActive = "recordingActive"
@@ -811,6 +812,9 @@ final class HAPViewModel: ObservableObject {
       setup.server.pairingStore.onChange = { [weak server = setup.server] in
         let isPaired = server?.pairingStore.isPaired ?? false
         UserDefaults.standard.set(isPaired, forKey: PrefKey.hasPairings)
+        if isPaired {
+          UserDefaults.standard.set(true, forKey: PrefKey.needsInitialConfig)
+        }
         Task { @MainActor in
           withAnimation {
             vm.hasPairings = isPaired
@@ -1088,53 +1092,55 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
 
   let bridge = HAPBridgeInfo(
     name: "Pylo Bridge", model: "\(device) Bridge", manufacturer: "Pylo",
-    serialNumber: config.serial, firmwareRevision: fw
+    serialNumber: "\(config.serial)-\(AccessoryID.bridge)", firmwareRevision: fw
   )
 
   let lightbulb = HAPAccessory(
     aid: AccessoryID.lightbulb, name: "Pylo Flashlight", model: "\(device) Light",
-    manufacturer: "Pylo", serialNumber: config.serial + "-light", firmwareRevision: fw
+    manufacturer: "Pylo",
+    serialNumber: "\(config.serial)-\(AccessoryID.lightbulb)", firmwareRevision: fw
   )
 
   let camera = HAPCameraAccessory(
     aid: AccessoryID.camera, name: "Pylo Camera", model: "\(device) Camera",
-    manufacturer: "Pylo", serialNumber: config.serial + "-cam", firmwareRevision: fw
+    manufacturer: "Pylo",
+    serialNumber: "\(config.serial)-\(AccessoryID.camera)", firmwareRevision: fw
   )
 
   let lightSensor = HAPLightSensorAccessory(
     aid: AccessoryID.lightSensor, name: "Pylo Light Sensor",
     model: "\(device) Light Sensor", manufacturer: "Pylo",
-    serialNumber: config.serial + "-light-sensor", firmwareRevision: fw
+    serialNumber: "\(config.serial)-\(AccessoryID.lightSensor)", firmwareRevision: fw
   )
 
   let motionSensor = HAPMotionSensorAccessory(
     aid: AccessoryID.motionSensor, name: "Pylo Motion Sensor",
     model: "\(device) Motion Sensor", manufacturer: "Pylo",
-    serialNumber: config.serial + "-motion", firmwareRevision: fw
+    serialNumber: "\(config.serial)-\(AccessoryID.motionSensor)", firmwareRevision: fw
   )
 
   let contactSensor = HAPContactSensorAccessory(
     aid: AccessoryID.contactSensor, name: "Pylo Contact Sensor",
     model: "\(device) Contact Sensor", manufacturer: "Pylo",
-    serialNumber: config.serial + "-contact", firmwareRevision: fw
+    serialNumber: "\(config.serial)-\(AccessoryID.contactSensor)", firmwareRevision: fw
   )
 
   let occupancySensor = HAPOccupancySensorAccessory(
     aid: AccessoryID.occupancySensor, name: "Pylo Occupancy Sensor",
     model: "\(device) Occupancy Sensor", manufacturer: "Pylo",
-    serialNumber: config.serial + "-occupancy", firmwareRevision: fw
+    serialNumber: "\(config.serial)-\(AccessoryID.occupancySensor)", firmwareRevision: fw
   )
 
   let siren = HAPSirenAccessory(
     aid: AccessoryID.siren, name: "Pylo Siren", model: "\(device) Siren",
     manufacturer: "Pylo",
-    serialNumber: config.serial + "-siren", firmwareRevision: fw
+    serialNumber: "\(config.serial)-\(AccessoryID.siren)", firmwareRevision: fw
   )
 
   let button = HAPButtonAccessory(
     aid: AccessoryID.button, name: "Pylo Button",
     model: "\(device) Button", manufacturer: "Pylo",
-    serialNumber: config.serial + "-button", firmwareRevision: fw
+    serialNumber: "\(config.serial)-\(AccessoryID.button)", firmwareRevision: fw
   )
 
   // File I/O and Keychain reads — the main motivation for running off MainActor
@@ -1510,23 +1516,30 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
 
 // MARK: - Platform Helpers
 
-/// Returns a stable device serial string.
+/// Returns a compact device serial prefix (e.g. "P-A1B2C3D4").
+///
+/// Uses the first 8 hex characters of the platform UUID (fully random in
+/// UUID v4) prefixed with "P-".  Accessories append "-\(aid)" to form their
+/// complete serial number.
 @MainActor private func deviceSerial() -> String {
+  let uuid: String
   #if os(iOS)
-    return UIDevice.current.identifierForVendor?.uuidString ?? "000000"
+    uuid = UIDevice.current.identifierForVendor?.uuidString ?? "00000000"
   #elseif os(macOS)
-    // Use the hardware UUID as a stable identifier
     let platformExpert = IOServiceGetMatchingService(
       kIOMainPortDefault, IOServiceMatching("IOPlatformExpertDevice"))
-    guard platformExpert != IO_OBJECT_NULL else { return "000000" }
+    guard platformExpert != IO_OBJECT_NULL else { return "P-00000000" }
     defer { IOObjectRelease(platformExpert) }
     if let uuidCF = IORegistryEntryCreateCFProperty(
       platformExpert, "IOPlatformUUID" as CFString, kCFAllocatorDefault, 0)
     {
-      return (uuidCF.takeRetainedValue() as? String) ?? "000000"
+      uuid = (uuidCF.takeRetainedValue() as? String) ?? "00000000"
+    } else {
+      uuid = "00000000"
     }
-    return "000000"
   #endif
+  let hex = uuid.replacingOccurrences(of: "-", with: "").prefix(8)
+  return "P-\(hex)"
 }
 
 /// Returns a human-readable device model name.
