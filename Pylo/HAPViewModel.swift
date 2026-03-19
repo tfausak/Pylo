@@ -811,6 +811,9 @@ final class HAPViewModel: ObservableObject {
       setup.server.pairingStore.onChange = { [weak server = setup.server] in
         let isPaired = server?.pairingStore.isPaired ?? false
         UserDefaults.standard.set(isPaired, forKey: PrefKey.hasPairings)
+        if isPaired {
+          UserDefaults.standard.set(true, forKey: "needsInitialConfig")
+        }
         Task { @MainActor in
           withAnimation {
             vm.hasPairings = isPaired

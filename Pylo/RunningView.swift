@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RunningView: View {
   @ObservedObject var viewModel: HAPViewModel
+  @AppStorage("needsInitialConfig") private var needsInitialConfig = false
   @State private var showConfig = false
   @State private var pixelOffset = CGSize.zero
   @State private var buttonCooldown = false
@@ -28,7 +29,13 @@ struct RunningView: View {
         .offset(pixelOffset)
     }
     .task { await pixelShiftLoop() }
-    .onAppear { DispatchQueue.main.async { focus = nil } }
+    .onAppear {
+      DispatchQueue.main.async { focus = nil }
+      if needsInitialConfig {
+        needsInitialConfig = false
+        showConfig = true
+      }
+    }
     #if os(iOS)
       .navigationBarHidden(true)
       .fullScreenCover(isPresented: $showConfig, onDismiss: restartIfNeeded) {
