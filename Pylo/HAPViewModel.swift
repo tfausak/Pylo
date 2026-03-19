@@ -21,7 +21,7 @@ import SwiftUI
 /// Centralizes UserDefaults key strings to prevent typos. Each key is used in both
 /// the `@Published` property's `didSet` and in `restorePreferences()` — a mismatch
 /// between the two would silently break persistence.
-private nonisolated enum PrefKey {
+nonisolated enum PrefKey {
   static let cameraEnabled = "cameraEnabled"
   static let flashlightEnabled = "flashlightEnabled"
   static let motionEnabled = "motionEnabled"
@@ -39,6 +39,7 @@ private nonisolated enum PrefKey {
   static let buttonEnabled = "buttonEnabled"
   static let keepScreenAwake = "keepScreenAwake"
   static let selectedStreamCameraID = "selectedStreamCameraID"
+  static let needsInitialConfig = "needsInitialConfig"
   static let hasPairings = "hasPairings"
   static let hasSeenWelcome = "hasSeenWelcome"
   static let recordingActive = "recordingActive"
@@ -812,7 +813,7 @@ final class HAPViewModel: ObservableObject {
         let isPaired = server?.pairingStore.isPaired ?? false
         UserDefaults.standard.set(isPaired, forKey: PrefKey.hasPairings)
         if isPaired {
-          UserDefaults.standard.set(true, forKey: "needsInitialConfig")
+          UserDefaults.standard.set(true, forKey: PrefKey.needsInitialConfig)
         }
         Task { @MainActor in
           withAnimation {

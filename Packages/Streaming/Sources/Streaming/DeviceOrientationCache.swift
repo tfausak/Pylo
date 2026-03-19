@@ -26,24 +26,27 @@ import Locked
         object: nil,
         queue: .main
       ) { _ in
-        let orientation = MainActor.assumeIsolated { UIDevice.current.orientation }
-        // Ignore flat and unknown orientations so the cache retains the last
-        // meaningful value. iPads in stands commonly report .faceUp which would
-        // otherwise be treated as portrait, causing upside-down streams (#40).
-        if orientation == .faceUp || orientation == .faceDown
-          || orientation == .unknown
-        {
-          // For stationary/mounted devices that never produce a real orientation,
-          // fall back to the window scene's interface orientation so the cache
-          // doesn't stay stuck at the default portrait.
-          if !hasRealOrientation.value {
-            let mapped = MainActor.assumeIsolated { interfaceOrientationFallback() }
-            if let mapped { state.withLock { $0 = mapped.rawValue } }
+        Task { @MainActor in
+          let orientation = UIDevice.current.orientation
+          // Ignore flat and unknown orientations so the cache retains the last
+          // meaningful value. iPads in stands commonly report .faceUp which would
+          // otherwise be treated as portrait, causing upside-down streams (#40).
+          if orientation == .faceUp || orientation == .faceDown
+            || orientation == .unknown
+          {
+            // For stationary/mounted devices that never produce a real orientation,
+            // fall back to the window scene's interface orientation so the cache
+            // doesn't stay stuck at the default portrait.
+            if !hasRealOrientation.value {
+              if let mapped = interfaceOrientationFallback() {
+                state.withLock { $0 = mapped.rawValue }
+              }
+            }
+            return
           }
-          return
+          hasRealOrientation.value = true
+          state.withLock { $0 = orientation.rawValue }
         }
-        hasRealOrientation.value = true
-        state.withLock { $0 = orientation.rawValue }
       }
     }()
 
