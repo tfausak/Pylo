@@ -5,6 +5,7 @@ import FragmentedMP4
 import HAP
 import Locked
 import Sensors
+import StoreKit
 import Streaming
 import SwiftUI
 
@@ -18,9 +19,10 @@ import SwiftUI
 
 // MARK: - Preference Keys
 
-/// Centralizes UserDefaults key strings to prevent typos. Each key is used in both
+/// Centralizes UserDefaults key strings to prevent typos. Most keys are used in both
 /// the `@Published` property's `didSet` and in `restorePreferences()` — a mismatch
-/// between the two would silently break persistence.
+/// between the two would silently break persistence. Some keys (e.g. `firstPairingDate`,
+/// `lastReviewRequestDate`) are only used directly via UserDefaults.
 nonisolated enum PrefKey {
   static let cameraEnabled = "cameraEnabled"
   static let flashlightEnabled = "flashlightEnabled"
@@ -45,6 +47,8 @@ nonisolated enum PrefKey {
   static let recordingActive = "recordingActive"
   static let recordingAudioActive = "recordingAudioActive"
   static let selectedRecordingConfig = "selectedRecordingConfig"
+  static let firstPairingDate = "firstPairingDate"
+  static let lastReviewRequestDate = "lastReviewRequestDate"
 }
 
 // MARK: - Accessory Config Snapshot
@@ -814,6 +818,10 @@ final class HAPViewModel: ObservableObject {
         UserDefaults.standard.set(isPaired, forKey: PrefKey.hasPairings)
         if isPaired {
           UserDefaults.standard.set(true, forKey: PrefKey.needsInitialConfig)
+          if UserDefaults.standard.double(forKey: PrefKey.firstPairingDate) == 0 {
+            UserDefaults.standard.set(
+              Date().timeIntervalSince1970, forKey: PrefKey.firstPairingDate)
+          }
         }
         Task { @MainActor in
           withAnimation {
@@ -863,6 +871,9 @@ final class HAPViewModel: ObservableObject {
       setup.server.start()
       let paired = setup.server.pairingStore.isPaired
       UserDefaults.standard.set(paired, forKey: PrefKey.hasPairings)
+      if paired, UserDefaults.standard.double(forKey: PrefKey.firstPairingDate) == 0 {
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: PrefKey.firstPairingDate)
+      }
       self.hasPairings = paired
       withAnimation { self.isRunning = true }
       self.isStarting = false
@@ -1031,6 +1042,39 @@ final class HAPViewModel: ObservableObject {
       try? await Task.sleep(nanoseconds: 1_000_000_000)
       isButtonPressed = false
     }
+  }
+
+  // MARK: - App Review
+
+  func requestAppReviewIfEligible() {
+    let defaults = UserDefaults.standard
+    let firstPairing = defaults.double(forKey: PrefKey.firstPairingDate)
+    guard firstPairing > 0 else { return }
+
+    let now = Date().timeIntervalSince1970
+    let oneDaySeconds: TimeInterval = 86_400
+    let oneWeekSeconds: TimeInterval = 604_800
+
+    // Must be at least 1 day since first pairing
+    guard now - firstPairing >= oneDaySeconds else { return }
+
+    // Must be at least 7 days since last review request
+    let lastRequest = defaults.double(forKey: PrefKey.lastReviewRequestDate)
+    if lastRequest > 0 {
+      guard now - lastRequest >= oneWeekSeconds else { return }
+    }
+
+    #if os(iOS)
+      if let scene = UIApplication.shared.connectedScenes
+        .first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene
+      {
+        defaults.set(now, forKey: PrefKey.lastReviewRequestDate)
+        SKStoreReviewController.requestReview(in: scene)
+      }
+    #elseif os(macOS)
+      defaults.set(now, forKey: PrefKey.lastReviewRequestDate)
+      SKStoreReviewController.requestReview()
+    #endif
   }
 }
 
