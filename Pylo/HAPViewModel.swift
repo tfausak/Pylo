@@ -6,6 +6,7 @@ import HAP
 import Locked
 import Sensors
 import Streaming
+import StoreKit
 import SwiftUI
 
 #if os(iOS)
@@ -1036,6 +1037,39 @@ final class HAPViewModel: ObservableObject {
       try? await Task.sleep(nanoseconds: 1_000_000_000)
       isButtonPressed = false
     }
+  }
+
+  // MARK: - App Review
+
+  func requestAppReviewIfEligible() {
+    let defaults = UserDefaults.standard
+    let firstPairing = defaults.double(forKey: PrefKey.firstPairingDate)
+    guard firstPairing > 0 else { return }
+
+    let now = Date().timeIntervalSince1970
+    let oneDaySeconds: TimeInterval = 86_400
+    let oneWeekSeconds: TimeInterval = 604_800
+
+    // Must be at least 1 day since first pairing
+    guard now - firstPairing >= oneDaySeconds else { return }
+
+    // Must be at least 7 days since last review request
+    let lastRequest = defaults.double(forKey: PrefKey.lastReviewRequestDate)
+    if lastRequest > 0 {
+      guard now - lastRequest >= oneWeekSeconds else { return }
+    }
+
+    defaults.set(now, forKey: PrefKey.lastReviewRequestDate)
+
+    #if os(iOS)
+      if let scene = UIApplication.shared.connectedScenes
+        .first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene
+      {
+        SKStoreReviewController.requestReview(in: scene)
+      }
+    #elseif os(macOS)
+      SKStoreReviewController.requestReview()
+    #endif
   }
 }
 
