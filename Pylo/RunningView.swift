@@ -98,6 +98,7 @@ struct RunningView: View {
     if viewModel.needsRestart {
       viewModel.restart()
     }
+    viewModel.requestAppReviewIfEligible()
   }
 
   // MARK: - Pixel Shift
