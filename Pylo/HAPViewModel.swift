@@ -5,8 +5,8 @@ import FragmentedMP4
 import HAP
 import Locked
 import Sensors
-import Streaming
 import StoreKit
+import Streaming
 import SwiftUI
 
 #if os(iOS)
@@ -819,7 +819,8 @@ final class HAPViewModel: ObservableObject {
         if isPaired {
           UserDefaults.standard.set(true, forKey: PrefKey.needsInitialConfig)
           if UserDefaults.standard.double(forKey: PrefKey.firstPairingDate) == 0 {
-            UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: PrefKey.firstPairingDate)
+            UserDefaults.standard.set(
+              Date().timeIntervalSince1970, forKey: PrefKey.firstPairingDate)
           }
         }
         Task { @MainActor in
