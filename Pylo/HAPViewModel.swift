@@ -1059,15 +1059,15 @@ final class HAPViewModel: ObservableObject {
       guard now - lastRequest >= oneWeekSeconds else { return }
     }
 
-    defaults.set(now, forKey: PrefKey.lastReviewRequestDate)
-
     #if os(iOS)
       if let scene = UIApplication.shared.connectedScenes
         .first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene
       {
+        defaults.set(now, forKey: PrefKey.lastReviewRequestDate)
         SKStoreReviewController.requestReview(in: scene)
       }
     #elseif os(macOS)
+      defaults.set(now, forKey: PrefKey.lastReviewRequestDate)
       SKStoreReviewController.requestReview()
     #endif
   }
