@@ -45,6 +45,8 @@ nonisolated enum PrefKey {
   static let recordingActive = "recordingActive"
   static let recordingAudioActive = "recordingAudioActive"
   static let selectedRecordingConfig = "selectedRecordingConfig"
+  static let firstPairingDate = "firstPairingDate"
+  static let lastReviewRequestDate = "lastReviewRequestDate"
 }
 
 // MARK: - Accessory Config Snapshot
@@ -814,6 +816,9 @@ final class HAPViewModel: ObservableObject {
         UserDefaults.standard.set(isPaired, forKey: PrefKey.hasPairings)
         if isPaired {
           UserDefaults.standard.set(true, forKey: PrefKey.needsInitialConfig)
+          if UserDefaults.standard.double(forKey: PrefKey.firstPairingDate) == 0 {
+            UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: PrefKey.firstPairingDate)
+          }
         }
         Task { @MainActor in
           withAnimation {
