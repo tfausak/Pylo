@@ -19,9 +19,10 @@ import SwiftUI
 
 // MARK: - Preference Keys
 
-/// Centralizes UserDefaults key strings to prevent typos. Each key is used in both
+/// Centralizes UserDefaults key strings to prevent typos. Most keys are used in both
 /// the `@Published` property's `didSet` and in `restorePreferences()` — a mismatch
-/// between the two would silently break persistence.
+/// between the two would silently break persistence. Some keys (e.g. `firstPairingDate`,
+/// `lastReviewRequestDate`) are only used directly via UserDefaults.
 nonisolated enum PrefKey {
   static let cameraEnabled = "cameraEnabled"
   static let flashlightEnabled = "flashlightEnabled"
@@ -869,6 +870,9 @@ final class HAPViewModel: ObservableObject {
       setup.server.start()
       let paired = setup.server.pairingStore.isPaired
       UserDefaults.standard.set(paired, forKey: PrefKey.hasPairings)
+      if paired, UserDefaults.standard.double(forKey: PrefKey.firstPairingDate) == 0 {
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: PrefKey.firstPairingDate)
+      }
       self.hasPairings = paired
       withAnimation { self.isRunning = true }
       self.isStarting = false
