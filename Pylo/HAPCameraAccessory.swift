@@ -111,6 +111,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     var onMonitoringCaptureNeeded: ((_ needed: Bool, _ existingSession: AVCaptureSession?) -> Void)?
     var onMonitoringSessionHandoff: (() -> AVCaptureSession?)?
     var onStreamingStart: (() -> Void)?
+    /// Called on `captureQueue` after the capture session is running.
     var onStreamingDidStart: (@Sendable () -> Void)?
     var onVideoMotionChange: ((Bool) -> Void)?
     var onRecordingConfigChange: ((_ active: Bool) -> Void)?
