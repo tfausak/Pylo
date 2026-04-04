@@ -111,7 +111,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     var onMonitoringCaptureNeeded: ((_ needed: Bool, _ existingSession: AVCaptureSession?) -> Void)?
     var onMonitoringSessionHandoff: (() -> AVCaptureSession?)?
     var onStreamingStart: (() -> Void)?
-    var onStreamingDidStart: (() -> Void)?
+    var onStreamingDidStart: (@Sendable () -> Void)?
     var onVideoMotionChange: ((Bool) -> Void)?
     var onRecordingConfigChange: ((_ active: Bool) -> Void)?
     var onRecordingAudioActiveChange: ((_ active: Bool) -> Void)?
@@ -144,7 +144,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     get { _callbacks.withLockUnchecked { $0.onStreamingStart } }
     set { _callbacks.withLockUnchecked { $0.onStreamingStart = newValue } }
   }
-  var onStreamingDidStart: (() -> Void)? {
+  var onStreamingDidStart: (@Sendable () -> Void)? {
     get { _callbacks.withLockUnchecked { $0.onStreamingDidStart } }
     set { _callbacks.withLockUnchecked { $0.onStreamingDidStart = newValue } }
   }

@@ -1492,8 +1492,8 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     }
   }
 
-  // Re-apply torch state after streaming setup completes — session
-  // reconfiguration (e.g. preset change) may reset the torch mode.
+  // Re-apply torch state after the capture session is running — session
+  // reconfiguration or startRunning() may reset the torch mode.
   camera.onStreamingDidStart = { [weak lightbulb] in
     lightbulb?.applyTorchState()
   }
