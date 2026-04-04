@@ -1483,18 +1483,19 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     }
   }
 
-  // Stop the siren when camera streaming starts — the camera's voiceChat
-  // audio session mode kills the siren's AVAudioEngine and it can't recover.
-  camera.onStreamingStart = { [weak sirenPlayer, weak siren, weak lightbulb] in
-    // Camera streaming takes over the capture device, killing the torch.
-    if lightbulb?.isOn == true {
-      lightbulb?.updateOn(false)
-    }
-    // The camera's voiceChat audio session mode kills the siren's AVAudioEngine.
+  // The camera's voiceChat audio session mode kills the siren's AVAudioEngine
+  // and it can't recover, so stop the siren before streaming starts.
+  camera.onStreamingStart = { [weak sirenPlayer, weak siren] in
     if sirenPlayer?.isPlaying == true {
       sirenPlayer?.stop()
       siren?.updateOn(false)
     }
+  }
+
+  // Re-apply torch state after the capture session is running — session
+  // reconfiguration or startRunning() may reset the torch mode.
+  camera.onStreamingDidStart = { [weak lightbulb] in
+    lightbulb?.applyTorchState()
   }
 
   // Hand off the monitoring session's AVCaptureSession to the stream session
