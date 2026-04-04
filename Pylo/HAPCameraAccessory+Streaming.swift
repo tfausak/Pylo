@@ -321,6 +321,8 @@ extension HAPCameraAccessory {
       logger.error("Stream session failed to start — clearing session")
       clearStreamSession(ifIdenticalTo: session)
       onMonitoringCaptureNeeded?(true, nil)
+    } else {
+      onStreamingDidStart?()
     }
     // Notify subscribers of the updated streaming status. This is correct even after
     // a failure: clearStreamSession sets streamSession=nil, so streamingStatusTLV()
