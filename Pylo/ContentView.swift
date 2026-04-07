@@ -88,7 +88,7 @@ struct ContentView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(12)
-        .background(.thinMaterial, in: .rect(cornerRadius: 12))
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
         .padding(.horizontal)
         .padding(.bottom, 4)
         .transition(.move(edge: .bottom).combined(with: .opacity))

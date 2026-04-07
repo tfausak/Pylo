@@ -14,7 +14,6 @@ struct RunningView: View {
     ZStack {
       Color.black
         .ignoresSafeArea()
-        .onTapGesture { focus = nil }
 
       if viewModel.buttonEnabled {
         buttonTile
@@ -22,6 +21,8 @@ struct RunningView: View {
           .offset(pixelOffset)
       }
     }
+    .contentShape(Rectangle())
+    .onTapGesture { focus = nil }
     .overlay(alignment: .topTrailing) {
       gearButton
         .focused($focus, equals: .gear)
@@ -90,6 +91,7 @@ struct RunningView: View {
         .foregroundStyle(.white.opacity(0.5))
         .padding(20)
     }
+    .contentShape(Rectangle())
     .buttonStyle(.plain)
     .accessibilityLabel("Settings")
   }
@@ -144,7 +146,7 @@ struct RunningConfigView: View {
               .font(.subheadline.weight(.medium))
               .frame(maxWidth: .infinity)
               .padding(12)
-              .background(.thinMaterial, in: .rect(cornerRadius: 12))
+              .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
               .padding(.horizontal)
               .padding(.bottom, 4)
               .transition(.move(edge: .bottom).combined(with: .opacity))
