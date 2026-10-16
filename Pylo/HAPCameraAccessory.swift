@@ -253,11 +253,31 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   /// encode only happens when HomeKit actually requests a snapshot.
   /// Protected by a lock because it is written from captureQueue and read from the
   /// server queue (snapshot request handler).
-  private let _cachedFrame = Locked<CGImage?>(initialState: nil)
+  private let _cachedFrame = Locked<(image: CGImage, capturedAt: Date)?>(initialState: nil)
   var cachedFrame: CGImage? {
-    get { _cachedFrame.value }
-    set { _cachedFrame.value = newValue }
+    get { _cachedFrame.value?.image }
+    set { _cachedFrame.value = newValue.map { ($0, Date()) } }
   }
+
+  /// The cached frame, but only if it was captured within `maxAge` seconds.
+  /// The cache is only refreshed while a monitoring or streaming session is
+  /// running, so without this check a snapshot could return a frame from the
+  /// last live stream indefinitely.
+  func cachedFrame(maxAge: TimeInterval) -> CGImage? {
+    guard let cached = _cachedFrame.value,
+      Date().timeIntervalSince(cached.capturedAt) < maxAge
+    else { return nil }
+    return cached.image
+  }
+
+  /// Maximum age of a cached frame before a snapshot request captures a fresh
+  /// one. The monitoring and streaming sessions refresh the cache every ~2s,
+  /// so this is only exceeded when neither is running (or one has stalled).
+  static let maxCachedFrameAge: TimeInterval = 10
+
+  /// Serializes cold-start snapshot captures so concurrent requests (e.g. from
+  /// multiple controllers) don't each spin up their own AVCaptureSession.
+  let snapshotCaptureLock = NSLock()
 
   /// JPEG-encode a CGImage on demand using the reusable CIContext.
   func jpegEncode(_ cgImage: CGImage) -> Data? {
