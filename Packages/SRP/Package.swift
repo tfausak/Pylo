@@ -9,7 +9,7 @@ let package = Package(
   ],
   dependencies: [
     .package(path: "../Locked"),
-    .package(url: "https://github.com/attaswift/BigInt.git", from: "5.1.0"),
+    .package(url: "https://github.com/attaswift/BigInt.git", from: "6.0.0"),
   ],
   targets: [
     .target(name: "SRP", dependencies: ["Locked", "BigInt"]),
