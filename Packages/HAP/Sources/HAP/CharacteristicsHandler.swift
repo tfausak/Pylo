@@ -147,7 +147,7 @@ public enum CharacteristicsHandler {
           results.append(["aid": aid, "iid": iid, "status": -70410])
           continue
         }
-        logger.debug("PUT write \(aid).\(iid) = \(String(describing: value))")
+        logger.debug("PUT write \(aid).\(iid)")
         // Pass the writing connection's shared secret so that downstream
         // callbacks (e.g. SetupDataStreamTransport) can derive HDS keys
         // from the correct pair-verify session.

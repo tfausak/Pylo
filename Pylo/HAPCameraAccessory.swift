@@ -167,11 +167,11 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
         s.videoMotionEnabled = newValue
         if newValue {
           s.videoMotionDetector = detector
-          s.streamSession?.videoMotionDetector = detector
+          (s.captureSource ?? s.streamSession)?.videoMotionDetector = detector
         } else {
           s.videoMotionDetector?.reset()
           s.videoMotionDetector = nil
-          s.streamSession?.videoMotionDetector = nil
+          (s.captureSource ?? s.streamSession)?.videoMotionDetector = nil
         }
       }
     }
@@ -182,9 +182,43 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     var videoMotionDetector: VideoMotionDetector?
     var ambientLightDetector: AmbientLightDetector?
     var streamSession: CameraStreamSession?
+    var captureSource: CameraStreamSession?
     var videoMotionEnabled: Bool = false
   }
   private let streamState = Locked(initialState: StreamState())
+  // Four viewers plus a hub connection. These negotiation managers are created
+  // once, before the server starts; only the first running session owns capture.
+  static let concurrentStreamCount = 5
+  weak var streamingOwner: HAPCameraAccessory?
+  private var additionalStreamManagers: [HAPCameraAccessory] = []
+  var streamManagers: [HAPCameraAccessory] { [self] + additionalStreamManagers }
+  var captureSource: CameraStreamSession? {
+    get { (streamingOwner ?? self).streamState.withLockUnchecked { $0.captureSource } }
+    set { (streamingOwner ?? self).streamState.withLockUnchecked { $0.captureSource = newValue } }
+  }
+  var allStreamSessions: [CameraStreamSession] {
+    var sessions = streamManagers.compactMap { $0.streamSession }
+    if let captureSource, !sessions.contains(where: { $0 === captureSource }) {
+      sessions.append(captureSource)
+    }
+    return sessions
+  }
+
+  static func streamIID(_ iid: Int, slot: Int) -> Int {
+    slot == 0
+      ? iid : 200 + (slot - 1) * 10 + (iid == iidRTPStreamActive ? 7 : iid - iidCameraService)
+  }
+
+  private func streamRoute(iid: Int) -> (HAPCameraAccessory, Int)? {
+    guard iid >= 200 else { return nil }
+    let slot = (iid - 200) / 10
+    let offset = (iid - 200) % 10
+    guard additionalStreamManagers.indices.contains(slot), offset <= 7 else { return nil }
+    return (
+      additionalStreamManagers[slot],
+      offset == 7 ? Self.iidRTPStreamActive : Self.iidCameraService + offset
+    )
+  }
   var videoMotionDetector: VideoMotionDetector? {
     get { streamState.withLockUnchecked { $0.videoMotionDetector } }
     set { streamState.withLockUnchecked { $0.videoMotionDetector = newValue } }
@@ -197,7 +231,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "Camera")
 
   /// Reusable CIContext for snapshot JPEG encoding (CIContext is expensive to allocate).
-  let snapshotCIContext = CIContext()
+  let snapshotCIContext: CIContext
 
   /// Which camera to use for streaming and snapshots (nil = default back wide-angle).
   /// Written once during setup before the server starts. Not locked because
@@ -225,9 +259,9 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     set { streamState.withLockUnchecked { $0.streamSession = newValue } }
   }
 
-  /// Atomically checks whether a stream session is active (avoids TOCTOU race).
+  /// Includes prepared sessions across all viewer slots.
   var hasActiveStreamSession: Bool {
-    streamState.withLockUnchecked { $0.streamSession != nil }
+    streamManagers.contains { $0.streamSession != nil }
   }
 
   /// Atomically detaches and returns the current stream session, setting it to nil.
@@ -334,6 +368,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   /// Written once during setup before the server starts. Not locked because
   /// no concurrent access occurs — the server queue is not active during setup.
   var hksvEnabled: Bool = false
+  var recordIn4K: Bool = false
 
   var onRecordingConfigChange: ((_ active: Bool) -> Void)? {
     get { _callbacks.withLockUnchecked { $0.onRecordingConfigChange } }
@@ -386,7 +421,8 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     model: String = "iPhone Camera",
     manufacturer: String = "Pylo",
     serialNumber: String = "000000",
-    firmwareRevision: String = "0.1.0"
+    firmwareRevision: String = "0.1.0",
+    streamingOwner: HAPCameraAccessory? = nil
   ) {
     self.aid = aid
     self.name = name
@@ -394,6 +430,17 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     self.manufacturer = manufacturer
     self.serialNumber = serialNumber
     self.firmwareRevision = firmwareRevision
+    self.streamingOwner = streamingOwner
+    snapshotCIContext = streamingOwner?.snapshotCIContext ?? CIContext()
+    if streamingOwner == nil {
+      for slot in 1..<Self.concurrentStreamCount {
+        let manager = HAPCameraAccessory(aid: aid, streamingOwner: self)
+        manager.onStateChange = { [weak self] aid, iid, value in
+          self?.onStateChange?(aid, Self.streamIID(iid, slot: slot), value)
+        }
+        additionalStreamManagers.append(manager)
+      }
+    }
   }
 
   // MARK: - Instance IDs (iid)
@@ -483,6 +530,9 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   // MARK: - Read Characteristic
 
   func readCharacteristic(iid: Int) -> HAPValue? {
+    if let (manager, mappedIID) = streamRoute(iid: iid) {
+      return manager.readCharacteristic(iid: mappedIID)
+    }
     switch iid {
     case AccessoryInfoIID.manufacturer: return .string(manufacturer)
     case AccessoryInfoIID.model: return .string(model)
@@ -491,7 +541,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     case AccessoryInfoIID.firmwareRevision: return .string(firmwareRevision)
     case ProtocolInfoIID.version: return .string(hapProtocolVersion)
     case Self.iidSupportedVideoConfig:
-      return .string(supportedVideoConfig().base64())
+      return .string((streamingOwner ?? self).supportedVideoConfig().base64())
     case Self.iidSupportedAudioConfig:
       return .string(Self.supportedAudioConfig().base64())
     case Self.iidSupportedRTPConfig:
@@ -551,11 +601,15 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
 
   @discardableResult
   func writeCharacteristic(iid: Int, value: HAPValue, sharedSecret: SharedSecret? = nil) -> Bool {
+    if let (manager, mappedIID) = streamRoute(iid: iid) {
+      return manager.writeCharacteristic(iid: mappedIID, value: value, sharedSecret: sharedSecret)
+    }
     switch iid {
     case AccessoryInfoIID.identify:
       identify()
       return true
     case Self.iidSetupEndpoints:
+      guard (streamingOwner ?? self).homeKitCameraActive, rtpStreamActive != 0 else { return false }
       return handleSetupEndpoints(value)
     case Self.iidSelectedRTPStreamConfig:
       return handleSelectedRTPStreamConfig(value)
@@ -563,12 +617,12 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
       switch value {
       case .bool(let v):
         audioSettings.withLock { $0.isMuted = v }
-        streamState.withLockUnchecked({ $0.streamSession })?.isMuted = v
+        for session in allStreamSessions { session.isMuted = v }
         return true
       case .int(let v):
         let muted = v != 0
         audioSettings.withLock { $0.isMuted = muted }
-        streamState.withLockUnchecked({ $0.streamSession })?.isMuted = muted
+        for session in allStreamSessions { session.isMuted = muted }
         return true
       default:
         return false
@@ -577,12 +631,12 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
       switch value {
       case .bool(let v):
         audioSettings.withLock { $0.speakerMuted = v }
-        streamState.withLockUnchecked({ $0.streamSession })?.speakerMuted = v
+        for session in allStreamSessions { session.speakerMuted = v }
         return true
       case .int(let v):
         let muted = v != 0
         audioSettings.withLock { $0.speakerMuted = muted }
-        streamState.withLockUnchecked({ $0.streamSession })?.speakerMuted = muted
+        for session in allStreamSessions { session.speakerMuted = muted }
         return true
       default:
         return false
@@ -591,7 +645,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
       if case .int(let v) = value {
         let vol = max(0, min(100, v))
         audioSettings.withLock { $0.speakerVolume = vol }
-        streamState.withLockUnchecked({ $0.streamSession })?.speakerVolume = vol
+        for session in allStreamSessions { session.speakerVolume = vol }
         return true
       }
       return false
@@ -602,6 +656,13 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
         onStateChange?(aid, iid, .bool(v))
         // Mirror to motion sensor StatusActive (HAP-NodeJS convention)
         onStateChange?(aid, Self.iidMotionSensorStatusActive, .bool(v))
+        if !v {
+          if hasActiveStreamSession { stopStreaming() }
+          onMonitoringCaptureNeeded?(false, nil)
+          cachedFrame = nil
+        } else if recordingActive != 0, !hasActiveStreamSession {
+          onMonitoringCaptureNeeded?(true, nil)
+        }
         return true
       }
       return false
@@ -623,7 +684,11 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
     case Self.iidRecordingActive:
       if let v = intFromValue(value) {
         let clamped = Int(UInt8(clamping: v))
-        hksvState.withLock { $0.recordingActive = UInt8(clamping: v) }
+        let wasActive = hksvState.withLock { state in
+          let wasActive = state.recordingActive != 0
+          state.recordingActive = UInt8(clamping: v)
+          return wasActive
+        }
         let isActive = clamped != 0
         onRecordingConfigChange?(isActive)
         onStateChange?(aid, iid, .int(clamped))
@@ -633,10 +698,14 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
         // The monitoring layer handles that overlap gracefully.
         if isActive {
           let hasStream = hasActiveStreamSession
-          if !hasStream {
+          if recordIn4K && !wasActive && (captureSource ?? streamSession)?.isCapturing == true {
+            // Reconfigure a live 1080p capture before arming native 4K recording.
+            stopStreaming()
+          } else if !hasStream {
             onMonitoringCaptureNeeded?(true, nil)
           }
         } else {
+          (captureSource ?? streamSession)?.stopRecording()
           onMonitoringCaptureNeeded?(false, nil)
         }
         return true
@@ -655,6 +724,7 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
       if let v = intFromValue(value) {
         let clamped = Int(UInt8(clamping: v))
         hksvState.withLock { $0.recordingAudioActive = UInt8(clamping: v) }
+        if clamped == 0 { fragmentWriter?.includeAudioTrack = false }
         onStateChange?(aid, iid, .int(clamped))
         onRecordingAudioActiveChange?(clamped != 0)
         return true
@@ -665,6 +735,9 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
         let clamped = Int(UInt8(clamping: v))
         hksvState.withLock { $0.rtpStreamActive = UInt8(clamping: v) }
         onStateChange?(aid, iid, .int(clamped))
+        if clamped == 0 { stopViewing() }
+        onStateChange?(
+          aid, Self.iidStreamingStatus, .string(streamingStatusTLV().base64EncodedString()))
         return true
       }
       return false

@@ -74,7 +74,7 @@ extension CameraStreamSession {
   }
 
   /// Encode a single AAC-ELD frame (480 samples) and send as an RTP packet.
-  private nonisolated func encodeAndSendAudioFrame(_ pcmData: Data) {
+  nonisolated func encodeAndSendAudioFrame(_ pcmData: Data) {
     guard let converter = audioConverter else { return }
 
     let outputBufferSize = 1024
@@ -144,9 +144,11 @@ extension CameraStreamSession {
     }
 
     guard let aacData else { return }
+    onRecordingAudioFrame?(aacData)
 
     // Wrap in RFC 3640 AU header section (HomeKit expects this framing)
     guard let framedPayload = AUHeader.add(to: aacData) else { return }
+    for peer in sharedViewers.value { peer.receiveSharedAudio(framedPayload) }
 
     // Dispatch RTP send to rtpQueue so all audio RTP state (seq, timestamp,
     // stats) is accessed from a single queue, avoiding data races with RTCP.
@@ -157,7 +159,7 @@ extension CameraStreamSession {
 
   // MARK: - Audio RTP Send
 
-  private nonisolated func sendAudioRTPPacket(payload: Data) {
+  nonisolated func sendAudioRTPPacket(payload: Data) {
     dispatchPrecondition(condition: .onQueue(rtpQueue))
     // M=1 always: every AAC frame is a complete AU.
     Self.writeRTPHeader(

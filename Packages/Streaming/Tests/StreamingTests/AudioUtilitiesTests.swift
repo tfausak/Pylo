@@ -1,9 +1,65 @@
 import AVFoundation
+import FragmentedMP4
+import Locked
 import Testing
 
 @testable import Streaming
 
 @Suite struct AudioUtilitiesTests {
+
+  @Test("4K capture handoff preserves recording audio", arguments: [false, true])
+  func monitoringAudioHandoff(recordIn4K: Bool) {
+    let monitoring = MonitoringCaptureSession()
+    monitoring.recordIn4K = recordIn4K
+    let writer = FragmentedMP4Writer()
+    writer.includeAudioTrack = true
+    monitoring.fragmentWriter = writer
+    let capture = AVCaptureSession()
+    monitoring.mState.withLockUnchecked { $0.captureSession = capture }
+    #expect(monitoring.handoff() === capture)
+    #expect(monitoring.mState.valueUnchecked.captureSession == nil)
+    #expect(writer.includeAudioTrack == recordIn4K)
+  }
+
+  @Test("Recording reuses encoded microphone frames and disarming preserves live audio")
+  func recordingAudioHandoff() throws {
+    let session = CameraStreamSession(
+      sessionID: Data(repeating: 0, count: 16),
+      controllerAddress: "127.0.0.1", controllerVideoPort: 5000, controllerAudioPort: 5001,
+      videoSRTPKey: Data(repeating: 0, count: 16), videoSRTPSalt: Data(repeating: 0, count: 14),
+      audioSRTPKey: Data(repeating: 0, count: 16), audioSRTPSalt: Data(repeating: 0, count: 14),
+      localAddress: "127.0.0.1", localVideoPort: 6000, localAudioPort: 6001,
+      videoSSRC: 1, audioSSRC: 2)
+    let frames = Locked<[Data]>(initialState: [])
+    session.onRecordingAudioFrame = { frame in frames.withLock { $0.append(frame) } }
+    let samples = (0..<480).map { Float(sin(Double($0) * 2 * .pi * 440 / 16000)) * 0.2 }
+    let pcm = samples.withUnsafeBytes { Data($0) }
+    try session.audioQueue.sync {
+      session.setupAudioEncoder()
+      let converter = try #require(session.audioConverter)
+      var bitrate: UInt32 = 0
+      var size = UInt32(MemoryLayout<UInt32>.size)
+      #expect(
+        AudioConverterGetProperty(converter, kAudioConverterEncodeBitRate, &size, &bitrate) == noErr
+      )
+      #expect(bitrate == 16000)
+      for _ in 0..<6 { session.encodeAndSendAudioFrame(pcm) }
+    }
+    session.rtpQueue.sync {}
+    let recordedCount = frames.value.count
+    #expect(recordedCount > 0)
+    #expect(frames.value.allSatisfy { !$0.isEmpty })
+    let sentCount = session.audioRTPStats.value.packetsSent
+    #expect(Int(sentCount) == recordedCount)
+    session.stopRecording()
+    session.audioQueue.sync {
+      for _ in 0..<6 { session.encodeAndSendAudioFrame(pcm) }
+    }
+    session.rtpQueue.sync {}
+    #expect(frames.value.count == recordedCount)
+    #expect(session.audioRTPStats.value.packetsSent > sentCount)
+    session.stopStreaming()
+  }
 
   // MARK: - convertToFloat32At16kHz
 

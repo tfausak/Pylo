@@ -332,6 +332,7 @@ struct ContentView: View {
 
   @ViewBuilder
   private var cameraContent: some View {
+    let recordingIn4K = viewModel.recordIn4K && viewModel.supports4KRecording
     VStack(spacing: 12) {
       HStack {
         Text("Status")
@@ -349,10 +350,12 @@ struct ContentView: View {
       }
       // Max Resolution
       HStack {
-        Text("Resolution")
+        Text(recordingIn4K ? "Live Resolution" : "Resolution")
           .foregroundStyle(.secondary)
         Spacer()
-        Picker("Resolution", selection: $viewModel.maxResolution) {
+        Picker(
+          recordingIn4K ? "Live Resolution" : "Resolution", selection: $viewModel.maxResolution
+        ) {
           ForEach(MaxResolution.allCases) { res in
             Text(res.rawValue).tag(res)
           }
@@ -361,12 +364,22 @@ struct ContentView: View {
         .pickerStyle(.menu)
       }
 
+      Toggle("4K Secure Video Recording", isOn: $viewModel.recordIn4K)
+        .disabled(!viewModel.supports4KRecording)
+      Text(
+        viewModel.supports4KRecording
+          ? "4K recordings use 30 fps and up to 5 Mbps. Requires a compatible Home hub."
+          : "4K recording is unavailable on this camera."
+      )
+      .font(.caption)
+      .foregroundStyle(.secondary)
+
       // Frame Rate
       HStack {
-        Text("Frame Rate")
+        Text(recordingIn4K ? "Live Frame Rate" : "Frame Rate")
           .foregroundStyle(.secondary)
         Spacer()
-        Picker("Frame Rate", selection: $viewModel.frameRate) {
+        Picker(recordingIn4K ? "Live Frame Rate" : "Frame Rate", selection: $viewModel.frameRate) {
           ForEach(FrameRate.allCases) { fps in
             Text(fps.label).tag(fps)
           }
@@ -378,7 +391,7 @@ struct ContentView: View {
       // Min Bitrate
       VStack(spacing: 4) {
         HStack {
-          Text("Min Bitrate")
+          Text(recordingIn4K ? "Minimum Live Bitrate" : "Min Bitrate")
             .foregroundStyle(.secondary)
           Spacer()
           Text(Self.bitrateLabel(Self.snappedBitrate(sliderBitrate)))
@@ -388,6 +401,7 @@ struct ContentView: View {
             viewModel.minBitrate = Self.snappedBitrate(sliderBitrate)
           }
         }
+        .accessibilityLabel(recordingIn4K ? "Minimum Live Bitrate" : "Minimum Bitrate")
         .onAppear { sliderBitrate = Double(viewModel.minBitrate) }
         .onChangeCompat(of: viewModel.minBitrate) { newValue in
           sliderBitrate = Double(newValue)

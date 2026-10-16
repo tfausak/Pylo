@@ -1,6 +1,7 @@
 @preconcurrency import AVFoundation
 import CryptoKit
 import Foundation
+import FragmentedMP4
 import HAP
 import Locked
 import Streaming
@@ -15,7 +16,9 @@ extension HAPCameraAccessory {
 
   func streamingStatusTLV() -> Data {
     var b = TLV8.Builder()
-    let status: UInt8 = hasActiveStreamSession ? 1 : 0  // 0=Available, 1=InUse, 2=Unavailable
+    let status: UInt8 =
+      !(streamingOwner ?? self).homeKitCameraActive || rtpStreamActive == 0
+      ? 2 : streamSession != nil ? 1 : 0  // Unavailable / in use / available.
     b.add(0x01, byte: status)
     return b.build()
   }
@@ -82,15 +85,9 @@ extension HAPCameraAccessory {
       "SetupEndpoints: controller=\(controllerAddress):\(controllerVideoPort)/\(controllerAudioPort)"
     )
 
-    // Atomically detach any existing session to avoid racing with another device.
-    // The old session is stopped without notifying HomeKit — the controller holding
-    // that stream will see it go stale and time out. A proper HAP implementation
-    // would send a StreamingStatus=0 event for the old session, but single-stream
-    // devices typically just replace the session silently.
-    if let oldSession = detachStreamSession() {
-      logger.info("Replacing existing stream session for new SetupEndpoints request")
-      oldSession.stopStreaming()
-    }
+    // Another controller must select an available slot, not replace a live viewer.
+    guard streamSession?.isCapturing != true else { return false }
+    if streamSession != nil { stopViewing() }
 
     let videoSSRC = UInt32.random(in: 1...UInt32.max)
     let audioSSRC = UInt32.random(in: 1...UInt32.max)
@@ -178,6 +175,7 @@ extension HAPCameraAccessory {
           }
         }
 
+        if let configured = streamSession, configured.sessionID != sessionID { return false }
         switch command {
         case 1:  // START
           logger.info("Stream START requested")
@@ -248,10 +246,10 @@ extension HAPCameraAccessory {
 
         case 0:  // END
           logger.info("Stream STOP requested")
-          stopStreaming()
+          stopViewing()
         case 2:  // RECONFIGURE -- not fully implemented; stop stream as fallback
           logger.warning("Stream RECONFIGURE not implemented -- stopping stream")
-          stopStreaming()
+          stopViewing()
         default:
           break
         }
@@ -277,54 +275,82 @@ extension HAPCameraAccessory {
     width: Int, height: Int, fps: Int, bitrate: Int, payloadType: UInt8,
     audioPayloadType: UInt8 = 110
   ) {
+    let owner = streamingOwner ?? self
+    guard owner.homeKitCameraActive, rtpStreamActive != 0 else { return }
     guard let session = streamSession else {
       logger.error("No stream session configured")
       return
     }
 
-    guard let camera = resolveCamera() else {
+    guard let camera = owner.resolveCamera() else {
       logger.error("No camera available for streaming")
       return
     }
 
-    let settings = audioSettings.value
+    let settings = owner.audioSettings.value
     session.isMuted = settings.isMuted
     session.speakerMuted = settings.speakerMuted
     session.speakerVolume = settings.speakerVolume
-    session.videoMotionDetector = videoMotionDetector
-    session.ambientLightDetector = ambientLightDetector
-    session.onSnapshotFrame = { [weak self] cgImage in
-      self?.cachedFrame = cgImage
+    session.videoMotionDetector = owner.videoMotionDetector
+    session.ambientLightDetector = owner.ambientLightDetector
+    session.onSnapshotFrame = { [weak owner] cgImage in
+      owner?.cachedFrame = cgImage
     }
 
     // Hand off the monitoring session's AVCaptureSession for reuse if available.
     // This avoids the ~500ms cold-start of creating a new session. If no monitoring
     // session is running, fall back to stopping it and creating a fresh session.
-    onStreamingStart?()
-
-    let existingSession = onMonitoringSessionHandoff?()
-    if existingSession == nil {
-      onMonitoringCaptureNeeded?(false, nil)
+    let shared = owner.captureSource
+    if shared == nil { owner.onStreamingStart?() }
+    let existingSession = shared == nil ? owner.onMonitoringSessionHandoff?() : nil
+    if shared == nil, existingSession == nil {
+      owner.onMonitoringCaptureNeeded?(false, nil)
     }
 
-    let effectiveBitrate = max(bitrate, minBitrate)
-    let rotation = currentRotation()
+    let effectiveBitrate = max(bitrate, owner.minBitrate)
+    let rotation =
+      shared.map {
+        (
+          angle: $0.captureRotation,
+          swapDimensions: $0.captureRotation == 90 || $0.captureRotation == 270
+        )
+      } ?? owner.currentRotation()
+    let recording = owner.recordIn4K && owner.recordingActive != 0 && shared == nil
+    if recording {
+      session.onRecordingAudioFrame = { [weak owner, weak writer = owner.fragmentWriter] data in
+        guard let owner, let writer else { return }
+        let allowed =
+          owner.homeKitCameraActive && owner.recordingActive != 0
+          && owner.recordingAudioActive != 0 && owner.microphoneEnabled
+        writer.includeAudioTrack = allowed
+        if allowed { writer.appendAudioSample(data) }
+      }
+    }
     logger.info(
-      "Bitrate: negotiated=\(bitrate)kbps, minimum=\(self.minBitrate)kbps, effective=\(effectiveBitrate)kbps, rotation=\(rotation.angle)\u{00B0}"
+      "Bitrate: negotiated=\(bitrate)kbps, minimum=\(owner.minBitrate)kbps, effective=\(effectiveBitrate)kbps, rotation=\(rotation.angle)\u{00B0}"
     )
     let started = session.startStreaming(
       width: width, height: height, fps: fps, bitrate: effectiveBitrate, payloadType: payloadType,
       audioPayloadType: audioPayloadType, camera: camera, rotationAngle: rotation.angle,
       swapDimensions: rotation.swapDimensions, existingCaptureSession: existingSession,
-      microphoneEnabled: microphoneEnabled)
+      microphoneEnabled: owner.microphoneEnabled,
+      recordingWriter: recording ? owner.fragmentWriter : nil,
+      sharedSource: shared,
+      captureResolution: (owner.maxResolution.width, owner.maxResolution.height),
+      captureFrameRate: owner.frameRate.rawValue,
+      recordingAllowed: { [weak owner] in
+        guard let owner else { return false }
+        return owner.homeKitCameraActive && owner.recordingActive != 0
+      })
     if !started {
       logger.error("Stream session failed to start — clearing session")
       clearStreamSession(ifIdenticalTo: session)
-      onMonitoringCaptureNeeded?(true, nil)
+      if owner.captureSource == nil { owner.onMonitoringCaptureNeeded?(true, nil) }
     } else {
+      if shared == nil { owner.captureSource = session }
       // Dispatch on captureQueue so this runs after startRunning() completes
       // on cold start (where startRunning is dispatched async on captureQueue).
-      let callback = onStreamingDidStart
+      let callback = owner.onStreamingDidStart
       session.captureQueue.async { callback?() }
     }
     // Notify subscribers of the updated streaming status. This is correct even after
@@ -335,23 +361,37 @@ extension HAPCameraAccessory {
   }
 
   func stopStreaming() {
-    // Hand off the AVCaptureSession back to monitoring if recording is armed,
-    // so it can resume without a cold-start.
-    let recordingArmed = hksvState.withLock({ $0.recordingActive }) != 0
-    // Atomically detach the session to avoid racing with another device
-    let session = detachStreamSession()
-    let handBackSession: AVCaptureSession?
-    if recordingArmed {
-      handBackSession = session?.handoff()
+    let owner = streamingOwner ?? self
+    for manager in owner.streamManagers { manager.stopViewing() }
+  }
+
+  func stopViewing() {
+    let owner = streamingOwner ?? self
+    guard let session = detachStreamSession() else { return }
+    if session === owner.captureSource {
+      session.stopViewing()
     } else {
-      session?.stopStreaming()
-      handBackSession = nil
+      session.stopStreaming()
     }
     onStateChange?(
       aid, Self.iidStreamingStatus, .string(streamingStatusTLV().base64EncodedString()))
+    guard !owner.streamManagers.contains(where: { $0.streamSession?.isCapturing == true })
+    else { return }
+    // Hand off the AVCaptureSession back to monitoring if recording is armed,
+    // so it can resume without a cold-start.
+    let recordingArmed = owner.homeKitCameraActive && owner.recordingActive != 0
+    let source = owner.captureSource
+    owner.captureSource = nil
+    let handBackSession: AVCaptureSession?
+    if recordingArmed {
+      handBackSession = source?.handoff()
+    } else {
+      source?.stopStreaming()
+      handBackSession = nil
+    }
     // Resume monitoring capture — with HKSV features if recording is armed,
     // or in sensor-only mode for light/occupancy/snapshot caching.
-    onMonitoringCaptureNeeded?(recordingArmed, handBackSession)
+    owner.onMonitoringCaptureNeeded?(recordingArmed, handBackSession)
   }
 
   // MARK: - Resolve Camera

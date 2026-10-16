@@ -19,6 +19,7 @@ extension HAPCameraAccessory {
     // notifications on the main thread, so calling this from the main thread
     // (or any context the main thread is blocked on) would deadlock.
     dispatchPrecondition(condition: .notOnQueue(.main))
+    guard homeKitCameraActive else { return nil }
 
     // If streaming is active, encode the cached frame on demand.
     if hasActiveStreamSession {

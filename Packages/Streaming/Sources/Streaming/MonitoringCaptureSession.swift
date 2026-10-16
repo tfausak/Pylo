@@ -103,6 +103,8 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     get { _recordingBitrate.value }
     set { _recordingBitrate.value = newValue }
   }
+  /// Set by the capture owner before starting the session.
+  public var recordIn4K = false
 
   public let logger = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "Streaming", category: "MonitoringCapture")
@@ -206,10 +208,16 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     }
     guard !alreadyRunning else { return }
 
-    let width = sensorOnly ? 640 : recordingWidth
-    let height = sensorOnly ? 480 : recordingHeight
-    let fps = sensorOnly ? 10 : recordingFps
-    let bitrate = sensorOnly ? 500 : recordingBitrate
+    let useHEVC = recordIn4K && !sensorOnly
+    let width = sensorOnly ? 640 : useHEVC ? 3840 : recordingWidth
+    let height = sensorOnly ? 480 : useHEVC ? 2160 : recordingHeight
+    let fps = sensorOnly ? 10 : useHEVC ? 30 : recordingFps
+    let bitrate = sensorOnly ? 500 : useHEVC ? 5000 : recordingBitrate
+    if useHEVC && !camera.supportsSessionPreset(.hd4K3840x2160) {
+      logger.error("4K recording requires a native 4K camera")
+      mState.withLockUnchecked { $0.captureSession = nil }
+      return
+    }
 
     // Configure camera frame rate
     do {
@@ -451,7 +459,8 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     let refcon = Unmanaged.passRetained(box).toOpaque()
     guard
       let cs = Self.createCompressionSession(
-        width: encWidth, height: encHeight, fps: fps, bitrate: bitrate, logger: logger,
+        width: encWidth, height: encHeight, fps: fps, bitrate: bitrate,
+        codec: useHEVC ? kCMVideoCodecType_HEVC : kCMVideoCodecType_H264, logger: logger,
         refcon: refcon)
     else {
       // Release the retained box since no compression session was created.
@@ -566,7 +575,8 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       }
     guard let session else { return nil }
 
-    fragmentWriter?.includeAudioTrack = false
+    // The 4K live owner continues the same recording, including buffered audio.
+    if !recordIn4K { fragmentWriter?.includeAudioTrack = false }
 
     // Remove our outputs so AVFoundation stops delivering frames to our
     // delegates before we release them. Without this, in-flight frames can
@@ -776,13 +786,14 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
 
   /// Maps resolution to the most appropriate AVCaptureSession preset.
   private static func sessionPreset(width: Int, height: Int) -> AVCaptureSession.Preset {
+    if width >= 3840 { return .hd4K3840x2160 }
     if width >= 1920 { return .hd1920x1080 }
     if width >= 854 { return .hd1280x720 }
     return .vga640x480
   }
 
   private static func createCompressionSession(
-    width: Int, height: Int, fps: Int, bitrate: Int, logger: Logger,
+    width: Int, height: Int, fps: Int, bitrate: Int, codec: CMVideoCodecType, logger: Logger,
     refcon: UnsafeMutableRawPointer
   ) -> VTCompressionSession? {
     var session: VTCompressionSession?
@@ -790,7 +801,7 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       allocator: nil,
       width: Int32(width),
       height: Int32(height),
-      codecType: kCMVideoCodecType_H264,
+      codecType: codec,
       encoderSpecification: nil,
       imageBufferAttributes: nil,
       compressedDataAllocator: nil,
@@ -807,7 +818,8 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     VTSessionSetProperty(cs, key: kVTCompressionPropertyKey_RealTime, value: kCFBooleanTrue)
     VTSessionSetProperty(
       cs, key: kVTCompressionPropertyKey_ProfileLevel,
-      value: kVTProfileLevel_H264_Baseline_AutoLevel)
+      value: codec == kCMVideoCodecType_HEVC
+        ? kVTProfileLevel_HEVC_Main_AutoLevel : kVTProfileLevel_H264_Baseline_AutoLevel)
     VTSessionSetProperty(
       cs, key: kVTCompressionPropertyKey_AverageBitRate,
       value: (bitrate * 1000) as CFNumber)

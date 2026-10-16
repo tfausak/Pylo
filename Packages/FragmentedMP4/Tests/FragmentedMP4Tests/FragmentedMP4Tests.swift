@@ -408,6 +408,53 @@ struct FragmentedMP4WriterStructureTests {
     // Stop should clear without crashing
     writer.stop()
   }
+
+  @Test("Disabling audio discards buffered and subsequent microphone samples")
+  func disablingAudioDropsSamples() throws {
+    let writer = FragmentedMP4Writer()
+    writer.includeAudioTrack = true
+    writer.appendAudioSample(Data(repeating: 0xAA, count: 50))
+    writer.includeAudioTrack = false
+    writer.appendAudioSample(Data(repeating: 0xBB, count: 50))
+    writer.appendVideoSample(
+      makeSampleBuffer(
+        pts: .zero, isKeyframe: true, formatDescription: makeFormatDescription()))
+    writer.stop()
+    let fragment = try #require(writer.ringBuffer.snapshot().last)
+    let boxes = parseBoxes(fragment.data)
+    let moof = try #require(boxes.first { $0.type == "moof" })
+    #expect(parseBoxes(moof.payload).filter { $0.type == "traf" }.count == 1)
+    #expect(boxes.first { $0.type == "mdat" }?.payload.count == 100)
+  }
+
+  @Test("Dropped audio samples do not move subsequent sound ahead of video")
+  func audioFollowsVideoClock() throws {
+    let writer = FragmentedMP4Writer()
+    writer.includeAudioTrack = true
+    let format = makeFormatDescription()
+    for frame in 0...240 {
+      // Fewer audio packets simulate a gap during a capture-owner handoff.
+      if frame < 240 && frame % 3 == 0 {
+        writer.appendAudioSample(Data(repeating: 0xAA, count: 50))
+      }
+      writer.appendVideoSample(
+        makeSampleBuffer(
+          pts: CMTime(value: Int64(frame), timescale: 30), isKeyframe: frame % 120 == 0,
+          formatDescription: format))
+    }
+    let fragments = writer.ringBuffer.snapshot()
+    try #require(fragments.count == 2)
+    for (index, fragment) in fragments.enumerated() {
+      let moof = try #require(parseBoxes(fragment.data).first { $0.type == "moof" })
+      let tracks = parseBoxes(moof.payload).filter { $0.type == "traf" }
+      try #require(tracks.count == 2)
+      let tfdt = try #require(parseBoxes(tracks[1].payload).first { $0.type == "tfdt" })
+      let audioTime =
+        UInt64(readU32BE(tfdt.payload, at: 4)) << 32
+        | UInt64(readU32BE(tfdt.payload, at: 8))
+      #expect(audioTime == UInt64(index) * 64000)
+    }
+  }
 }
 
 // MARK: - Init Segment Structure Tests
@@ -698,29 +745,28 @@ struct FragmentStructureTests {
     #expect(seq2 == seq1 + 1)
   }
 
-  @Test("tfdt base decode time advances between fragments")
-  func tfdtAdvances() {
+  @Test("tfdt retains real time at fractional-millisecond frame rates", arguments: [15, 24, 30])
+  func tfdtAdvances(fps: Int32) {
     let writer = FragmentedMP4Writer()
-    writer.configure(fps: 30)
+    writer.configure(fps: Int(fps))
     let fmt = makeFormatDescription()
     nonisolated(unsafe) var emitted: [MP4Fragment] = []
     writer.onFragmentReady = { emitted.append($0) }
 
-    let frameDuration: Int64 = 33
     var frameIndex: Int64 = 0
     for _ in 0..<2 {
-      let kfPTS = CMTime(value: frameIndex * frameDuration, timescale: 1000)
+      let kfPTS = CMTime(value: frameIndex, timescale: fps)
       writer.appendVideoSample(
         makeSampleBuffer(pts: kfPTS, isKeyframe: true, formatDescription: fmt))
       frameIndex += 1
-      for _ in 0..<119 {
-        let pts = CMTime(value: frameIndex * frameDuration, timescale: 1000)
+      for _ in 1..<(Int(fps) * 4) {
+        let pts = CMTime(value: frameIndex, timescale: fps)
         writer.appendVideoSample(
           makeSampleBuffer(pts: pts, isKeyframe: false, formatDescription: fmt))
         frameIndex += 1
       }
     }
-    let finalPTS = CMTime(value: frameIndex * frameDuration, timescale: 1000)
+    let finalPTS = CMTime(value: frameIndex, timescale: fps)
     writer.appendVideoSample(
       makeSampleBuffer(pts: finalPTS, isKeyframe: true, formatDescription: fmt))
 
@@ -740,7 +786,7 @@ struct FragmentStructureTests {
     let dt1 = extractTfdt(emitted[0].data)
     let dt2 = extractTfdt(emitted[1].data)
     #expect(dt1 == 0, "First fragment should start at decode time 0")
-    #expect(dt2 > 0, "Second fragment should have advanced decode time")
+    #expect(dt2 == 4000, "Four seconds of capture must remain four seconds in the media clock")
   }
 
   @Test("data_offset in trun points past moof to mdat payload")

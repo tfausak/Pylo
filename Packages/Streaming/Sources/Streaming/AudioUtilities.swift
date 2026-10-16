@@ -147,7 +147,7 @@ public nonisolated func createAACELDEncoder() -> AudioConverterRef? {
   let status = AudioConverterNew(&inputDesc, &outputDesc, &converter)
   guard status == noErr, let converter else { return nil }
 
-  var bitrate: UInt32 = 24000
+  var bitrate: UInt32 = 16000
   AudioConverterSetProperty(
     converter, kAudioConverterEncodeBitRate,
     UInt32(MemoryLayout<UInt32>.size), &bitrate)

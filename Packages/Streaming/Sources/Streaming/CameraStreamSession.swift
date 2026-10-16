@@ -2,6 +2,7 @@
 import AudioToolbox
 @preconcurrency import CoreMedia
 import Foundation
+import FragmentedMP4
 import Locked
 import SRTP
 import Sensors
@@ -42,9 +43,31 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
 
   // Video pipeline
   private var captureSession: AVCaptureSession?
+  /// Read by the capture owner on the same queue that starts and stops streaming.
+  public var isCapturing: Bool { captureSession != nil || sharedSource != nil }
+  // Lifecycle/configuration fields are owned by the HAP server queue. Peers
+  // retain immutable frames across their queues; they never mutate those frames.
+  private weak var sharedSource: CameraStreamSession?
+  let sharedViewers = Locked<[CameraStreamSession]>(initialState: [])
+  private let acceptsSharedFrames = Locked(initialState: false)
+  private let sharedFramePending = Locked(initialState: false)
+  private var sharesVideoEncoder = false
+  private struct VideoConfiguration: Equatable {
+    let width: Int
+    let height: Int
+    let fps: Int
+    let bitrate: Int
+  }
+  private var videoConfiguration: VideoConfiguration?
+  public private(set) var captureRotation = 0
   private var interruptionObservers: [NSObjectProtocol] = []
   private var videoOutput: AVCaptureVideoDataOutput?
   private var compressionSession: VTCompressionSession?
+  // Availability erasure keeps the existing iOS 15 streaming API usable.
+  // The encoder is created, used, drained, and released on captureQueue.
+  private var recordingEncoder: AnyObject?
+  private var lastPreviewPTS: CMTime = .invalid
+  private var previewFrameDuration = 0.0
   public let captureQueue = DispatchQueue(
     label: "\(Bundle.main.bundleIdentifier ?? "Streaming").camera.capture")
   public let audioQueue = DispatchQueue(
@@ -178,6 +201,12 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
     get { _onSnapshotFrame.value }
     set { _onSnapshotFrame.value = newValue }
   }
+  private let _onRecordingAudioFrame = Locked<(@Sendable (Data) -> Void)?>(initialState: nil)
+  /// Raw AAC-ELD frames shared with recording, before RTP framing.
+  public var onRecordingAudioFrame: (@Sendable (Data) -> Void)? {
+    get { _onRecordingAudioFrame.value }
+    set { _onRecordingAudioFrame.value = newValue }
+  }
   private var snapshotFrameCounter = 0
   private var snapshotInterval = 30  // every ~2s, derived from negotiated fps
 
@@ -228,10 +257,16 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
   @discardableResult
   public func startStreaming(
     width: Int, height: Int, fps: Int, bitrate: Int, payloadType: UInt8,
-    audioPayloadType: UInt8 = 110, camera: AVCaptureDevice, rotationAngle: Int = 90,
+    audioPayloadType: UInt8 = 110, camera: AVCaptureDevice?, rotationAngle: Int = 90,
     swapDimensions: Bool = true, existingCaptureSession: AVCaptureSession? = nil,
-    microphoneEnabled: Bool = true
+    microphoneEnabled: Bool = true,
+    recordingWriter: FragmentedMP4Writer? = nil,
+    sharedSource: CameraStreamSession? = nil,
+    captureResolution: (width: Int, height: Int)? = nil,
+    captureFrameRate: Int? = nil,
+    recordingAllowed: @escaping @Sendable () -> Bool = { true }
   ) -> Bool {
+    guard width > 0, height > 0, fps > 0, bitrate > 0 else { return false }
     logger.info(
       "Starting stream: \(width)x\(height)@\(fps)fps, \(bitrate)kbps, PT=\(payloadType) → \(self.controllerAddress):\(self.controllerVideoPort)"
     )
@@ -313,10 +348,57 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
     // Start capture pipeline immediately (BSD socket is ready after bind)
     let encWidth = swapDimensions ? height : width
     let encHeight = swapDimensions ? width : height
-    self.setupCompression(width: encWidth, height: encHeight, fps: fps, bitrate: bitrate)
-    let captureOK = self.setupCapture(
-      width: width, height: height, fps: fps, camera: camera, rotationAngle: rotationAngle,
-      existingSession: existingCaptureSession, microphoneEnabled: microphoneEnabled)
+    videoConfiguration = VideoConfiguration(
+      width: encWidth, height: encHeight, fps: fps, bitrate: bitrate)
+    self.sharedSource = sharedSource
+    captureRotation = sharedSource?.captureRotation ?? rotationAngle
+    sharesVideoEncoder =
+      sharedSource != nil && sharedSource?.videoConfiguration == videoConfiguration
+    if !sharesVideoEncoder {
+      self.setupCompression(width: encWidth, height: encHeight, fps: fps, bitrate: bitrate)
+      guard compressionSession != nil else {
+        existingCaptureSession?.stopRunning()
+        tearDown(keepCaptureSession: false)
+        return false
+      }
+    }
+    if let recordingWriter, sharedSource == nil {
+      guard #available(iOS 17.4, *), let camera, camera.supportsSessionPreset(.hd4K3840x2160)
+      else {
+        existingCaptureSession?.stopRunning()
+        tearDown(keepCaptureSession: false)
+        return false
+      }
+      do {
+        try captureQueue.sync {
+          recordingEncoder = try VideoEncoder(portrait: swapDimensions) {
+            [weak recordingWriter] status, sample in
+            guard status == noErr, let sample, recordingAllowed() else { return }
+            recordingWriter?.appendVideoSample(sample)
+          }
+        }
+      } catch {
+        logger.error("Recording encoder setup failed: \(error)")
+        existingCaptureSession?.stopRunning()
+        tearDown(keepCaptureSession: false)
+        return false
+      }
+    }
+    lastPreviewPTS = .invalid
+    previewFrameDuration = 1.0 / Double(fps)
+    let captureOK: Bool
+    if sharedSource != nil {
+      captureOK = true
+    } else if let camera {
+      captureOK = self.setupCapture(
+        width: recordingWriter == nil ? max(width, captureResolution?.width ?? width) : 3840,
+        height: recordingWriter == nil ? max(height, captureResolution?.height ?? height) : 2160,
+        fps: max(fps, captureFrameRate ?? fps, recordingWriter == nil ? 0 : 30),
+        camera: camera, rotationAngle: rotationAngle,
+        existingSession: existingCaptureSession, microphoneEnabled: microphoneEnabled)
+    } else {
+      captureOK = false
+    }
     guard captureOK else {
       logger.error("Failed to set up capture pipeline")
       // Safe to call from any queue: ownership was transferred to us, so no
@@ -329,6 +411,7 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
       }
       close(videoFD)
       self.videoSocketFD = -1
+      finishRecordingEncoder()
       return false
     }
     self.startRTCPTimer()
@@ -387,12 +470,18 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
     readSource.resume()
     self.audioReadSource = readSource
 
-    if self.audioConverter == nil {
+    if sharedSource == nil, self.audioConverter == nil {
       self.setupAudioEncoder()
     }
     self.startAudioRTCPTimer()
     self.setupAudioDecoder()
     self.setupAudioPlayback()
+    if let sharedSource {
+      acceptsSharedFrames.value = true
+      sharedSource.sharedViewers.withLock { $0.append(self) }
+      // A newly joined receiver needs fresh SPS/PPS and a decodable keyframe.
+      sharedSource.captureQueue.sync { sharedSource.encodeFrameCount = 0 }
+    }
     return true
   }
 
@@ -414,6 +503,8 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
     dispatchPrecondition(condition: .notOnQueue(captureQueue))
     dispatchPrecondition(condition: .notOnQueue(audioQueue))
     dispatchPrecondition(condition: .notOnQueue(rtpQueue))
+    acceptsSharedFrames.value = false
+    sharedSource?.sharedViewers.withLock { peers in peers.removeAll { $0 === self } }
     if keepCaptureSession {
       logger.info("Handing off stream session")
     } else {
@@ -451,10 +542,12 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
     // Drain in-flight captureQueue blocks so no concurrent encodeFrame call
     // is mid-execution when we dispose resources.
     captureQueue.sync {}
+    finishRecordingEncoder()
 
     // Drain in-flight audioQueue blocks so no concurrent handleAudioSampleBuffer
     // or encodeAndSendAudioFrame call is mid-execution when we dispose resources.
     audioQueue.sync {}
+    onRecordingAudioFrame = nil
 
     if let cs = compressionSession {
       // Flush in-flight async encodes before invalidating (undefined behavior otherwise)
@@ -484,39 +577,49 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
     audioConverter = nil
     pcmAccumulator = Data()
 
-    // Capture FD values, then invalidate the members immediately so that
-    // any in-flight timer/read handlers on rtpQueue see -1 and bail via
-    // their guard checks before we close the actual file descriptors.
-    let readSource = audioReadSource
-    let videoFD = videoSocketFD
-    let audioFD = audioSocketFD
-    let decoder = audioDecoder
-    let player = audioPlayerNode
-    let engine = audioEngine
-    let incomingSRTP = incomingSRTPContext
+    closeTransport()
+    sharedSource = nil
+    return keepCaptureSession ? session : nil
+  }
 
-    audioReadSource = nil
-    videoSocketFD = -1
-    controllerVideoAddr = nil
-    srtpContext = nil
-    audioSocketFD = -1
-    controllerAudioAddr = nil
-    audioSRTPContext = nil
+  /// Release this viewer's connection while keeping its capture/encoders alive
+  /// for the other viewers. The capture owner stops after the last viewer leaves.
+  public func stopViewing() {
+    closeTransport()
+  }
 
-    // Cancel the read source. Its cancel handler closes the audio FD.
-    readSource?.cancel()
-
-    rtpQueue.sync {
-      // By the time this executes, the cancelled read source's cancel handler
-      // and any in-flight sendVideoUDP/sendAudioUDP/readAudioSocket calls have drained.
+  private func closeTransport() {
+    rtcpTimer?.cancel()
+    rtcpTimer = nil
+    audioRTCPTimer?.cancel()
+    audioRTCPTimer = nil
+    let (player, engine) = rtpQueue.sync {
+      let readSource = audioReadSource
+      let videoFD = videoSocketFD
+      let audioFD = audioSocketFD
+      let player = audioPlayerNode
+      let engine = audioEngine
+      audioReadSource = nil
+      videoSocketFD = -1
+      controllerVideoAddr = nil
+      srtpContext = nil
+      audioSocketFD = -1
+      controllerAudioAddr = nil
+      audioSRTPContext = nil
+      // The read source owns its descriptor until its cancellation handler runs.
+      readSource?.cancel()
       if videoFD >= 0 { close(videoFD) }
-      // Close audio FD here if there was no read source to own it.
       if readSource == nil, audioFD >= 0 {
-        logger.warning("Audio FD open but no read source — closing in fallback path")
         close(audioFD)
       }
-      if let dec = decoder { AudioConverterDispose(dec) }
-      _ = incomingSRTP  // prevent premature dealloc until after queue drains
+      if let decoder = audioDecoder { AudioConverterDispose(decoder) }
+      incomingAudioPacketCount = 0
+      audioPlayerNode = nil
+      audioPlayerStarted = false
+      audioEngine = nil
+      audioDecoder = nil
+      incomingSRTPContext = nil
+      return (player, engine)
     }
 
     // Stop the audio engine/player outside of rtpQueue — AVAudioEngine
@@ -524,19 +627,27 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
     player?.stop()
     engine?.stop()
 
-    // Remaining state cleanup (FDs already invalidated above)
-    audioSampleCount = 0
-    incomingAudioPacketCount = 0
-    audioPlayerNode = nil
-    audioPlayerStarted = false
-    audioEngine = nil
-    audioDecoder = nil
-    incomingSRTPContext = nil
-
-    return keepCaptureSession ? session : nil
+    audioQueue.sync { audioSampleCount = 0 }
   }
 
   // MARK: - Video Capture
+
+  private func finishRecordingEncoder() {
+    captureQueue.sync {
+      if #available(iOS 17.4, *), let encoder = recordingEncoder as? VideoEncoder {
+        do { try encoder.finish() } catch {
+          logger.error("Recording encoder drain failed: \(error)")
+        }
+      }
+      recordingEncoder = nil
+    }
+  }
+
+  /// Stop recording while keeping the existing live preview active.
+  public func stopRecording() {
+    finishRecordingEncoder()
+    audioQueue.sync { onRecordingAudioFrame = nil }
+  }
 
   @discardableResult
   private func setupCapture(
@@ -578,7 +689,7 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
       if self.captureFrameCount % self.luxFrameInterval == 0 {
         self.ambientLightDetector?.sample()
       }
-      self.encodeFrame(pixelBuffer, pts: pts)
+      self.deliverVideoFrame(pixelBuffer, pts: pts)
     }
     output.setSampleBufferDelegate(delegate, queue: captureQueue)
 
@@ -596,7 +707,9 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
 
       // Change preset if needed (monitoring always uses .hd1920x1080)
       let targetPreset: AVCaptureSession.Preset =
-        width > 1280 ? .hd1920x1080 : width > 640 ? .hd1280x720 : .medium
+        width >= 3840
+        ? .hd4K3840x2160
+        : width > 1280 ? .hd1920x1080 : width > 640 ? .hd1280x720 : .medium
       if session.sessionPreset != targetPreset { session.sessionPreset = targetPreset }
 
       // Add streaming video output
@@ -641,7 +754,10 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
       // Cold start — create a new AVCaptureSession from scratch
       session = AVCaptureSession()
       session.enableMultitaskingCameraIfSupported()
-      session.sessionPreset = width > 1280 ? .hd1920x1080 : width > 640 ? .hd1280x720 : .medium
+      session.sessionPreset =
+        width >= 3840
+        ? .hd4K3840x2160
+        : width > 1280 ? .hd1920x1080 : width > 640 ? .hd1280x720 : .medium
 
       do {
         let input = try AVCaptureDeviceInput(device: camera)
@@ -823,6 +939,17 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
 
   private func encodeFrame(_ pixelBuffer: CVPixelBuffer, pts: CMTime) {
     dispatchPrecondition(condition: .onQueue(captureQueue))
+    if #available(iOS 17.4, *), let encoder = recordingEncoder as? VideoEncoder {
+      do { try encoder.encode(pixelBuffer, pts: pts) } catch {
+        logger.error("Recording encode failed: \(error)")
+      }
+    }
+    if lastPreviewPTS.isValid,
+      CMTimeGetSeconds(CMTimeSubtract(pts, lastPreviewPTS)) < previewFrameDuration - 0.0001
+    {
+      return
+    }
+    lastPreviewPTS = pts
     guard let cs = compressionSession else { return }
 
     encodeFrameCount += 1
@@ -865,6 +992,39 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
     }
   }
 
+  func deliverVideoFrame(_ pixels: CVPixelBuffer, pts: CMTime) {
+    dispatchPrecondition(condition: .onQueue(captureQueue))
+    encodeFrame(pixels, pts: pts)
+    for peer in sharedViewers.value where !peer.sharesVideoEncoder {
+      peer.receiveSharedFrame(pixels, pts: pts)
+    }
+  }
+
+  private func receiveSharedFrame(_ pixels: CVPixelBuffer, pts: CMTime) {
+    guard acceptsSharedFrames.value else { return }
+    let accepted = sharedFramePending.withLock { pending in
+      guard !pending else { return false }
+      pending = true
+      return true
+    }
+    guard accepted else { return }
+    // AVCapture's frame is retained and read-only, as in snapshot delivery.
+    // One pending frame per viewer bounds memory if an encoder falls behind.
+    nonisolated(unsafe) let buffer = pixels
+    captureQueue.async { [self] in
+      defer { sharedFramePending.value = false }
+      guard acceptsSharedFrames.value else { return }
+      encodeFrame(buffer, pts: pts)
+    }
+  }
+
+  func receiveSharedAudio(_ payload: Data) {
+    rtpQueue.async { [self] in
+      guard acceptsSharedFrames.value, !isMuted, audioSocketFD >= 0 else { return }
+      sendAudioRTPPacket(payload: payload)
+    }
+  }
+
   /// VTCompressionSession output callback — called by the encoder for each compressed frame.
   /// Uses a session-level callback instead of per-frame outputHandler closures to avoid
   /// accumulating heap-allocated closure contexts that cause recursive deallocation
@@ -888,6 +1048,9 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
       session.rtpQueue.async {
         session.processEncodedFrame(buffer)
       }
+      for peer in session.sharedViewers.value where peer.sharesVideoEncoder {
+        peer.rtpQueue.async { peer.processEncodedFrame(buffer) }
+      }
     }
   }
 
@@ -895,6 +1058,7 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
 
   private func processEncodedFrame(_ sampleBuffer: CMSampleBuffer) {
     dispatchPrecondition(condition: .onQueue(rtpQueue))
+    guard videoSocketFD >= 0 else { return }
     guard let dataBuffer = sampleBuffer.dataBuffer else { return }
 
     // Derive RTP timestamp from the actual presentation timestamp (90kHz clock).

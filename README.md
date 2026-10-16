@@ -6,7 +6,8 @@ accessories:
 - **Flashlight**:
   controllable lightbulb with brightness (iOS only)
 - **Camera**:
-  live H.264 video streaming with HomeKit Secure Video (HKSV) recording
+  live H.264 video streaming for up to four viewers with HomeKit Secure Video (HKSV) recording,
+  including optional [native 4K HEVC recording](HKSV2026.md) on supported cameras and Home hubs
 - **Light Sensor**:
   ambient light level estimation from camera auto-exposure
 - **Motion Sensor**:

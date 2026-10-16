@@ -123,28 +123,18 @@ extension HAPCameraAccessory {
   /// Recording codec types differ from streaming: AAC-LC = 0, AAC-ELD = 1.
   /// Encoding matches hap-nodejs: sample rates delimited, codec configs delimited.
   func supportedAudioRecordingConfig() -> TLV8.Builder {
-    // AAC-ELD codec -- preferred by Apple HKSV hubs
+    // Match the native recording encoder: 16kHz mono AAC-ELD.
     var eldParams = TLV8.Builder()
     eldParams.add(0x01, byte: 1)  // Channels: 1 (mono)
     eldParams.add(0x02, byte: 0)  // BitRate: Variable
-    eldParams.addList(0x03, bytes: [1, 2])  // SampleRate: 16kHz, 24kHz (with delimiter)
+    eldParams.add(0x03, byte: 1)  // SampleRate: 16kHz
 
     var eldConfig = TLV8.Builder()
     eldConfig.add(0x01, byte: 1)  // CodecType: AAC-ELD (recording enum)
     eldConfig.add(0x02, tlv: eldParams)
 
-    // Also offer AAC-LC
-    var lcParams = TLV8.Builder()
-    lcParams.add(0x01, byte: 1)  // Channels: 1
-    lcParams.add(0x02, byte: 0)  // BitRate: Variable
-    lcParams.addList(0x03, bytes: [2, 3])  // SampleRate: 24kHz, 32kHz (with delimiter)
-
-    var lcConfig = TLV8.Builder()
-    lcConfig.add(0x01, byte: 0)  // CodecType: AAC-LC (recording enum)
-    lcConfig.add(0x02, tlv: lcParams)
-
     var config = TLV8.Builder()
-    config.addList(0x01, tlvs: [eldConfig, lcConfig])  // Both codecs with delimiter
+    config.add(0x01, tlv: eldConfig)
     return config
   }
 

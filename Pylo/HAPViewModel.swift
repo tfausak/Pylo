@@ -29,6 +29,7 @@ nonisolated enum PrefKey {
   static let motionEnabled = "motionEnabled"
   static let motionSensitivity = "motionSensitivity"
   static let maxResolution = "maxResolution"
+  static let recordIn4K = "recordIn4K"
   static let frameRate = "frameRate"
   static let minBitrate = "minBitrate"
   static let legacyVideoQuality = "videoQuality"
@@ -66,6 +67,7 @@ struct AccessoryConfig: Equatable {
   var occupancyEnabled: Bool
   var sirenEnabled: Bool
   var buttonEnabled: Bool
+  var recordIn4K: Bool = false
 }
 
 extension AccessoryConfig {
@@ -81,6 +83,7 @@ extension AccessoryConfig {
     occupancyEnabled = vm.occupancyEnabled
     sirenEnabled = vm.sirenEnabled
     buttonEnabled = vm.buttonEnabled
+    recordIn4K = vm.recordIn4K
   }
 }
 
@@ -221,6 +224,26 @@ final class HAPViewModel: ObservableObject {
       guard !isRestoring, maxResolution != oldValue else { return }
       UserDefaults.standard.set(maxResolution.rawValue, forKey: PrefKey.maxResolution)
       cameraAccessory?.maxResolution = maxResolution
+    }
+  }
+  @Published var recordIn4K: Bool = false {
+    didSet {
+      guard !isRestoring, recordIn4K != oldValue else { return }
+      UserDefaults.standard.set(recordIn4K, forKey: PrefKey.recordIn4K)
+    }
+  }
+
+  var supports4KRecording: Bool {
+    guard #available(iOS 17.4, macOS 14.0, *),
+      let id = selectedStreamCamera?.id, let camera = AVCaptureDevice(uniqueID: id),
+      camera.supportsSessionPreset(.hd4K3840x2160)
+    else { return false }
+    return camera.formats.contains {
+      let size = CMVideoFormatDescriptionGetDimensions($0.formatDescription)
+      return size.width >= 3840 && size.height >= 2160
+        && $0.videoSupportedFrameRateRanges.contains {
+          $0.minFrameRate <= 30 && $0.maxFrameRate >= 30
+        }
     }
   }
   @Published var frameRate: FrameRate = .fps30 {
@@ -500,6 +523,7 @@ final class HAPViewModel: ObservableObject {
     {
       maxResolution = resolution
     }
+    recordIn4K = UserDefaults.standard.bool(forKey: PrefKey.recordIn4K)
     if UserDefaults.standard.object(forKey: PrefKey.frameRate) != nil {
       let savedFps = UserDefaults.standard.integer(forKey: PrefKey.frameRate)
       if let fps = FrameRate(rawValue: savedFps) {
@@ -607,6 +631,7 @@ final class HAPViewModel: ObservableObject {
       motionEnabled: motionEnabled,
       motionThreshold: motionSensitivity.threshold,
       maxResolution: maxResolution,
+      recordIn4K: recordIn4K && supports4KRecording,
       frameRate: frameRate,
       minBitrate: minBitrate,
       microphoneEnabled: microphoneEnabled,
@@ -1090,6 +1115,7 @@ private struct StartConfig: Sendable {
   let motionEnabled: Bool
   let motionThreshold: Double
   let maxResolution: MaxResolution
+  let recordIn4K: Bool
   let frameRate: FrameRate
   let minBitrate: Int
   let microphoneEnabled: Bool
@@ -1204,6 +1230,7 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
   if config.selectedStreamCameraID != nil {
     camera.selectedCameraID = config.selectedStreamCameraID
     camera.maxResolution = config.maxResolution
+    camera.recordIn4K = config.recordIn4K
     camera.frameRate = config.frameRate
     camera.minBitrate = config.minBitrate
     camera.microphoneEnabled = config.microphoneEnabled
@@ -1316,7 +1343,7 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
         // Don't start the siren while the camera is streaming — the siren's
         // .playAndRecord audio session would clobber the camera's .voiceChat
         // session, breaking stream audio.
-        guard camera?.streamSession == nil else {
+        guard camera?.hasActiveStreamSession != true else {
           siren?.updateOn(false)
           return
         }
@@ -1379,6 +1406,7 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
     if config.selectedStreamCameraID != nil {
       // Full mode: HKSV, fMP4, snapshots, all camera callbacks
       monitoring.fragmentWriter = fmp4Writer
+      monitoring.recordIn4K = camera.recordIn4K
 
       // Cache a CGImage from the monitoring session every ~1s so snapshot
       // requests from Home.app can be answered quickly instead of cold-starting
@@ -1395,6 +1423,10 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
           weak ambientLightDetector
         ] needed, existingSession in
         guard let camera else { return }
+        guard camera.homeKitCameraActive else {
+          monitoring?.stop()
+          return
+        }
         // Re-entrancy guard: start() can synchronously deliver buffered frames
         // when reusing a handed-off session, which may re-trigger this callback
         // and cause a stack overflow.
@@ -1406,6 +1438,7 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
         guard !reentrant else { return }
         defer { monitoringBusy.withLock { $0 = false } }
         if needed {
+          monitoring?.sensorOnly = false
           monitoring?.videoMotionDetector = camera.videoMotionDetector
           monitoring?.ambientLightDetector = camera.ambientLightDetector ?? ambientLightDetector
           monitoring?.occupancySensor = occupancyDetector
@@ -1422,6 +1455,7 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
           // HKSV disarmed but sensors still need frames — restart
           // monitoring without HKSV-specific features (motion detection, audio).
           monitoring?.stop()
+          monitoring?.sensorOnly = true
           camera.videoMotionDetector?.reset()
           monitoring?.videoMotionDetector = nil
           monitoring?.ambientLightDetector = ambientLightDetector
@@ -1438,10 +1472,11 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
 
       // Auto-start monitoring if recordingActive was restored from a previous session,
       // or if sensors need camera frames.
-      if camera.streamSession == nil,
+      if camera.homeKitCameraActive, !camera.hasActiveStreamSession,
         camera.recordingActive != 0 || occupancyDetector != nil || ambientLightDetector != nil
       {
-        let recordingArmed = camera.recordingActive != 0
+        let recordingArmed = camera.homeKitCameraActive && camera.recordingActive != 0
+        monitoring.sensorOnly = !recordingArmed
         monitoring.videoMotionDetector = recordingArmed ? camera.videoMotionDetector : nil
         monitoring.ambientLightDetector =
           recordingArmed
@@ -1463,7 +1498,9 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
       // Restart monitoring when recordingAudioActive changes so audio state takes effect
       camera.onRecordingAudioActiveChange = { [weak monitoring, weak camera] active in
         UserDefaults.standard.set(active ? 1 : 0, forKey: PrefKey.recordingAudioActive)
-        if let camera, camera.recordingActive != 0, camera.streamSession == nil {
+        if let camera, camera.homeKitCameraActive,
+          camera.recordingActive != 0, !camera.hasActiveStreamSession
+        {
           monitoring?.stop()
           monitoring?.audioRecordingEnabled = active && camera.microphoneEnabled
           if let device = camera.resolvedCamera {
@@ -1520,11 +1557,12 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
       weak ambientLightDetector
     ] in
     // Resume monitoring if recording armed or sensors need frames + no live stream
-    if let camera, camera.streamSession == nil,
+    if let camera, camera.homeKitCameraActive, !camera.hasActiveStreamSession,
       camera.recordingActive != 0 || occupancyDetector != nil || ambientLightDetector != nil,
       let device = camera.resolvedCamera
     {
       let recordingArmed = camera.recordingActive != 0
+      monitoringSession?.sensorOnly = !recordingArmed
       monitoringSession?.videoMotionDetector = recordingArmed ? camera.videoMotionDetector : nil
       monitoringSession?.ambientLightDetector =
         recordingArmed

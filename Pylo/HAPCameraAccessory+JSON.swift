@@ -102,6 +102,23 @@ extension HAPCameraAccessory {
         ],
       ],
     ]
+    for (slot, manager) in streamManagers.enumerated() where slot != 0 {
+      let characteristics = rtpCharacteristics.map { characteristic in
+        var value = characteristic
+        let iid = characteristic["iid"] as! Int
+        value["iid"] = Self.streamIID(iid, slot: slot)
+        if iid == Self.iidStreamingStatus {
+          value["value"] = manager.streamingStatusTLV().base64EncodedString()
+        } else if iid == Self.iidRTPStreamActive {
+          value["value"] = manager.rtpStreamActive
+        }
+        return value
+      }
+      services.append([
+        "iid": Self.streamIID(Self.iidCameraService, slot: slot),
+        "type": Self.uuidCameraRTPStreamManagement, "characteristics": characteristics,
+      ])
+    }
 
     // HKSV services (only if enabled)
     if hksvEnabled {
@@ -132,7 +149,8 @@ extension HAPCameraAccessory {
       services.append([
         "iid": Self.iidRecordingManagementService,
         "type": Self.uuidCameraEventRecordingManagement,
-        "linked": [Self.iidCameraService, Self.iidMotionSensorService, Self.iidDataStreamService],
+        "linked": streamManagers.indices.map { Self.streamIID(Self.iidCameraService, slot: $0) }
+          + [Self.iidMotionSensorService, Self.iidDataStreamService],
         "characteristics": [
           [
             "iid": Self.iidRecordingActive,

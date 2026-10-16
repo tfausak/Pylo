@@ -2124,6 +2124,27 @@ struct EncryptionContextMultiFrameTests {
 @Suite("HDS Raw DataSend Event Layout")
 struct HDSRawDataSendEventTests {
 
+  @Test(
+    "Real recording events retain false and true end-of-stream flags",
+    arguments: [nil, false, true] as [Bool?])
+  func recordingEventEndFlag(endOfStream: Bool?) throws {
+    let payload = Data([0, 1, 2, 255])
+    let encoded = HDSConnection.buildRawDataSendEvent(
+      streamID: 7, dataType: "mediaFragment", dataSequenceNumber: 2,
+      dataChunkSequenceNumber: 1, isLastDataChunk: true, dataTotalSize: payload.count,
+      endOfStream: endOfStream, chunk: payload)
+    let message = try #require(HDSMessage.decode(encoded))
+    #expect(message.protocol == "dataSend")
+    #expect(message.topic == "data")
+    #expect(message.body["endOfStream"] as? Bool == endOfStream)
+    let packets = try #require(message.body["packets"] as? [[String: Any]])
+    let packet = try #require(packets.first)
+    #expect(packet["data"] as? Data == payload)
+    let metadata = try #require(packet["metadata"] as? [String: Any])
+    #expect(metadata["dataSequenceNumber"] as? Int == 2)
+    #expect(metadata["isLastDataChunk"] as? Bool == true)
+  }
+
   @Test("buildRawDataSendEvent header encodes dataSend/data correctly")
   func headerEncoding() {
     // Verify the header can be decoded by HDSCodec

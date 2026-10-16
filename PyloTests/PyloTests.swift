@@ -11,6 +11,88 @@ import Testing
 
 @testable import Pylo
 
+@Suite("Concurrent camera viewers")
+struct ConcurrentViewerTests {
+  @Test("Stream slots have unique IIDs and share the configured capabilities")
+  func accessoryDatabase() throws {
+    let camera = HAPCameraAccessory(aid: 3)
+    camera.hksvEnabled = true
+    camera.batteryState = BatteryState()
+    camera.maxResolution = .r720p
+    let services = try #require(camera.toJSON()["services"] as? [[String: Any]])
+    let streams = services.filter {
+      $0["type"] as? String == HAPCameraAccessory.uuidCameraRTPStreamManagement
+    }
+    #expect(streams.count == 5)
+    let iids = services.flatMap { service -> [Int] in
+      [service["iid"] as! Int]
+        + (service["characteristics"] as! [[String: Any]]).map { $0["iid"] as! Int }
+    }
+    #expect(Set(iids).count == iids.count)
+    for slot in camera.streamManagers.indices {
+      #expect(
+        camera.readCharacteristic(
+          iid: HAPCameraAccessory.streamIID(HAPCameraAccessory.iidSupportedVideoConfig, slot: slot))
+          == camera.readCharacteristic(iid: HAPCameraAccessory.iidSupportedVideoConfig))
+    }
+    let recording = try #require(
+      services.first {
+        $0["type"] as? String == HAPCameraAccessory.uuidCameraEventRecordingManagement
+      })
+    let linked = try #require(recording["linked"] as? [Int])
+    #expect(streams.allSatisfy { linked.contains($0["iid"] as! Int) })
+  }
+
+  @Test("A stale stop cannot replace a viewer; slot disable and camera Off are independent")
+  func sessionControls() throws {
+    let camera = HAPCameraAccessory(aid: 3)
+    defer { camera.stopStreaming() }
+    for slot in camera.streamManagers.indices {
+      var setup = TLV8.Builder()
+      setup.add(1, Data(repeating: UInt8(slot), count: 16))
+      #expect(
+        camera.writeCharacteristic(
+          iid: HAPCameraAccessory.streamIID(HAPCameraAccessory.iidSetupEndpoints, slot: slot),
+          value: .string(setup.base64())))
+      #expect(
+        camera.streamManagers[slot].streamSession?.sessionID
+          == Data(repeating: UInt8(slot), count: 16))
+    }
+    #expect(camera.hasActiveStreamSession)
+    var control = TLV8.Builder()
+    control.add(1, Data(repeating: 99, count: 16))
+    control.add(2, byte: 0)
+    var staleStop = TLV8.Builder()
+    staleStop.add(1, tlv: control)
+    #expect(
+      !camera.writeCharacteristic(
+        iid: HAPCameraAccessory.streamIID(HAPCameraAccessory.iidSelectedRTPStreamConfig, slot: 1),
+        value: .string(staleStop.base64())))
+    #expect(camera.streamManagers.allSatisfy { $0.streamSession != nil })
+
+    #expect(
+      camera.writeCharacteristic(iid: HAPCameraAccessory.iidMicrophoneMute, value: .bool(true)))
+    #expect(camera.streamManagers.allSatisfy { $0.streamSession?.isMuted == true })
+    #expect(
+      camera.writeCharacteristic(
+        iid: HAPCameraAccessory.streamIID(HAPCameraAccessory.iidRTPStreamActive, slot: 1),
+        value: .int(0)))
+    #expect(camera.streamManagers[1].streamSession == nil)
+    #expect(camera.streamManagers[0].streamSession != nil)
+    #expect(camera.streamManagers[2].streamSession != nil)
+    #expect(
+      camera.writeCharacteristic(
+        iid: HAPCameraAccessory.iidHomeKitCameraActive, value: .bool(false)))
+    #expect(!camera.hasActiveStreamSession)
+    for slot in camera.streamManagers.indices {
+      #expect(
+        !camera.writeCharacteristic(
+          iid: HAPCameraAccessory.streamIID(HAPCameraAccessory.iidSetupEndpoints, slot: slot),
+          value: .string("")))
+    }
+  }
+}
+
 // MARK: - HAP Lightbulb Accessory Tests
 
 @Suite("HAP Lightbulb Accessory")
@@ -432,9 +514,7 @@ struct BatteryServiceTests {
 
     let json = camera.toJSON()
     let services = json["services"] as! [[String: Any]]
-    // Accessory Info + Protocol Info + Camera RTP + Microphone + Speaker + Battery = 6 services
-    #expect(services.count == 6)
-    #expect(services[5]["type"] as? String == BatteryUUID.service)
+    #expect(services.filter { $0["type"] as? String == BatteryUUID.service }.count == 1)
   }
 
   @Test("Camera toJSON omits battery service when batteryState is nil")
@@ -442,8 +522,7 @@ struct BatteryServiceTests {
     let camera = HAPCameraAccessory(aid: 3)
     let json = camera.toJSON()
     let services = json["services"] as! [[String: Any]]
-    // Accessory Info + Protocol Info + Camera RTP + Microphone + Speaker = 5 services (no battery)
-    #expect(services.count == 5)
+    #expect(!services.contains { $0["type"] as? String == BatteryUUID.service })
   }
 
   @Test("readCharacteristic returns battery values when state is set")
@@ -605,6 +684,23 @@ struct VideoMotionDetectorThreadSafetyTests {
     let camera = HAPCameraAccessory(aid: 3)
     #expect(camera.cachedFrame == nil)
   }
+
+  @Test("Camera off clears cached footage and refuses in-flight snapshot frames")
+  func cameraOffRejectsSnapshot() async {
+    let camera = HAPCameraAccessory(aid: 3)
+    let context = CGContext(
+      data: nil, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+      space: CGColorSpace(name: CGColorSpace.sRGB)!,
+      bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue)!
+    let image = context.makeImage()!
+    camera.cachedFrame = image
+    camera.writeCharacteristic(iid: HAPCameraAccessory.iidHomeKitCameraActive, value: .bool(false))
+    #expect(camera.cachedFrame == nil)
+    // A capture callback already queued before shutdown may still publish a frame.
+    camera.cachedFrame = image
+    let snapshot = await Task.detached { camera.captureSnapshot(width: 1, height: 1) }.value
+    #expect(snapshot == nil)
+  }
 }
 
 // MARK: - Camera Write Characteristic Tests
@@ -623,9 +719,12 @@ struct CameraWriteCharacteristicTests {
     #expect(monitoringNeeded.withLock { $0 } == true)
   }
 
-  @Test("Recording active does not trigger monitoring when stream session exists")
-  func recordingActiveSkipsMonitoringWithStream() {
+  @Test(
+    "Recording enable preserves a prepared stream, including repeated writes",
+    arguments: [false, true])
+  func recordingActiveSkipsMonitoringWithStream(recordIn4K: Bool) {
     let camera = HAPCameraAccessory(aid: 3)
+    camera.recordIn4K = recordIn4K
     // Install a dummy stream session so hasActiveStreamSession returns true
     let dummySession = CameraStreamSession(
       sessionID: Data(repeating: 0, count: 16),
@@ -640,8 +739,11 @@ struct CameraWriteCharacteristicTests {
     camera.onMonitoringCaptureNeeded = { _, _ in
       monitoringCalled.withLock { $0 = true }
     }
-    camera.writeCharacteristic(iid: HAPCameraAccessory.iidRecordingActive, value: .int(1))
-    #expect(monitoringCalled.withLock { $0 } == false)
+    for _ in 0..<2 {
+      camera.writeCharacteristic(iid: HAPCameraAccessory.iidRecordingActive, value: .int(1))
+      #expect(camera.streamSession === dummySession)
+      #expect(monitoringCalled.withLock { $0 } == false)
+    }
   }
 
   @Test("Recording deactivate triggers monitoring stop")
@@ -676,11 +778,16 @@ struct CameraWriteCharacteristicTests {
       let value: HAPValue
     }
     let stateChanges = Locked<[Change]>(initialState: [])
+    let monitoringRequests = Locked<[Bool]>(initialState: [])
+    camera.onMonitoringCaptureNeeded = { needed, _ in
+      monitoringRequests.withLock { $0.append(needed) }
+    }
     camera.onStateChange = { _, iid, value in
       stateChanges.withLock { $0.append(Change(iid: iid, value: value)) }
     }
     camera.writeCharacteristic(iid: HAPCameraAccessory.iidHomeKitCameraActive, value: .bool(false))
     #expect(camera.homeKitCameraActive == false)
+    #expect(monitoringRequests.value == [false])
     // Should also mirror to motion sensor StatusActive
     let changes = stateChanges.withLock { $0 }
     #expect(changes.count == 2)
@@ -1103,6 +1210,16 @@ struct HAPViewModelTests {
     vm.startedConfig = AccessoryConfig(from: vm)
     vm.withRestoring { vm.flashlightEnabled = true }
     #expect(vm.needsRestart == true)
+  }
+
+  @Test("Changing 4K recording requires restart and reverting it clears restart")
+  func needsRestart4KRecordingChanged() {
+    let vm = HAPViewModel(skipRestore: true)
+    vm.startedConfig = AccessoryConfig(from: vm)
+    vm.withRestoring { vm.recordIn4K = true }
+    #expect(vm.needsRestart)
+    vm.withRestoring { vm.recordIn4K = false }
+    #expect(!vm.needsRestart)
   }
 
   @Test("needsRestart is true when camera selection changes")

@@ -400,7 +400,8 @@ public final class HDSConnection: @unchecked Sendable {
     }
 
     // Send prebuffered fragments, yielding between each to avoid blocking the queue.
-    let fragments = writer.ringBuffer.snapshot()
+    // The advertised prebuffer is 4 seconds: one complete, independently decodable fragment.
+    let fragments = Array(writer.ringBuffer.snapshot().suffix(1))
     logger.debug("HDS sending \(fragments.count) prebuffered fragment(s)")
     sendPrebufferedBatch(fragments: fragments, index: 0, writer: writer)
   }
@@ -494,14 +495,14 @@ public final class HDSConnection: @unchecked Sendable {
       let chunk = data[offset..<end]
       let isLastChunk = end >= data.count
 
-      let message = buildRawDataSendEvent(
+      let message = Self.buildRawDataSendEvent(
         streamID: streamID,
         dataType: dataType,
         dataSequenceNumber: dataSequenceNumber,
         dataChunkSequenceNumber: chunkSeq,
         isLastDataChunk: isLastChunk,
         dataTotalSize: chunkSeq == 1 ? totalSize : nil,
-        endOfStream: isLast && isLastChunk,
+        endOfStream: isLastChunk ? isLast : nil,
         chunk: chunk
       )
 
@@ -519,14 +520,14 @@ public final class HDSConnection: @unchecked Sendable {
   /// Build a raw dataSend/data HDS event message with exact byte ordering
   /// matching positron's known-working implementation. This bypasses HDSCodec
   /// which sorts keys alphabetically — a different order than the hub expects.
-  private func buildRawDataSendEvent(
+  static func buildRawDataSendEvent(
     streamID: Int,
     dataType: String,
     dataSequenceNumber: Int,
     dataChunkSequenceNumber: Int,
     isLastDataChunk: Bool,
     dataTotalSize: Int?,
-    endOfStream: Bool,
+    endOfStream: Bool?,
     chunk: Data
   ) -> Data {
     var buf = Data()
@@ -543,18 +544,18 @@ public final class HDSConnection: @unchecked Sendable {
     buf.append(contentsOf: headerBytes)
 
     // ---- Body dict (2 or 3 entries) ----
-    buf.append(endOfStream ? 0xE3 : 0xE2)
+    buf.append(endOfStream != nil ? 0xE3 : 0xE2)
 
     // streamId -> number
     buf.append(contentsOf: [0x48, 0x73, 0x74, 0x72, 0x65, 0x61, 0x6D, 0x49, 0x64])
     Self.appendHDSInt(&buf, streamID)
 
-    // endOfStream -> true (optional)
-    if endOfStream {
+    // Include false on the last chunk of a non-final fragment, matching HAP-NodeJS.
+    if let endOfStream {
       buf.append(contentsOf: [
         0x4B,  // string of 11
         0x65, 0x6E, 0x64, 0x4F, 0x66, 0x53, 0x74, 0x72, 0x65, 0x61, 0x6D,
-        0x01,  // TRUE
+        endOfStream ? 0x01 : 0x02,
       ])
     }
 
