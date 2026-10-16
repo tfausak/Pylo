@@ -168,6 +168,26 @@ import Testing
     #expect(motionEvents.isEmpty)
   }
 
+  @Test func resetBaselinePreservesActiveMotion() {
+    let detector = VideoMotionDetector()
+    detector.cooldown = 0
+    var motionEvents: [Bool] = []
+    detector.onMotionChange = { motionEvents.append($0) }
+
+    let pb1 = makePixelBuffer(gray: 0)!
+    let pb2 = makePixelBuffer(gray: 255)!
+    detector.processPixelBuffer(pb1)
+    detector.processPixelBuffer(pb2)  // motion detected
+
+    // Rotation: the new orientation becomes the baseline without a motion
+    // event, but the active motion must still clear normally afterwards.
+    detector.resetBaseline()
+    detector.processPixelBuffer(pb1)  // new baseline, no comparison
+    detector.processPixelBuffer(pb1)  // still → clears (cooldown=0)
+
+    #expect(motionEvents == [true, false])
+  }
+
   // MARK: - NV12 format
 
   @Test func nv12IdenticalFramesDoNotTriggerMotion() {

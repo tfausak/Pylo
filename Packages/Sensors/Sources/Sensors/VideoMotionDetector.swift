@@ -125,6 +125,14 @@ public nonisolated final class VideoMotionDetector {
     }
   }
 
+  /// Discard the comparison frame without touching motion/cooldown state, so
+  /// the next frame becomes a new baseline. Use when the framing changes (e.g.
+  /// the capture rotated) but detection continues, so an active motion event
+  /// still clears normally through `onMotionChange(false)`.
+  public func resetBaseline() {
+    state.withLockUnchecked { $0.previousFrame = nil }
+  }
+
   /// Reset state (call when stopping detection).
   public func reset() {
     state.withLockUnchecked { state in

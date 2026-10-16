@@ -11,6 +11,11 @@ import Locked
 /// Shared by HAPCameraAccessory and MonitoringCaptureSession to avoid duplicate observers.
 #if os(iOS)
   public nonisolated enum DeviceOrientationCache {
+    /// Posted on the main queue whenever the cached orientation changes, so
+    /// long-running capture sessions can re-apply their rotation.
+    public static let didChangeNotification = Notification.Name(
+      "DeviceOrientationCacheDidChange")
+
     private static let state = Locked(
       initialState: Int(UIDeviceOrientation.portrait.rawValue)
     )
@@ -39,13 +44,13 @@ import Locked
             // doesn't stay stuck at the default portrait.
             if !hasRealOrientation.value {
               if let mapped = interfaceOrientationFallback() {
-                state.withLock { $0 = mapped.rawValue }
+                update(mapped)
               }
             }
             return
           }
           hasRealOrientation.value = true
-          state.withLock { $0 = orientation.rawValue }
+          update(orientation)
         }
       }
     }()
@@ -59,9 +64,23 @@ import Locked
       _ = token
       let initial = UIDevice.current.orientation
       if initial != .unknown, initial != .faceUp, initial != .faceDown {
-        state.withLock { $0 = initial.rawValue }
+        update(initial)
       } else if let mapped = interfaceOrientationFallback() {
-        state.withLock { $0 = mapped.rawValue }
+        update(mapped)
+      }
+    }
+
+    /// Store a new orientation and post `didChangeNotification` if it differs
+    /// from the cached value.
+    @MainActor
+    private static func update(_ orientation: UIDeviceOrientation) {
+      let changed = state.withLock { (value: inout Int) -> Bool in
+        guard value != orientation.rawValue else { return false }
+        value = orientation.rawValue
+        return true
+      }
+      if changed {
+        NotificationCenter.default.post(name: didChangeNotification, object: nil)
       }
     }
 
