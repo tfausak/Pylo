@@ -168,6 +168,47 @@ public nonisolated func videoOrientation(from angle: Int) -> AVCaptureVideoOrien
   }
 }
 
+/// Adjust a device-orientation rotation angle (computed for the back camera)
+/// for the camera's mounting. The front sensor is mounted opposite the back
+/// one, so landscape needs the other 180° rotation; portrait is unchanged.
+/// Only applies to `videoRotationAngle` — the legacy `videoOrientation` API
+/// is device-relative and already accounts for the camera position.
+public nonisolated func videoRotationAngle(
+  from angle: Int, position: AVCaptureDevice.Position
+) -> Int {
+  guard position == .front else { return angle }
+  switch angle {
+  case 0: return 180
+  case 180: return 0
+  default: return angle
+  }
+}
+
+/// Apply a device-orientation rotation angle (0/90/180/270, as computed for
+/// the back camera) to a capture connection, using `videoRotationAngle` on
+/// iOS 17+/macOS 14+ and `videoOrientation` otherwise.
+public nonisolated func applyVideoRotation(_ angle: Int, to connection: AVCaptureConnection) {
+  if #available(iOS 17.0, macOS 14.0, *) {
+    #if os(iOS)
+      let position =
+        connection.inputPorts.lazy
+        .compactMap { ($0.input as? AVCaptureDeviceInput)?.device.position }
+        .first ?? .unspecified
+    #else
+      let position = AVCaptureDevice.Position.unspecified
+    #endif
+    let adjusted = CGFloat(videoRotationAngle(from: angle, position: position))
+    if connection.isVideoRotationAngleSupported(adjusted) {
+      connection.videoRotationAngle = adjusted
+    }
+  } else {
+    let orientation = videoOrientation(from: angle)
+    if connection.isVideoOrientationSupported {
+      connection.videoOrientation = orientation
+    }
+  }
+}
+
 // MARK: - Audio Converter Callback Data
 
 /// Helper for passing PCM data through the AudioConverter encoder C callback.

@@ -412,7 +412,7 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     // Rotate output to match device orientation.
     let rotationAngle = Self.currentRotationAngle()
     if let connection = output.connection(with: .video) {
-      Self.applyRotation(rotationAngle, to: connection)
+      applyVideoRotation(rotationAngle, to: connection)
     }
     appliedRotationAngle.value = rotationAngle
 
@@ -686,7 +686,7 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
           self.logger.info(
             "Device orientation changed — rotating monitoring capture to \(angle)\u{00B0}")
           session.beginConfiguration()
-          Self.applyRotation(angle, to: connection)
+          applyVideoRotation(angle, to: connection)
           session.commitConfiguration()
           self.appliedRotationAngle.value = angle
           // The rotated frames would otherwise be compared against the
@@ -948,19 +948,6 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
 
     VTCompressionSessionPrepareToEncodeFrames(cs)
     return cs
-  }
-
-  private static func applyRotation(_ angle: Int, to connection: AVCaptureConnection) {
-    if #available(iOS 17.0, macOS 14.0, *) {
-      if connection.isVideoRotationAngleSupported(CGFloat(angle)) {
-        connection.videoRotationAngle = CGFloat(angle)
-      }
-    } else {
-      let orientation = videoOrientation(from: angle)
-      if connection.isVideoOrientationSupported {
-        connection.videoOrientation = orientation
-      }
-    }
   }
 
   private static func currentRotationAngle() -> Int {
