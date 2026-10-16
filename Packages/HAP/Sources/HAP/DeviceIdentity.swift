@@ -33,24 +33,68 @@ public final class DeviceIdentity: @unchecked Sendable {
     }
 
     // Generate fresh identity and persist
+    (self.signingKey, self.deviceID) = Self.generate(keyStore: keyStore)
+  }
+
+  /// Generates a new signing key and device ID and persists them to `keyStore`.
+  private static func generate(keyStore: KeyStore) -> (
+    signingKey: Curve25519.Signing.PrivateKey, deviceID: String
+  ) {
     let newKey = Curve25519.Signing.PrivateKey()
-    self.signingKey = newKey
 
     var bytes = [UInt8](repeating: 0, count: 6)
     guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
       fatalError("SecRandomCopyBytes failed — cannot generate device ID")
     }
     let newID = bytes.map { String(format: "%02X", $0) }.joined(separator: ":")
-    self.deviceID = newID
 
     if !keyStore.save(key: "device-signing-key", data: newKey.rawRepresentation) {
-      Self.logger.error(
+      logger.error(
         "Failed to persist device signing key — identity will change on next launch")
     }
     if !keyStore.save(key: "device-id", data: Data(newID.utf8)) {
-      Self.logger.error("Failed to persist device ID — identity will change on next launch")
+      logger.error("Failed to persist device ID — identity will change on next launch")
     }
-    Self.logger.info("Generated new identity: \(newID)")
+    logger.info("Generated new identity: \(newID)")
+    return (newKey, newID)
+  }
+
+  // MARK: - Rotation
+
+  /// Key store entry marking an identity that has never been given to a controller.
+  /// Absent for identities created before this marker existed, which are treated
+  /// as possibly paired.
+  private static let neverPairedKey = "identity-never-paired"
+
+  /// Replaces the device ID, signing key, setup code, and setup ID if the
+  /// accessory is unpaired but its identity may still be known to a controller.
+  ///
+  /// HomeKit remembers accessories by device ID. If a pairing is lost on the
+  /// accessory side (unpair, reinstall, or an interrupted add), Home keeps
+  /// refusing the old ID with "Accessory Already in Another Home". HAP requires
+  /// a new device ID after a reset, so a fresh identity makes Home treat the
+  /// bridge as a new accessory. Keychain items survive app deletion, so this
+  /// also covers reinstalls, where `pairings.json` is gone but the identity isn't.
+  ///
+  /// Call before loading `DeviceIdentity` or reading the setup code. Returns
+  /// true if the identity was replaced.
+  @discardableResult
+  public static func rotateIfNeeded(keyStore: KeyStore, isPaired: Bool) -> Bool {
+    guard !isPaired, keyStore.load(key: neverPairedKey) != Data([1]) else { return false }
+    _ = generate(keyStore: keyStore)
+    PairSetupHandler.resetSetupCredentials(keyStore: keyStore)
+    // Written last so an interrupted rotation is retried on the next launch.
+    keyStore.save(key: neverPairedKey, data: Data([1]))
+    logger.info("Rotated identity for unpaired accessory")
+    return true
+  }
+
+  /// Records that the current identity has been given to a controller, so it is
+  /// rotated the next time the accessory is found unpaired.
+  public static func markPaired(keyStore: KeyStore) {
+    if !keyStore.save(key: neverPairedKey, data: Data([0])) {
+      logger.error("Failed to mark identity as paired")
+    }
   }
 
   public init(signingKey: Curve25519.Signing.PrivateKey, deviceID: String) {

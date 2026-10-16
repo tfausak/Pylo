@@ -2223,6 +2223,53 @@ struct DeviceIdentityTests {
     #expect(!identity.deviceID.isEmpty)
   }
 
+  @Test("rotateIfNeeded replaces a legacy identity when unpaired")
+  func rotateLegacyIdentity() {
+    let ks = InMemoryKeyStore()
+    let old = DeviceIdentity(keyStore: ks)
+    ks.save(key: "setup-code", data: Data("111-22-333".utf8))
+    ks.save(key: "setup-id", data: Data("OLD1".utf8))
+
+    #expect(DeviceIdentity.rotateIfNeeded(keyStore: ks, isPaired: false))
+
+    let new = DeviceIdentity(keyStore: ks)
+    #expect(new.deviceID != old.deviceID)
+    #expect(new.publicKey.rawRepresentation != old.publicKey.rawRepresentation)
+    #expect(ks.load(key: "setup-code") != Data("111-22-333".utf8))
+    #expect(ks.load(key: "setup-id") != Data("OLD1".utf8))
+  }
+
+  @Test("rotateIfNeeded keeps an identity that was never paired")
+  func keepNeverPairedIdentity() {
+    let ks = InMemoryKeyStore()
+    DeviceIdentity.rotateIfNeeded(keyStore: ks, isPaired: false)
+    let first = DeviceIdentity(keyStore: ks)
+
+    #expect(!DeviceIdentity.rotateIfNeeded(keyStore: ks, isPaired: false))
+    #expect(DeviceIdentity(keyStore: ks).deviceID == first.deviceID)
+  }
+
+  @Test("rotateIfNeeded keeps the identity while paired")
+  func keepPairedIdentity() {
+    let ks = InMemoryKeyStore()
+    let first = DeviceIdentity(keyStore: ks)
+
+    #expect(!DeviceIdentity.rotateIfNeeded(keyStore: ks, isPaired: true))
+    #expect(DeviceIdentity(keyStore: ks).deviceID == first.deviceID)
+  }
+
+  @Test("rotateIfNeeded replaces an identity once it has been paired and unpaired")
+  func rotateAfterUnpair() {
+    let ks = InMemoryKeyStore()
+    DeviceIdentity.rotateIfNeeded(keyStore: ks, isPaired: false)
+    let first = DeviceIdentity(keyStore: ks)
+    DeviceIdentity.markPaired(keyStore: ks)
+
+    #expect(!DeviceIdentity.rotateIfNeeded(keyStore: ks, isPaired: true))
+    #expect(DeviceIdentity.rotateIfNeeded(keyStore: ks, isPaired: false))
+    #expect(DeviceIdentity(keyStore: ks).deviceID != first.deviceID)
+  }
+
   @Test("publicKey matches signingKey")
   func publicKeyConsistency() {
     let key = Curve25519.Signing.PrivateKey()
