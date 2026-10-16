@@ -279,6 +279,16 @@ nonisolated final class HAPCameraAccessory: HAPAccessoryProtocol, HAPSnapshotPro
   /// multiple controllers) don't each spin up their own AVCaptureSession.
   let snapshotCaptureLock = NSLock()
 
+  /// When the most recent cold-start snapshot capture finished, successful or
+  /// not. Lets requests queued behind `snapshotCaptureLock` share a failed
+  /// attempt's outcome instead of retrying it. Only accessed while holding
+  /// `snapshotCaptureLock`.
+  var lastSnapshotCaptureAttempt: Date? {
+    get { _lastSnapshotCaptureAttempt.value }
+    set { _lastSnapshotCaptureAttempt.value = newValue }
+  }
+  private let _lastSnapshotCaptureAttempt = Locked<Date?>(initialState: nil)
+
   /// JPEG-encode a CGImage on demand using the reusable CIContext.
   func jpegEncode(_ cgImage: CGImage) -> Data? {
     let ciImage = CIImage(cgImage: cgImage)

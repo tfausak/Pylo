@@ -43,14 +43,9 @@ extension HAPCameraAccessory {
       return jpeg
     }
 
+    let requestedAt = Date()
     snapshotCaptureLock.lock()
     defer { snapshotCaptureLock.unlock() }
-
-    // Another request may have refreshed the cache while we waited.
-    if let frame = cachedFrame(maxAge: Self.maxCachedFrameAge) {
-      logger.debug("Encoding frame refreshed by concurrent capture")
-      return jpegEncode(frame)
-    }
 
     // If the fresh capture fails, a stale frame is still better than nothing.
     let staleFallback = { [self] () -> Data? in
@@ -58,6 +53,21 @@ extension HAPCameraAccessory {
       logger.debug("Falling back to stale cached frame")
       return jpegEncode(frame)
     }
+
+    // Another request may have refreshed the cache while we waited.
+    if let frame = cachedFrame(maxAge: Self.maxCachedFrameAge) {
+      logger.debug("Encoding frame refreshed by concurrent capture")
+      return jpegEncode(frame)
+    }
+
+    // If a capture attempt finished while we waited, it failed (or the
+    // check above would have returned). Share its outcome instead of
+    // retrying, so queued requests don't each wait up to 3s in turn.
+    if let lastAttempt = lastSnapshotCaptureAttempt, lastAttempt >= requestedAt {
+      logger.debug("Concurrent capture failed -- not retrying")
+      return staleFallback()
+    }
+    defer { lastSnapshotCaptureAttempt = Date() }
 
     guard let camera = resolveCamera() else {
       logger.error("No camera available for snapshot")
