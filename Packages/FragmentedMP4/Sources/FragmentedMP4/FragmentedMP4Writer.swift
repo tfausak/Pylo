@@ -72,13 +72,14 @@ public final class FragmentRingBuffer: @unchecked Sendable {
     }
   }
 
-  /// Clear all buffered fragments.
-  public func clear() {
+  /// Clear all buffered fragments. Pass `resetSequence: false` to keep
+  /// numbering continuous for fragments emitted afterwards.
+  public func clear(resetSequence: Bool = true) {
     _state.withLock { state in
       for i in state.slots.indices { state.slots[i] = nil }
       state.writeIndex = 0
       state.count = 0
-      state.nextSequence = 0
+      if resetSequence { state.nextSequence = 0 }
     }
   }
 }
@@ -243,6 +244,16 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
         guard Self.needsInitSegment(current: state.videoFormatDescription, new: fmt),
           state.includeAudioTrack == includeAudio
         else { return }
+        if state.videoFormatDescription != nil {
+          // Dimensions changed mid-capture. Buffered video was encoded with the
+          // old SPS/PPS and can't be decoded with the new init segment, so drop
+          // it rather than mixing formats in a fragment or the prebuffer.
+          logger.info("Video dimensions changed — discarding buffered old-format video")
+          state.pendingSamples.removeAll()
+          state.pendingAudioSamples.removeAll()
+          state.fragmentStartPTS = .invalid
+          ringBuffer.clear(resetSequence: false)
+        }
         state.videoFormatDescription = fmt
         state.initSegment = initSeg
       }

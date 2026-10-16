@@ -674,7 +674,7 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
           self.appliedRotationAngle.value = angle
           // The rotated frames would otherwise be compared against the
           // previous orientation and register as motion.
-          self.videoMotionDetector?.reset()
+          self.videoMotionDetector?.resetBaseline()
         })
     #endif
   }
@@ -692,12 +692,16 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     guard var cs = compressionSession else { return }
 
     // The device rotated between portrait and landscape while capturing, so
-    // the connection now delivers buffers with swapped dimensions. Rebuild the
-    // encoder to match rather than letting VideoToolbox scale/distort them.
-    let width = CVPixelBufferGetWidth(pixelBuffer)
-    let height = CVPixelBufferGetHeight(pixelBuffer)
-    if width != encoderWidth || height != encoderHeight {
-      guard let rebuilt = rebuildCompressionSession(replacing: cs, width: width, height: height)
+    // the connection now delivers buffers with the other aspect. Swap the
+    // encoder dimensions to match. Compare orientation rather than exact size:
+    // the capture preset can be larger than the encoder (e.g. 720p capture
+    // for 480p recording) and VideoToolbox scales that down intentionally.
+    let bufferIsPortrait = CVPixelBufferGetHeight(pixelBuffer) > CVPixelBufferGetWidth(pixelBuffer)
+    let encoderIsPortrait = encoderHeight > encoderWidth
+    if bufferIsPortrait != encoderIsPortrait {
+      guard
+        let rebuilt = rebuildCompressionSession(
+          replacing: cs, width: encoderHeight, height: encoderWidth)
       else { return }
       cs = rebuilt
     }
@@ -725,8 +729,7 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     )
   }
 
-  /// Replace the compression session with one sized for the new buffer
-  /// dimensions. captureQueue only. Returns nil if the session was stopped or
+  /// Replace the compression session with one of the given dimensions. captureQueue only. Returns nil if the session was stopped or
   /// handed off concurrently, or if the new encoder couldn't be created.
   private func rebuildCompressionSession(
     replacing old: VTCompressionSession, width: Int, height: Int

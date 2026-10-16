@@ -461,6 +461,45 @@ struct InitSegmentStructureTests {
     #expect(landscape != portrait)
   }
 
+  @Test("Dimension change discards buffered video from the old format")
+  func dimensionChangeDiscardsOldFormatVideo() {
+    let writer = FragmentedMP4Writer()
+    writer.configure(fps: 30)
+    nonisolated(unsafe) var emitted: [MP4Fragment] = []
+    writer.onFragmentReady = { emitted.append($0) }
+    let landscape = makeFormatDescription(width: 320, height: 240)
+    let portrait = makeFormatDescription(width: 240, height: 320)
+    var ms: Int64 = 0
+    func feed(_ count: Int, _ fmt: CMFormatDescription) {
+      for i in 0..<count {
+        writer.appendVideoSample(
+          makeSampleBuffer(
+            pts: CMTime(value: ms, timescale: 1000), isKeyframe: i == 0,
+            formatDescription: fmt))
+        ms += 33
+      }
+    }
+
+    // One complete landscape fragment in the ring buffer, plus pending samples.
+    feed(120, landscape)
+    feed(120, landscape)
+    #expect(emitted.count == 1)
+    #expect(writer.ringBuffer.snapshot().count == 1)
+
+    // Rotation: the first portrait keyframe must not flush landscape samples
+    // into a fragment, and landscape fragments must not be prebuffered under
+    // the portrait init segment.
+    feed(120, portrait)
+    #expect(emitted.count == 1)
+    #expect(writer.ringBuffer.snapshot().isEmpty)
+
+    // The next portrait fragment keeps the sequence numbering going.
+    feed(1, portrait)
+    #expect(emitted.count == 2)
+    #expect(emitted.last?.sequenceNumber == 1)
+    #expect(writer.ringBuffer.snapshot().count == 1)
+  }
+
   @Test("ftyp contains mp42 major brand")
   func ftypBrand() {
     let writer = FragmentedMP4Writer()
