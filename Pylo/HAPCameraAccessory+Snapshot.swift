@@ -99,16 +99,7 @@ extension HAPCameraAccessory {
     // Rotate to match current device orientation
     let rotation = currentRotation()
     if let connection = videoOutput.connection(with: .video) {
-      if #available(iOS 17.0, macOS 14.0, *) {
-        if connection.isVideoRotationAngleSupported(CGFloat(rotation.angle)) {
-          connection.videoRotationAngle = CGFloat(rotation.angle)
-        }
-      } else {
-        let orientation = videoOrientation(from: rotation.angle)
-        if connection.isVideoOrientationSupported {
-          connection.videoOrientation = orientation
-        }
-      }
+      applyVideoRotation(rotation.angle, to: connection)
     }
 
     // Skip early frames so auto-exposure has time to converge; the very

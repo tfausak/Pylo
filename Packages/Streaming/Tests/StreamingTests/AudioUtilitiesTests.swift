@@ -238,6 +238,29 @@ import Testing
     #expect(videoOrientation(from: 270) == .portraitUpsideDown)
   }
 
+  // MARK: - videoRotationAngle
+
+  @Test func backCameraRotationAngleIsUnchanged() {
+    for angle in [0, 90, 180, 270] {
+      #expect(videoRotationAngle(from: angle, position: .back) == angle)
+    }
+  }
+
+  @Test func frontCameraFlipsLandscapeAngles() {
+    // The front sensor is mounted opposite the back one, so landscape needs
+    // the other 180° rotation (#77). Portrait is the same for both.
+    #expect(videoRotationAngle(from: 0, position: .front) == 180)
+    #expect(videoRotationAngle(from: 180, position: .front) == 0)
+    #expect(videoRotationAngle(from: 90, position: .front) == 90)
+    #expect(videoRotationAngle(from: 270, position: .front) == 270)
+  }
+
+  @Test func unspecifiedPositionRotationAngleIsUnchanged() {
+    for angle in [0, 90, 180, 270] {
+      #expect(videoRotationAngle(from: angle, position: .unspecified) == angle)
+    }
+  }
+
   @Test func videoOrientationDefaultsToPortrait() {
     #expect(videoOrientation(from: 45) == .portrait)
     #expect(videoOrientation(from: -1) == .portrait)
