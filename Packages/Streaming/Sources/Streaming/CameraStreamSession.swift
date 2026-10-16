@@ -690,16 +690,7 @@ public nonisolated final class CameraStreamSession: @unchecked Sendable {
 
     // Rotate output to match device orientation.
     if let connection = output.connection(with: .video) {
-      if #available(iOS 17.0, macOS 14.0, *) {
-        if connection.isVideoRotationAngleSupported(CGFloat(rotationAngle)) {
-          connection.videoRotationAngle = CGFloat(rotationAngle)
-        }
-      } else {
-        let orientation = videoOrientation(from: rotationAngle)
-        if connection.isVideoOrientationSupported {
-          connection.videoOrientation = orientation
-        }
-      }
+      applyVideoRotation(rotationAngle, to: connection)
     }
 
     self.captureSession = session
