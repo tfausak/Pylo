@@ -875,6 +875,9 @@ final class HAPViewModel: ObservableObject {
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: PrefKey.firstPairingDate)
       }
       self.hasPairings = paired
+      // The identity may have been rotated in createServerSetup.
+      self.setupCode = PairSetupHandler.setupCode
+      self.setupID = PairSetupHandler.setupID
       withAnimation { self.isRunning = true }
       self.isStarting = false
       self.statusMessage =
@@ -1025,14 +1028,20 @@ final class HAPViewModel: ObservableObject {
 
   @MainActor
   func resetPairings() {
+    let wasRunning = server != nil || isStarting
     if let server {
       server.pairingStore.removeAll()
-      server.updateAdvertisement()
     } else {
       PairingStore().removeAll()
     }
     UserDefaults.standard.set(false, forKey: PrefKey.hasPairings)
     withAnimation { hasPairings = false }
+    // Restart so the server comes back with a new identity
+    // (see DeviceIdentity.rotateIfNeeded).
+    if wasRunning {
+      stop()
+      start()
+    }
   }
 
   func pressButton() {
@@ -1191,7 +1200,8 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
   // PairSetupHandler.keyStore is already set by PyloApp._ensureKeyStore on the
   // main thread before the server starts — no need to re-assign here.
   let pairingStore = PairingStore()
-  let identity = DeviceIdentity(keyStore: PairSetupHandler.keyStore)
+  let identity = DeviceIdentity.load(
+    keyStore: PairSetupHandler.keyStore, isPaired: pairingStore.isPaired)
 
   // Build enabled accessories list
   var enabledAccessories: [any HAPAccessoryProtocol] = []

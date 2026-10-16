@@ -194,8 +194,7 @@ public enum PairSetupHandler {
       {
         id = stored
       } else {
-        let chars = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ")
-        id = String((0..<4).map { _ in chars[Int.random(in: chars.indices)] })
+        id = generateSetupID()
         if !ks.save(key: "setup-id", data: Data(id.utf8)) {
           logger.error("Failed to persist setup ID — will regenerate on next launch")
         }
@@ -203,6 +202,31 @@ public enum PairSetupHandler {
       cached = id
       return id
     }
+  }
+
+  private static func generateSetupID() -> String {
+    let chars = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+    return String((0..<4).map { _ in chars[Int.random(in: chars.indices)] })
+  }
+
+  /// Replaces the persisted setup code and setup ID with new random values.
+  /// Called by `DeviceIdentity.rotateIfNeeded` when the identity is rotated.
+  /// Returns false if either value failed to persist.
+  static func resetSetupCredentials(keyStore ks: KeyStore) -> Bool {
+    let code = generateSetupCode()
+    let id = generateSetupID()
+    var persisted = true
+    if !ks.save(key: "setup-code", data: Data(code.utf8)) {
+      logger.error("Failed to persist setup code — will regenerate on next launch")
+      persisted = false
+    }
+    if !ks.save(key: "setup-id", data: Data(id.utf8)) {
+      logger.error("Failed to persist setup ID — will regenerate on next launch")
+      persisted = false
+    }
+    _setupCode.withLock { $0 = nil }
+    _setupID.withLock { $0 = nil }
+    return persisted
   }
 
   /// Compute the Setup Hash (sh) for the Bonjour TXT record.
@@ -498,6 +522,7 @@ public enum PairSetupHandler {
       }
 
       logger.info("Pairing stored for controller: \(iosID)")
+      DeviceIdentity.markPaired(keyStore: keyStore)
       throttle.reset()
 
       // Clean up
