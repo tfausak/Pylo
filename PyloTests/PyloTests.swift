@@ -605,6 +605,21 @@ struct VideoMotionDetectorThreadSafetyTests {
     let camera = HAPCameraAccessory(aid: 3)
     #expect(camera.cachedFrame == nil)
   }
+
+  @Test("cachedFrame(maxAge:) returns only frames younger than maxAge")
+  func cachedFrameMaxAge() {
+    let camera = HAPCameraAccessory(aid: 3)
+    #expect(camera.cachedFrame(maxAge: 60) == nil)
+    let ctx = CGContext(
+      data: nil, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+      space: CGColorSpace(name: CGColorSpace.sRGB)!,
+      bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue)!
+    camera.cachedFrame = ctx.makeImage()!
+    #expect(camera.cachedFrame(maxAge: 60) != nil)
+    #expect(camera.cachedFrame(maxAge: 0) == nil)
+    // The stale frame is still available as a fallback.
+    #expect(camera.cachedFrame != nil)
+  }
 }
 
 // MARK: - Camera Write Characteristic Tests

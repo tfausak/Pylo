@@ -644,6 +644,23 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
         self.logger.info("Capture interruption ended — resuming session")
         session.startRunning()
       })
+    // A media services reset stops the session without an interruption
+    // notification, which would otherwise leave monitoring (and the snapshot
+    // cache) dead until the next stream. Other runtime errors are only logged
+    // to avoid a restart loop on a persistent failure.
+    interruptionObservers.append(
+      nc.addObserver(
+        forName: .AVCaptureSessionRuntimeError, object: session, queue: queue
+      ) { [weak self] notification in
+        guard let self else { return }
+        let error = notification.userInfo?[AVCaptureSessionErrorKey] as? AVError
+        self.logger.error("Capture session runtime error: \(String(describing: error))")
+        #if os(iOS)
+          guard error?.code == .mediaServicesWereReset, !session.isRunning else { return }
+          self.logger.info("Media services were reset — restarting session")
+          session.startRunning()
+        #endif
+      })
     observeOrientationChanges(session)
   }
 
