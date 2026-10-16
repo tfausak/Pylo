@@ -165,6 +165,17 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
     }
   }
 
+  /// Whether a sample with format `new` requires (re)building the init segment.
+  private static func needsInitSegment(
+    current: CMFormatDescription?, new: CMFormatDescription?
+  ) -> Bool {
+    guard let new else { return false }
+    guard let current else { return true }
+    let a = CMVideoFormatDescriptionGetDimensions(current)
+    let b = CMVideoFormatDescriptionGetDimensions(new)
+    return a.width != b.width || a.height != b.height
+  }
+
   public func configure(fps: Int) {
     _writerState.withLock { $0.fps = fps }
   }
@@ -214,8 +225,13 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
     // Build the init segment outside the lock (it's heavy) if we don't have one yet.
     // Read the needed state in one lock acquisition, build outside, then store only if
     // includeAudioTrack hasn't changed — otherwise discard and let the next sample rebuild.
+    // Also rebuild when the dimensions change, e.g. the capture session rotated
+    // between portrait and landscape and the encoder was recreated.
     let (needsBuild, includeAudio) = _writerState.withLock { state in
-      (state.videoFormatDescription == nil && fmt != nil, state.includeAudioTrack)
+      (
+        Self.needsInitSegment(current: state.videoFormatDescription, new: fmt),
+        state.includeAudioTrack
+      )
     }
     if needsBuild, let fmt {
       guard let initSeg = buildInitSegment(videoFormat: fmt, includeAudio: includeAudio) else {
@@ -224,7 +240,7 @@ public final class FragmentedMP4Writer: @unchecked Sendable {
         return
       }
       _writerState.withLock { state in
-        guard state.videoFormatDescription == nil,
+        guard Self.needsInitSegment(current: state.videoFormatDescription, new: fmt),
           state.includeAudioTrack == includeAudio
         else { return }
         state.videoFormatDescription = fmt
