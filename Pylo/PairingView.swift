@@ -1,7 +1,9 @@
 import SwiftUI
 
 struct PairingView: View {
-  var viewModel: HAPViewModel
+  /// Nil while the server is starting, since starting may rotate the credentials.
+  var setupCode: String?
+  var setupID: String
   @State private var qrImage: PlatformImage?
 
   var body: some View {
@@ -22,9 +24,10 @@ struct PairingView: View {
           .accessibilityLabel("Loading QR code")
       }
 
-      Text(viewModel.setupCode)
+      Text(setupCode ?? "000-00-000")
         .font(.system(.largeTitle, design: .monospaced))
         .fontWeight(.bold)
+        .redacted(reason: setupCode == nil ? .placeholder : [])
 
       Text("Scan with the Home app\nor enter the code manually")
         .font(.caption)
@@ -34,9 +37,10 @@ struct PairingView: View {
       Spacer()
     }
     .padding()
-    .task(id: viewModel.setupCode) {
-      let code = viewModel.setupCode
-      let sid = viewModel.setupID
+    .task(id: [setupCode, setupID]) {
+      qrImage = nil
+      guard let code = setupCode else { return }
+      let sid = setupID
       let cgImage = await Task.detached {
         generateQRCodeCG(from: hapSetupURI(setupCode: code, setupID: sid))
       }.value
@@ -47,5 +51,6 @@ struct PairingView: View {
 }
 
 #Preview("Pairing") {
-  PairingView(viewModel: .preview(running: true))
+  let vm = HAPViewModel.preview(running: true)
+  PairingView(setupCode: vm.setupCode, setupID: vm.setupID)
 }

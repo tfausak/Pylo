@@ -211,17 +211,22 @@ public enum PairSetupHandler {
 
   /// Replaces the persisted setup code and setup ID with new random values.
   /// Called by `DeviceIdentity.rotateIfNeeded` when the identity is rotated.
-  static func resetSetupCredentials(keyStore ks: KeyStore) {
+  /// Returns false if either value failed to persist.
+  static func resetSetupCredentials(keyStore ks: KeyStore) -> Bool {
     let code = generateSetupCode()
     let id = generateSetupID()
+    var persisted = true
     if !ks.save(key: "setup-code", data: Data(code.utf8)) {
       logger.error("Failed to persist setup code — will regenerate on next launch")
+      persisted = false
     }
     if !ks.save(key: "setup-id", data: Data(id.utf8)) {
       logger.error("Failed to persist setup ID — will regenerate on next launch")
+      persisted = false
     }
     _setupCode.withLock { $0 = nil }
     _setupID.withLock { $0 = nil }
+    return persisted
   }
 
   /// Compute the Setup Hash (sh) for the Bonjour TXT record.

@@ -2174,10 +2174,11 @@ struct HDSRawDataSendEventTests {
 private final class InMemoryKeyStore: KeyStore, @unchecked Sendable {
   private var store: [String: Data] = [:]
   var failOnSave = false
+  var failingKeys: Set<String> = []
 
   @discardableResult
   func save(key: String, data: Data) -> Bool {
-    if failOnSave { return false }
+    if failOnSave || failingKeys.contains(key) { return false }
     store[key] = data
     return true
   }
@@ -2268,6 +2269,34 @@ struct DeviceIdentityTests {
     #expect(!DeviceIdentity.rotateIfNeeded(keyStore: ks, isPaired: true))
     #expect(DeviceIdentity.rotateIfNeeded(keyStore: ks, isPaired: false))
     #expect(DeviceIdentity(keyStore: ks).deviceID != first.deviceID)
+  }
+
+  @Test("rotateIfNeeded retries when persisting the new identity fails")
+  func rotateRetriesAfterSaveFailure() {
+    let ks = InMemoryKeyStore()
+    let old = DeviceIdentity(keyStore: ks)
+
+    ks.failingKeys = ["device-id"]
+    #expect(!DeviceIdentity.rotateIfNeeded(keyStore: ks, isPaired: false))
+    ks.failingKeys = []
+    #expect(DeviceIdentity(keyStore: ks).deviceID == old.deviceID)
+
+    #expect(DeviceIdentity.rotateIfNeeded(keyStore: ks, isPaired: false))
+    #expect(DeviceIdentity(keyStore: ks).deviceID != old.deviceID)
+  }
+
+  @Test("concurrent loads rotate once and agree on the identity")
+  func concurrentLoadsAgree() {
+    let ks = InMemoryKeyStore()
+    _ = DeviceIdentity(keyStore: ks)
+    let lock = NSLock()
+    nonisolated(unsafe) var ids = Set<String>()
+    DispatchQueue.concurrentPerform(iterations: 16) { _ in
+      let identity = DeviceIdentity.load(keyStore: ks, isPaired: false)
+      lock.withLock { _ = ids.insert(identity.deviceID) }
+    }
+    #expect(ids.count == 1)
+    #expect(DeviceIdentity(keyStore: ks).deviceID == ids.first)
   }
 
   @Test("publicKey matches signingKey")

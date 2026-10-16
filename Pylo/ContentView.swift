@@ -75,7 +75,9 @@ struct ContentView: View {
           pairedBody
         }
       } else {
-        PairingView(viewModel: viewModel)
+        PairingView(
+          setupCode: viewModel.isRunning ? viewModel.setupCode : nil,
+          setupID: viewModel.setupID)
       }
     }
     .navigationTitle(viewModel.isRunning || viewModel.isStarting ? "" : "Pylo")

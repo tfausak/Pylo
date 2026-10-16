@@ -1200,9 +1200,8 @@ private nonisolated func createServerSetup(config: StartConfig) throws -> Server
   // PairSetupHandler.keyStore is already set by PyloApp._ensureKeyStore on the
   // main thread before the server starts — no need to re-assign here.
   let pairingStore = PairingStore()
-  DeviceIdentity.rotateIfNeeded(
+  let identity = DeviceIdentity.load(
     keyStore: PairSetupHandler.keyStore, isPaired: pairingStore.isPaired)
-  let identity = DeviceIdentity(keyStore: PairSetupHandler.keyStore)
 
   // Build enabled accessories list
   var enabledAccessories: [any HAPAccessoryProtocol] = []
