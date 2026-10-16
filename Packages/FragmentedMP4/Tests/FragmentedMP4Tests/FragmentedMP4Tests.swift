@@ -16,7 +16,9 @@ private let testPPS = Data([0x68, 0xCE, 0x38, 0x80])
 /// Create a CMFormatDescription with an embedded avcC containing test SPS/PPS.
 /// Uses CMVideoFormatDescriptionCreate with an avcC extension atom rather than
 /// CMVideoFormatDescriptionCreateFromH264ParameterSets, which rejects minimal SPS.
-private func makeFormatDescription() -> CMFormatDescription {
+private func makeFormatDescription(width: Int32 = 320, height: Int32 = 240)
+  -> CMFormatDescription
+{
   // Build the avcC box payload (ISO 14496-15)
   var avcC = Data()
   avcC.append(0x01)  // configurationVersion
@@ -41,8 +43,8 @@ private func makeFormatDescription() -> CMFormatDescription {
   let status = CMVideoFormatDescriptionCreate(
     allocator: kCFAllocatorDefault,
     codecType: kCMVideoCodecType_H264,
-    width: 320,
-    height: 240,
+    width: width,
+    height: height,
     extensions: extensions as CFDictionary,
     formatDescriptionOut: &fmt
   )
@@ -435,6 +437,67 @@ struct InitSegmentStructureTests {
     #expect(boxes.count == 2, "Init segment should have exactly 2 top-level boxes")
     #expect(boxes[0].type == "ftyp")
     #expect(boxes[1].type == "moov")
+  }
+
+  @Test("Init segment is rebuilt when video dimensions change")
+  func initSegmentRebuiltOnDimensionChange() {
+    let writer = FragmentedMP4Writer()
+    writer.configure(fps: 30)
+    writer.appendVideoSample(
+      makeSampleBuffer(
+        pts: CMTime(value: 0, timescale: 1000), isKeyframe: true,
+        formatDescription: makeFormatDescription(width: 320, height: 240)))
+    let landscape = writer.initSegment
+
+    // Device rotated to portrait: the encoder now emits swapped dimensions.
+    writer.appendVideoSample(
+      makeSampleBuffer(
+        pts: CMTime(value: 33, timescale: 1000), isKeyframe: true,
+        formatDescription: makeFormatDescription(width: 240, height: 320)))
+    let portrait = writer.initSegment
+
+    #expect(landscape != nil)
+    #expect(portrait != nil)
+    #expect(landscape != portrait)
+  }
+
+  @Test("Dimension change discards buffered video from the old format")
+  func dimensionChangeDiscardsOldFormatVideo() {
+    let writer = FragmentedMP4Writer()
+    writer.configure(fps: 30)
+    nonisolated(unsafe) var emitted: [MP4Fragment] = []
+    writer.onFragmentReady = { emitted.append($0) }
+    let landscape = makeFormatDescription(width: 320, height: 240)
+    let portrait = makeFormatDescription(width: 240, height: 320)
+    var ms: Int64 = 0
+    func feed(_ count: Int, _ fmt: CMFormatDescription) {
+      for i in 0..<count {
+        writer.appendVideoSample(
+          makeSampleBuffer(
+            pts: CMTime(value: ms, timescale: 1000), isKeyframe: i == 0,
+            formatDescription: fmt))
+        ms += 33
+      }
+    }
+
+    // One complete landscape fragment in the ring buffer, plus pending samples.
+    feed(120, landscape)
+    feed(120, landscape)
+    #expect(emitted.count == 1)
+    #expect(writer.ringBuffer.snapshot().count == 1)
+
+    // Rotation: the first portrait keyframe must not flush landscape samples
+    // into a fragment, and landscape fragments must not be prebuffered under
+    // the portrait init segment.
+    feed(120, portrait)
+    #expect(emitted.count == 1)
+    #expect(writer.ringBuffer.snapshot().isEmpty)
+
+    // The next portrait fragment keeps the sequence numbering going.
+    feed(1, portrait)
+    #expect(emitted.count == 2)
+    #expect(emitted.last?.sequenceNumber == 1)
+    #expect(writer.ringBuffer.snapshot().count == 1)
   }
 
   @Test("ftyp contains mp42 major brand")

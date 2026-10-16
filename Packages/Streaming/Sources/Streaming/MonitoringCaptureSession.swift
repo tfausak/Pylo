@@ -123,6 +123,18 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   /// reading the Locked recordingFps property on every frame.
   private var keyframeInterval: Int = 120
 
+  /// Encoder configuration captured at start() — captureQueue only. Used to
+  /// rebuild the compression session when the device rotates mid-capture and
+  /// the pixel buffer dimensions change (e.g. landscape → portrait).
+  private var encoderWidth: Int = 0
+  private var encoderHeight: Int = 0
+  private var encoderFps: Int = 30
+  private var encoderBitrate: Int = 2000
+
+  /// Rotation angle currently applied to the video connection.
+  /// Read/written on sessionQueue after start() completes.
+  private let appliedRotationAngle = Locked(initialState: 0)
+
   /// Frame counter for throttling motion/lux/snapshot detection — captureQueue only.
   /// Motion fires every 15 frames (~2fps at 30fps); lux, occupancy, and snapshot
   /// intervals scale with fps so the wall-clock cadence stays consistent between
@@ -400,17 +412,9 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
     // Rotate output to match device orientation.
     let rotationAngle = Self.currentRotationAngle()
     if let connection = output.connection(with: .video) {
-      if #available(iOS 17.0, macOS 14.0, *) {
-        if connection.isVideoRotationAngleSupported(CGFloat(rotationAngle)) {
-          connection.videoRotationAngle = CGFloat(rotationAngle)
-        }
-      } else {
-        let orientation = videoOrientation(from: rotationAngle)
-        if connection.isVideoOrientationSupported {
-          connection.videoOrientation = orientation
-        }
-      }
+      Self.applyRotation(rotationAngle, to: connection)
     }
+    appliedRotationAngle.value = rotationAngle
 
     // In sensor-only mode, skip H.264 encoding entirely — just deliver raw frames
     // to sensor callbacks. This significantly reduces CPU/battery usage.
@@ -458,6 +462,15 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       Unmanaged<RefconBox>.fromOpaque(refcon).release()
       mState.withLockUnchecked { $0.captureSession = nil }
       return
+    }
+
+    // Record the encoder config before publishing the compression session so
+    // a frame from a reused (already running) session can't see stale values.
+    captureQueue.sync { [self] in
+      encoderWidth = encWidth
+      encoderHeight = encHeight
+      encoderFps = fps
+      encoderBitrate = bitrate
     }
 
     // Commit state atomically. If stop() was called concurrently, bail.
@@ -631,6 +644,39 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
         self.logger.info("Capture interruption ended — resuming session")
         session.startRunning()
       })
+    observeOrientationChanges(session)
+  }
+
+  /// Re-apply the video rotation when the device orientation changes so that
+  /// recordings, snapshots, and sensors follow the device without waiting for
+  /// the session to restart. Runs on sessionQueue.
+  private func observeOrientationChanges(_ session: AVCaptureSession) {
+    #if os(iOS)
+      let queue = OperationQueue()
+      queue.underlyingQueue = sessionQueue
+      interruptionObservers.append(
+        NotificationCenter.default.addObserver(
+          forName: DeviceOrientationCache.didChangeNotification, object: nil, queue: queue
+        ) { [weak self, weak session] _ in
+          guard let self, let session, self.captureSession === session else { return }
+          let angle = Self.currentRotationAngle()
+          guard angle != self.appliedRotationAngle.value else { return }
+          guard
+            let connection = session.outputs
+              .compactMap({ $0 as? AVCaptureVideoDataOutput }).first?
+              .connection(with: .video)
+          else { return }
+          self.logger.info(
+            "Device orientation changed — rotating monitoring capture to \(angle)\u{00B0}")
+          session.beginConfiguration()
+          Self.applyRotation(angle, to: connection)
+          session.commitConfiguration()
+          self.appliedRotationAngle.value = angle
+          // The rotated frames would otherwise be compared against the
+          // previous orientation and register as motion.
+          self.videoMotionDetector?.resetBaseline()
+        })
+    #endif
   }
 
   private func removeInterruptionObservers() {
@@ -643,7 +689,22 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
   // MARK: - H.264 Encoding
 
   private func encodeFrame(_ pixelBuffer: CVPixelBuffer, pts: CMTime) {
-    guard let cs = compressionSession else { return }
+    guard var cs = compressionSession else { return }
+
+    // The device rotated between portrait and landscape while capturing, so
+    // the connection now delivers buffers with the other aspect. Swap the
+    // encoder dimensions to match. Compare orientation rather than exact size:
+    // the capture preset can be larger than the encoder (e.g. 720p capture
+    // for 480p recording) and VideoToolbox scales that down intentionally.
+    let bufferIsPortrait = CVPixelBufferGetHeight(pixelBuffer) > CVPixelBufferGetWidth(pixelBuffer)
+    let encoderIsPortrait = encoderHeight > encoderWidth
+    if bufferIsPortrait != encoderIsPortrait {
+      guard
+        let rebuilt = rebuildCompressionSession(
+          replacing: cs, width: encoderHeight, height: encoderWidth)
+      else { return }
+      cs = rebuilt
+    }
 
     encodeFrameCount += 1
     let frameCount = encodeFrameCount
@@ -666,6 +727,45 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
       sourceFrameRefcon: nil,
       infoFlagsOut: &flags
     )
+  }
+
+  /// Replace the compression session with one of the given dimensions. captureQueue only. Returns nil if the session was stopped or
+  /// handed off concurrently, or if the new encoder couldn't be created.
+  private func rebuildCompressionSession(
+    replacing old: VTCompressionSession, width: Int, height: Int
+  ) -> VTCompressionSession? {
+    logger.info(
+      "Rotation changed — rebuilding encoder: \(self.encoderWidth)x\(self.encoderHeight) → \(width)x\(height)"
+    )
+    let box = RefconBox(self)
+    let refcon = Unmanaged.passRetained(box).toOpaque()
+    guard
+      let cs = Self.createCompressionSession(
+        width: width, height: height, fps: encoderFps, bitrate: encoderBitrate, logger: logger,
+        refcon: refcon)
+    else {
+      Unmanaged<RefconBox>.fromOpaque(refcon).release()
+      return nil
+    }
+    let swapped: Bool = mState.withLockUnchecked { (state: inout State) -> Bool in
+      guard let current = state.compressionSession, current === old else { return false }
+      state.compressionSession = cs
+      state.refconBox = box
+      return true
+    }
+    guard swapped else {
+      VTCompressionSessionInvalidate(cs)
+      Unmanaged<RefconBox>.fromOpaque(refcon).release()
+      return nil
+    }
+    VTCompressionSessionCompleteFrames(old, untilPresentationTimeStamp: .positiveInfinity)
+    VTCompressionSessionInvalidate(old)
+    encoderWidth = width
+    encoderHeight = height
+    // Restart the keyframe cadence so the first frame from the new encoder is
+    // a keyframe (it carries the new SPS/PPS for the rebuilt init segment).
+    encodeFrameCount = 0
+    return cs
   }
 
   /// VTCompressionSession output callback — called by the encoder for each compressed frame.
@@ -831,6 +931,19 @@ public nonisolated final class MonitoringCaptureSession: @unchecked Sendable {
 
     VTCompressionSessionPrepareToEncodeFrames(cs)
     return cs
+  }
+
+  private static func applyRotation(_ angle: Int, to connection: AVCaptureConnection) {
+    if #available(iOS 17.0, macOS 14.0, *) {
+      if connection.isVideoRotationAngleSupported(CGFloat(angle)) {
+        connection.videoRotationAngle = CGFloat(angle)
+      }
+    } else {
+      let orientation = videoOrientation(from: angle)
+      if connection.isVideoOrientationSupported {
+        connection.videoOrientation = orientation
+      }
+    }
   }
 
   private static func currentRotationAngle() -> Int {
